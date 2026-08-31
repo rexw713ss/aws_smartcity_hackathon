@@ -1,0 +1,33 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Generated local databases and model artifacts
+*.duckdb
+*.sqlite
+*.sqlite3
+artifacts/models/*
+!artifacts/models/.gitkeep
+artifacts/reports/*
+!artifacts/reports/.gitkeep
+
+# Runtime data zones; source data remains tracked
+data/incoming/*
+!data/incoming/.gitkeep
+data/quarantined/*
+!data/quarantined/.gitkeep
+data/standardized/*
+!data/standardized/.gitkeep
+data/curated/*
+!data/curated/.gitkeep
+data/forecasts/*
+!data/forecasts/.gitkeep
+data/metadata/*
+!data/metadata/.gitkeep
