@@ -55,8 +55,10 @@ def test_mapping_proposal_round_trip() -> None:
                 population_scope=PopulationScope.YOUTH_SPECIFIC,
                 aggregation_method="sum",
                 confidence=0.9,
+                evidence="Header and values indicate a count of people",
             )
         ],
+        overall_confidence=0.93,
     )
 
     restored = MappingProposal.model_validate_json(proposal.model_dump_json())

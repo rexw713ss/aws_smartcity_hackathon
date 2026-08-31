@@ -98,9 +98,9 @@ The schema mapper returns structured output:
     {
       "sourceColumn": "stat_year",
       "targetField": "year_roc",
-      "transform": "parse_roc_year",
+      "transformation": "parse_year",
       "confidence": 0.99,
-      "evidence": "Values 112-115 and source context indicate ROC years"
+      "evidence": "Header stat_year matches the canonical alias registry"
     }
   ],
   "metrics": [
@@ -110,9 +110,11 @@ The schema mapper returns structured output:
       "unitCode": "persons",
       "populationScope": "youth_specific",
       "aggregationMethod": "sum",
-      "confidence": 0.90
+      "confidence": 0.95,
+      "evidence": "Header job_seekers matches the known metric registry"
     }
   ],
+  "overallConfidence": 0.98,
   "warnings": [],
   "requiresHumanApproval": true
 }

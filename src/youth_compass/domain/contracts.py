@@ -6,6 +6,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from youth_compass.domain.profiles import DatasetProfile
 from youth_compass.domain.types import PrimitiveType, WarningSeverity
 
 
@@ -73,6 +74,7 @@ class MetricMapping(BaseModel):
     population_scope: PopulationScope
     aggregation_method: str
     confidence: float = Field(ge=0.0, le=1.0)
+    evidence: str
 
 
 class MappingProposal(BaseModel):
@@ -81,8 +83,30 @@ class MappingProposal(BaseModel):
     grain: DatasetGrain
     columns: list[ColumnMapping] = Field(min_length=1)
     metrics: list[MetricMapping] = Field(default_factory=list)
+    overall_confidence: float = Field(ge=0.0, le=1.0)
     warnings: list[str] = Field(default_factory=list)
     requires_human_approval: bool = True
+
+
+class MappingValidationIssue(BaseModel):
+    code: str
+    message: str
+    severity: WarningSeverity
+    field: str | None = None
+    blocking: bool = False
+
+
+class MappingValidationReport(BaseModel):
+    valid: bool
+    overall_confidence: float = Field(ge=0.0, le=1.0)
+    requires_human_approval: bool
+    issues: list[MappingValidationIssue] = Field(default_factory=list)
+
+
+class MappingAnalysis(BaseModel):
+    profile: DatasetProfile
+    proposal: MappingProposal
+    validation: MappingValidationReport
 
 
 class QualityIssue(BaseModel):

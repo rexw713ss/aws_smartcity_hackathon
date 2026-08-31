@@ -24,85 +24,12 @@ from youth_compass.domain.types import (
     WarningSeverity,
 )
 from youth_compass.mapping.geography import normalize_district
+from youth_compass.mapping.registry import find_field_rule, header_has_metric_hint
 from youth_compass.mapping.time import parse_year
 
 _NULL_TOKENS = {"", "null", "none", "n/a", "na", "nan"}
 _BOOLEAN_TOKENS = {"true", "false", "yes", "no", "是", "否"}
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
-
-_ROLE_ALIASES: dict[SemanticRole, set[str]] = {
-    SemanticRole.YEAR: {
-        "年",
-        "年度",
-        "民國年",
-        "year",
-        "statyear",
-        "reportyear",
-    },
-    SemanticRole.MONTH: {"月", "月份", "month", "statmonth", "reportmonth"},
-    SemanticRole.DISTRICT_CODE: {
-        "區代碼",
-        "行政區代碼",
-        "districtcode",
-        "areacode",
-    },
-    SemanticRole.DISTRICT_NAME: {
-        "區",
-        "行政區",
-        "鄉鎮市區",
-        "district",
-        "districtname",
-        "area",
-        "areaname",
-    },
-    SemanticRole.AGE_LABEL: {
-        "年齡",
-        "年齡標籤",
-        "年齡組",
-        "age",
-        "agegroup",
-        "agelabel",
-    },
-    SemanticRole.AGE_LOWER: {"年齡下限", "agelower", "agemin", "minage"},
-    SemanticRole.AGE_UPPER: {"年齡上限", "ageupper", "agemax", "maxage"},
-    SemanticRole.GENDER: {"性別", "gender", "sex"},
-}
-
-_DIMENSION_ALIASES = {
-    "教育程度",
-    "畢肄業",
-    "婚姻狀況",
-    "是否同性婚",
-    "方向",
-    "對象地區",
-    "初設原因",
-    "事件",
-    "婚姻類型",
-    "主題",
-    "機關",
-    "資料集",
-    "education",
-    "maritalstatus",
-    "direction",
-    "event",
-    "topic",
-}
-
-_METRIC_HINTS = {
-    "人數",
-    "人口",
-    "所得",
-    "收入",
-    "薪資",
-    "戶數",
-    "單位數",
-    "count",
-    "value",
-    "population",
-    "income",
-    "salary",
-    "jobseekers",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,18 +130,11 @@ def _is_iso_date(value: str) -> bool:
     return True
 
 
-def _normalized_header(value: str) -> str:
-    return re.sub(r"[\s_\-()/\uff08\uff09]+", "", value.strip().casefold())
-
-
 def infer_semantic_role(name: str, inferred_type: PrimitiveType) -> tuple[SemanticRole, float]:
-    normalized = _normalized_header(name)
-    for role, aliases in _ROLE_ALIASES.items():
-        if normalized in aliases:
-            return role, 0.99
-    if normalized in {_normalized_header(value) for value in _DIMENSION_ALIASES}:
-        return SemanticRole.DIMENSION, 0.95
-    if any(hint in normalized for hint in _METRIC_HINTS):
+    rule = find_field_rule(name)
+    if rule is not None:
+        return rule.semantic_role, 0.99
+    if header_has_metric_hint(name):
         if inferred_type in {PrimitiveType.INTEGER, PrimitiveType.FLOAT}:
             return SemanticRole.METRIC, 0.90
         return SemanticRole.METRIC, 0.65

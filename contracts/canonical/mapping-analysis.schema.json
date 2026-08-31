@@ -1,0 +1,655 @@
+{
+  "$defs": {
+    "ColumnMapping": {
+      "properties": {
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "source_column": {
+          "title": "Source Column",
+          "type": "string"
+        },
+        "target_field": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target Field",
+          "type": "string"
+        },
+        "transformation": {
+          "title": "Transformation",
+          "type": "string"
+        },
+        "transformation_parameters": {
+          "additionalProperties": true,
+          "title": "Transformation Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_column",
+        "target_field",
+        "transformation",
+        "confidence",
+        "evidence"
+      ],
+      "title": "ColumnMapping",
+      "type": "object"
+    },
+    "ColumnProfile": {
+      "properties": {
+        "distinct_count": {
+          "minimum": 0,
+          "title": "Distinct Count",
+          "type": "integer"
+        },
+        "distinct_count_is_lower_bound": {
+          "default": false,
+          "title": "Distinct Count Is Lower Bound",
+          "type": "boolean"
+        },
+        "inferred_type": {
+          "$ref": "#/$defs/PrimitiveType"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "non_null_count": {
+          "minimum": 0,
+          "title": "Non Null Count",
+          "type": "integer"
+        },
+        "null_count": {
+          "minimum": 0,
+          "title": "Null Count",
+          "type": "integer"
+        },
+        "null_rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Null Rate",
+          "type": "number"
+        },
+        "numeric_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Max"
+        },
+        "numeric_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numeric Min"
+        },
+        "position": {
+          "minimum": 0,
+          "title": "Position",
+          "type": "integer"
+        },
+        "sample_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sample Values",
+          "type": "array"
+        },
+        "semantic_confidence": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Semantic Confidence",
+          "type": "number"
+        },
+        "semantic_role": {
+          "$ref": "#/$defs/SemanticRole",
+          "default": "unknown"
+        }
+      },
+      "required": [
+        "name",
+        "position",
+        "inferred_type",
+        "non_null_count",
+        "null_count",
+        "null_rate",
+        "distinct_count"
+      ],
+      "title": "ColumnProfile",
+      "type": "object"
+    },
+    "DatasetGrain": {
+      "properties": {
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dimensions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dimensions"
+      ],
+      "title": "DatasetGrain",
+      "type": "object"
+    },
+    "DatasetProfile": {
+      "properties": {
+        "candidate_grain": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Grain",
+          "type": "array"
+        },
+        "column_count": {
+          "minimum": 0,
+          "title": "Column Count",
+          "type": "integer"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnProfile"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "content_sha256": {
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "delimiter": {
+          "title": "Delimiter",
+          "type": "string"
+        },
+        "duplicate_check_is_partial": {
+          "default": false,
+          "title": "Duplicate Check Is Partial",
+          "type": "boolean"
+        },
+        "duplicate_row_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Duplicate Row Count",
+          "type": "integer"
+        },
+        "duplicate_rows_checked": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Duplicate Rows Checked",
+          "type": "integer"
+        },
+        "encoding": {
+          "title": "Encoding",
+          "type": "string"
+        },
+        "file_format": {
+          "$ref": "#/$defs/FileFormat"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_size_bytes": {
+          "minimum": 0,
+          "title": "File Size Bytes",
+          "type": "integer"
+        },
+        "geography_coverage": {
+          "$ref": "#/$defs/GeographyCoverage",
+          "default": {
+            "district_count": 0,
+            "recognized_district_count": 0,
+            "unknown_values": []
+          }
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "source_path": {
+          "format": "path",
+          "title": "Source Path",
+          "type": "string"
+        },
+        "time_coverage": {
+          "$ref": "#/$defs/TimeCoverage",
+          "default": {
+            "months": [],
+            "months_by_gregorian_year": {},
+            "source_year_system": null,
+            "year_gregorian_max": null,
+            "year_gregorian_min": null
+          }
+        },
+        "truncated_by_max_rows": {
+          "default": false,
+          "title": "Truncated By Max Rows",
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/ProfileWarning"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_path",
+        "file_name",
+        "file_format",
+        "encoding",
+        "delimiter",
+        "file_size_bytes",
+        "content_sha256",
+        "row_count",
+        "column_count",
+        "columns"
+      ],
+      "title": "DatasetProfile",
+      "type": "object"
+    },
+    "DatasetRole": {
+      "enum": [
+        "fact",
+        "context",
+        "dimension",
+        "unknown"
+      ],
+      "title": "DatasetRole",
+      "type": "string"
+    },
+    "FileFormat": {
+      "enum": [
+        "csv"
+      ],
+      "title": "FileFormat",
+      "type": "string"
+    },
+    "GeographyCoverage": {
+      "properties": {
+        "district_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "District Count",
+          "type": "integer"
+        },
+        "recognized_district_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Recognized District Count",
+          "type": "integer"
+        },
+        "unknown_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unknown Values",
+          "type": "array"
+        }
+      },
+      "title": "GeographyCoverage",
+      "type": "object"
+    },
+    "MappingProposal": {
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnMapping"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "dataset_role": {
+          "$ref": "#/$defs/DatasetRole"
+        },
+        "grain": {
+          "$ref": "#/$defs/DatasetGrain"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/MetricMapping"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "overall_confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Overall Confidence",
+          "type": "number"
+        },
+        "requires_human_approval": {
+          "default": true,
+          "title": "Requires Human Approval",
+          "type": "boolean"
+        },
+        "topic": {
+          "title": "Topic",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "topic",
+        "dataset_role",
+        "grain",
+        "columns",
+        "overall_confidence"
+      ],
+      "title": "MappingProposal",
+      "type": "object"
+    },
+    "MappingValidationIssue": {
+      "properties": {
+        "blocking": {
+          "default": false,
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/WarningSeverity"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "title": "MappingValidationIssue",
+      "type": "object"
+    },
+    "MappingValidationReport": {
+      "properties": {
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/MappingValidationIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "overall_confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Overall Confidence",
+          "type": "number"
+        },
+        "requires_human_approval": {
+          "title": "Requires Human Approval",
+          "type": "boolean"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid",
+        "overall_confidence",
+        "requires_human_approval"
+      ],
+      "title": "MappingValidationReport",
+      "type": "object"
+    },
+    "MetricMapping": {
+      "properties": {
+        "aggregation_method": {
+          "title": "Aggregation Method",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "metric_code": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Metric Code",
+          "type": "string"
+        },
+        "population_scope": {
+          "$ref": "#/$defs/PopulationScope"
+        },
+        "source_column": {
+          "title": "Source Column",
+          "type": "string"
+        },
+        "unit_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Code"
+        }
+      },
+      "required": [
+        "source_column",
+        "metric_code",
+        "population_scope",
+        "aggregation_method",
+        "confidence",
+        "evidence"
+      ],
+      "title": "MetricMapping",
+      "type": "object"
+    },
+    "PopulationScope": {
+      "enum": [
+        "youth_specific",
+        "district_context",
+        "general_population",
+        "unknown"
+      ],
+      "title": "PopulationScope",
+      "type": "string"
+    },
+    "PrimitiveType": {
+      "enum": [
+        "empty",
+        "boolean",
+        "integer",
+        "float",
+        "date",
+        "string"
+      ],
+      "title": "PrimitiveType",
+      "type": "string"
+    },
+    "ProfileWarning": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/WarningSeverity",
+          "default": "warning"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ProfileWarning",
+      "type": "object"
+    },
+    "SemanticRole": {
+      "enum": [
+        "year",
+        "month",
+        "district_code",
+        "district_name",
+        "age_label",
+        "age_lower",
+        "age_upper",
+        "gender",
+        "metric",
+        "dimension",
+        "unknown"
+      ],
+      "title": "SemanticRole",
+      "type": "string"
+    },
+    "TimeCoverage": {
+      "properties": {
+        "months": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Months",
+          "type": "array"
+        },
+        "months_by_gregorian_year": {
+          "additionalProperties": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "title": "Months By Gregorian Year",
+          "type": "object"
+        },
+        "source_year_system": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Year System"
+        },
+        "year_gregorian_max": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year Gregorian Max"
+        },
+        "year_gregorian_min": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year Gregorian Min"
+        }
+      },
+      "title": "TimeCoverage",
+      "type": "object"
+    },
+    "WarningSeverity": {
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ],
+      "title": "WarningSeverity",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "profile": {
+      "$ref": "#/$defs/DatasetProfile"
+    },
+    "proposal": {
+      "$ref": "#/$defs/MappingProposal"
+    },
+    "validation": {
+      "$ref": "#/$defs/MappingValidationReport"
+    }
+  },
+  "required": [
+    "profile",
+    "proposal",
+    "validation"
+  ],
+  "title": "MappingAnalysis",
+  "type": "object"
+}

@@ -5,7 +5,12 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from youth_compass.domain.contracts import DatasetMetadata, MappingProposal, QualityReport
+from youth_compass.domain.contracts import (
+    DatasetMetadata,
+    MappingAnalysis,
+    MappingProposal,
+    QualityReport,
+)
 from youth_compass.domain.profiles import DatasetProfile
 
 OUTPUT_DIR = Path("contracts/canonical")
@@ -13,6 +18,7 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "dataset-metadata.schema.json": DatasetMetadata,
     "dataset-profile.schema.json": DatasetProfile,
     "mapping-proposal.schema.json": MappingProposal,
+    "mapping-analysis.schema.json": MappingAnalysis,
     "quality-report.schema.json": QualityReport,
 }
 

@@ -80,6 +80,10 @@
           "title": "Confidence",
           "type": "number"
         },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
         "metric_code": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Metric Code",
@@ -110,7 +114,8 @@
         "metric_code",
         "population_scope",
         "aggregation_method",
-        "confidence"
+        "confidence",
+        "evidence"
       ],
       "title": "MetricMapping",
       "type": "object"
@@ -148,6 +153,12 @@
       "title": "Metrics",
       "type": "array"
     },
+    "overall_confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Overall Confidence",
+      "type": "number"
+    },
     "requires_human_approval": {
       "default": true,
       "title": "Requires Human Approval",
@@ -169,7 +180,8 @@
     "topic",
     "dataset_role",
     "grain",
-    "columns"
+    "columns",
+    "overall_confidence"
   ],
   "title": "MappingProposal",
   "type": "object"

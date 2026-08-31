@@ -51,6 +51,36 @@ The profiler:
 - warns about partial latest years and malformed rows;
 - emits a Pydantic-validated JSON contract.
 
+## Propose and validate a mapping
+
+Run the offline deterministic mapper:
+
+```bash
+uv run youth-compass map \
+  tests/fixtures/employment_unfamiliar.csv \
+  --output /tmp/employment-mapping.json
+```
+
+For quick iteration on a large file:
+
+```bash
+uv run youth-compass map \
+  data/source/01_人口/_全部年度_全區.csv \
+  --max-rows 10000 \
+  --output /tmp/population-mapping.json
+```
+
+Use `--topic <topic>` only when an operator intentionally overrides topic inference.
+
+The output is one `MappingAnalysis` object containing:
+
+- the source profile;
+- a proposed topic, dataset role, grain, canonical column mappings, metrics, confidence, evidence, and warnings;
+- deterministic validation issues with blocking status;
+- a mandatory human-approval flag for the MVP.
+
+The mapper uses exact normalized aliases and an allowlisted transformation registry. It does not execute model-generated code. Unknown units, missing required time/geography/metric dimensions, incompatible types, and unknown transformations block publication. Empty optional columns do not fail type validation because no value will be transformed.
+
 ## Run the API
 
 ```bash
@@ -96,14 +126,15 @@ Implemented:
 - canonical profile, mapping, metadata, and quality contracts;
 - deterministic ROC year, district, gender, and age transformations;
 - streaming generic CSV profiler;
-- CLI profile command;
+- deterministic mapping proposal and validation engine;
+- shared canonical field and transformation registries;
+- CLI `profile` and `map` commands;
 - minimal FastAPI health endpoint;
 - generated canonical JSON Schemas;
 - unit and integration test suite.
 
 Not implemented yet:
 
-- mapping proposal engine;
 - transformation pipeline and curated Parquet publication;
 - approval workflow;
 - DuckDB catalog/query adapter;
