@@ -31,6 +31,7 @@ The system has three core capabilities:
 | [08-quality-security-observability.md](./08-quality-security-observability.md) | Data quality, security, auditability, logging, tracing, and operational requirements |
 | [09-implementation-plan.md](./09-implementation-plan.md) | Proposed phases, milestones, deliverables, dependencies, and acceptance criteria for approval |
 | [10-demo-and-evaluation.md](./10-demo-and-evaluation.md) | Demo script, held-out test data, success metrics, and judging evidence |
+| [11-development-guide.md](./11-development-guide.md) | Python 3.12/uv setup, CLI, API, quality commands, and current implementation status |
 
 ## Architecture decisions at a glance
 

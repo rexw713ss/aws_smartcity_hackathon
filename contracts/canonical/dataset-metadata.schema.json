@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "DatasetGrain": {
+      "properties": {
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dimensions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dimensions"
+      ],
+      "title": "DatasetGrain",
+      "type": "object"
+    },
+    "DatasetRole": {
+      "enum": [
+        "fact",
+        "context",
+        "dimension",
+        "unknown"
+      ],
+      "title": "DatasetRole",
+      "type": "string"
+    },
+    "DatasetStatus": {
+      "enum": [
+        "received",
+        "quarantined",
+        "awaiting_approval",
+        "published",
+        "rejected"
+      ],
+      "title": "DatasetStatus",
+      "type": "string"
+    },
+    "PopulationScope": {
+      "enum": [
+        "youth_specific",
+        "district_context",
+        "general_population",
+        "unknown"
+      ],
+      "title": "PopulationScope",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "approved_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved By"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_role": {
+      "$ref": "#/$defs/DatasetRole"
+    },
+    "grain": {
+      "$ref": "#/$defs/DatasetGrain"
+    },
+    "mapping_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mapping Version"
+    },
+    "population_scope": {
+      "$ref": "#/$defs/PopulationScope"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published At"
+    },
+    "quality_score": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Quality Score",
+      "type": "number"
+    },
+    "source_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "source_uri": {
+      "title": "Source Uri",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/DatasetStatus"
+    },
+    "topic": {
+      "title": "Topic",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "version",
+    "source_uri",
+    "source_sha256",
+    "topic",
+    "dataset_role",
+    "grain",
+    "population_scope",
+    "status",
+    "quality_score"
+  ],
+  "title": "DatasetMetadata",
+  "type": "object"
+}

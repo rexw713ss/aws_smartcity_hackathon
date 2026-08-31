@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "ColumnMapping": {
+      "properties": {
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "source_column": {
+          "title": "Source Column",
+          "type": "string"
+        },
+        "target_field": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target Field",
+          "type": "string"
+        },
+        "transformation": {
+          "title": "Transformation",
+          "type": "string"
+        },
+        "transformation_parameters": {
+          "additionalProperties": true,
+          "title": "Transformation Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_column",
+        "target_field",
+        "transformation",
+        "confidence",
+        "evidence"
+      ],
+      "title": "ColumnMapping",
+      "type": "object"
+    },
+    "DatasetGrain": {
+      "properties": {
+        "dimensions": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dimensions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dimensions"
+      ],
+      "title": "DatasetGrain",
+      "type": "object"
+    },
+    "DatasetRole": {
+      "enum": [
+        "fact",
+        "context",
+        "dimension",
+        "unknown"
+      ],
+      "title": "DatasetRole",
+      "type": "string"
+    },
+    "MetricMapping": {
+      "properties": {
+        "aggregation_method": {
+          "title": "Aggregation Method",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "metric_code": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Metric Code",
+          "type": "string"
+        },
+        "population_scope": {
+          "$ref": "#/$defs/PopulationScope"
+        },
+        "source_column": {
+          "title": "Source Column",
+          "type": "string"
+        },
+        "unit_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Code"
+        }
+      },
+      "required": [
+        "source_column",
+        "metric_code",
+        "population_scope",
+        "aggregation_method",
+        "confidence"
+      ],
+      "title": "MetricMapping",
+      "type": "object"
+    },
+    "PopulationScope": {
+      "enum": [
+        "youth_specific",
+        "district_context",
+        "general_population",
+        "unknown"
+      ],
+      "title": "PopulationScope",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "columns": {
+      "items": {
+        "$ref": "#/$defs/ColumnMapping"
+      },
+      "minItems": 1,
+      "title": "Columns",
+      "type": "array"
+    },
+    "dataset_role": {
+      "$ref": "#/$defs/DatasetRole"
+    },
+    "grain": {
+      "$ref": "#/$defs/DatasetGrain"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/MetricMapping"
+      },
+      "title": "Metrics",
+      "type": "array"
+    },
+    "requires_human_approval": {
+      "default": true,
+      "title": "Requires Human Approval",
+      "type": "boolean"
+    },
+    "topic": {
+      "title": "Topic",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "topic",
+    "dataset_role",
+    "grain",
+    "columns"
+  ],
+  "title": "MappingProposal",
+  "type": "object"
+}

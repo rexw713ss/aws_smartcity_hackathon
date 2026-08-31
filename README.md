@@ -26,3 +26,17 @@
 df[df.青年關係 == '完全落入'].人數.sum()                    # 保守
 (df[df.青年關係 != '不相關'].人數 * df.青年權重).sum()      # 含加權推估
 ```
+
+## Offline backend quick start
+
+The backend uses Python 3.12 and `uv`:
+
+```bash
+uv sync --python 3.12 --all-groups
+uv run youth-compass profile \
+  data/source/01_人口/_全部年度_全區.csv \
+  --output /tmp/population-profile.json
+uv run pytest
+```
+
+See [`docs/11-development-guide.md`](./docs/11-development-guide.md) for all development commands.

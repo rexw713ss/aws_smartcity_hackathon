@@ -1,0 +1,7 @@
+environment: local
+data_root: data
+profile:
+  sample_value_limit: 5
+  distinct_value_cap: 10000
+  duplicate_check_limit: 100000
+
