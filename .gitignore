@@ -33,3 +33,5 @@ data/forecasts/*
 !data/forecasts/.gitkeep
 data/metadata/*
 !data/metadata/.gitkeep
+
+node_modules/

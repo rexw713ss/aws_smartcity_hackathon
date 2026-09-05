@@ -32,6 +32,7 @@ The system has three core capabilities:
 | [09-implementation-plan.md](./09-implementation-plan.md) | Proposed phases, milestones, deliverables, dependencies, and acceptance criteria for approval |
 | [10-demo-and-evaluation.md](./10-demo-and-evaluation.md) | Demo script, held-out test data, success metrics, and judging evidence |
 | [11-development-guide.md](./11-development-guide.md) | Python 3.12/uv setup, CLI, API, quality commands, and current implementation status |
+| [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 
 ## Architecture decisions at a glance
 
