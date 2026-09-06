@@ -22,6 +22,7 @@ import aws_cdk as cdk  # noqa: E402
 
 from infra.environments import resolve_environment, resolve_region  # noqa: E402
 from infra.stacks.budget import BudgetStack, resolve_budget_email  # noqa: E402
+from infra.stacks.data import DataStack  # noqa: E402
 
 
 def build_app() -> cdk.App:
@@ -41,6 +42,14 @@ def build_app() -> cdk.App:
         notification_email=email,
         env=cdk_env,
     )
+
+    DataStack(
+        app,
+        f"{env_config.stack_prefix}-Data",
+        env_config=env_config,
+        env=cdk_env,
+    )
+
     return app
 
 

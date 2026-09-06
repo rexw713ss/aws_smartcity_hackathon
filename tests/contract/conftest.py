@@ -18,8 +18,17 @@ from collections.abc import Iterator
 
 import pytest
 
-# Importing this package populates every registry via its reference adapters.
-import tests.contract.reference  # noqa: F401
+# Importing these packages populates the registries via their adapter factories.
+import tests.contract.reference
+
+try:
+    import tests.contract.aws
+    import tests.contract.aws.athena_query
+    import tests.contract.aws.eventbridge_bus
+    import tests.contract.aws.glue_catalog
+    import tests.contract.aws.s3_store  # noqa: F401
+except ImportError:
+    pass  # AWS adapters not yet present; reference adapters suffice
 from tests.contract.registry import (
     CATALOG_FACTORIES,
     CHECKPOINT_STORE_FACTORIES,
