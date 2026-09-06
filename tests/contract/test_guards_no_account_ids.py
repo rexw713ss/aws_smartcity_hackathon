@@ -51,6 +51,11 @@ def test_secret_scan_over_tracked_files() -> None:
         path = ROOT / rel
         if not path.is_file() or path.suffix in {".png", ".jpg", ".gif", ".webp"}:
             continue
+        # Test files legitimately contain AWS's documentation example key
+        # (AKIAIOSFODNN7EXAMPLE) to exercise the redaction helper; real secrets
+        # never live under tests/, so exclude it as the account-id scan does.
+        if rel.startswith("tests/"):
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
