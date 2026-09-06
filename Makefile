@@ -1,0 +1,47 @@
+# New Taipei Youth Compass — AWS workstream targets.
+# Run `make help` for the full list. Targets marked (creds) need AWS credentials.
+
+ENV ?= dev
+DEST ?= ./exports/aws
+
+.DEFAULT_GOAL := help
+
+.PHONY: help hackathon-bootstrap aws-preflight aws-synth aws-smoke aws-export \
+        aws-teardown test lint typecheck format
+
+help:  ## Show this help
+	@grep -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":.*## "} {printf "  %-22s %s\n", $$1, $$2}'
+
+hackathon-bootstrap:  ## Empty account to verified stack (creds). ASSUME_YES=1 to skip prompt
+	uv run python -m scripts.aws_bootstrap $(if $(ASSUME_YES),--assume-yes,)
+
+aws-preflight:  ## Ten-second account-readiness check (creds)
+	uv run python -m scripts.aws_preflight
+
+aws-synth:  ## Synthesize CDK templates, no deploy. Set ENV=dev|demo|hackathon
+	cd infra && uv run cdk synth -c env=$(ENV) -c budgetEmail=$${YOUTH_COMPASS_BUDGET_EMAIL:-alerts@example.invalid}
+
+aws-smoke:  ## Round-trip smoke test in Moto mode (free, no creds)
+	uv run python -m scripts.aws_smoke_test
+
+aws-export:  ## Export S3 and Glue data locally (creds). Set DEST=./path
+	uv run python -m scripts.aws_export --dest $(DEST)
+
+aws-teardown:  ## Destroy deployed stacks after account-number confirm (creds)
+	uv run python -m scripts.aws_teardown
+
+test:  ## Run the full test suite with coverage
+	uv run pytest --cov=youth_compass --cov-report=term-missing
+
+lint:  ## Ruff check and format check
+	uv run ruff check .
+	uv run ruff format --check src apps tests scripts
+
+typecheck:  ## Strict mypy over source, apps, scripts, and infra
+	uv run mypy src apps scripts
+	uv run mypy infra
+
+format:  ## Reformat and autofix
+	uv run ruff format src apps tests scripts
+	uv run ruff check . --fix

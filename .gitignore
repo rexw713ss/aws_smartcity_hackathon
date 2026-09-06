@@ -35,3 +35,18 @@ data/metadata/*
 !data/metadata/.gitkeep
 
 node_modules/
+# AWS CDK synthesis output and cached context.
+# cdk.context.json must stay untracked: the CDK CLI caches -c values there,
+# which is how the budget notification address would otherwise be committed.
+cdk.out/
+infra/cdk.out/
+cdk.context.json
+cdk.staging/
+
+# AWS credentials and the real (filled-in) AWS config; only the example is tracked
+.aws/
+configs/aws.yaml
+
+# Local data export destination written by scripts/aws_export.py before the
+# hackathon account is suspended; this is real data, not source.
+exports/

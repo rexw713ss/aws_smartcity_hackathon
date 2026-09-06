@@ -1,0 +1,22 @@
+# Optional LocalStack for manual AWS exploration. NOT used by the test suite,
+# which runs against Moto in-process. Start it only when you want to poke at AWS
+# APIs by hand. Athena is omitted because it is not in LocalStack's free tier;
+# Moto is its substitute in this project.
+services:
+  localstack:
+    # Pinned to a pre-consolidation Community tag that needs no auth token.
+    image: localstack/localstack:3.8.1
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: "s3,stepfunctions,glue"
+      DEBUG: "0"
+      # Literal placeholders; nothing is interpolated from the host environment.
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      AWS_DEFAULT_REGION: "ap-northeast-1"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
