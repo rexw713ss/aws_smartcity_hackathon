@@ -26,7 +26,8 @@ try:
     import tests.contract.aws.athena_query
     import tests.contract.aws.eventbridge_bus
     import tests.contract.aws.glue_catalog
-    import tests.contract.aws.s3_store  # noqa: F401
+    import tests.contract.aws.s3_store
+    import tests.contract.aws.step_functions_runner
 except ImportError:
     pass  # AWS adapters not yet present; reference adapters suffice
 from tests.contract.registry import (
