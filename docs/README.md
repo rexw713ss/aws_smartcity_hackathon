@@ -33,6 +33,7 @@ The system has three core capabilities:
 | [10-demo-and-evaluation.md](./10-demo-and-evaluation.md) | Demo script, held-out test data, success metrics, and judging evidence |
 | [11-development-guide.md](./11-development-guide.md) | Python 3.12/uv setup, CLI, API, quality commands, and current implementation status |
 | [12-aws-stage1-foundation.md](./12-aws-stage1-foundation.md) | AWS Stage 1 foundation: ports, contract harness, CDK synth, verification scripts (deploys nothing) |
+| [13-aws-stage2-adapters.md](./13-aws-stage2-adapters.md) | AWS Stage 2: real S3/Glue/Athena/EventBridge/StepFunctions adapters + CDK data stack |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 
 ## Architecture decisions at a glance
