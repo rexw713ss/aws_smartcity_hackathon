@@ -13,7 +13,7 @@
         "NotificationsWithSubscribers": [
           {
             "Notification": {
-              "ComparisonOperator": "GREATER_THAN_OR_EQUAL_TO",
+              "ComparisonOperator": "GREATER_THAN",
               "NotificationType": "ACTUAL",
               "Threshold": 80,
               "ThresholdType": "PERCENTAGE"
@@ -27,7 +27,7 @@
           },
           {
             "Notification": {
-              "ComparisonOperator": "GREATER_THAN_OR_EQUAL_TO",
+              "ComparisonOperator": "GREATER_THAN",
               "NotificationType": "ACTUAL",
               "Threshold": 100,
               "ThresholdType": "PERCENTAGE"

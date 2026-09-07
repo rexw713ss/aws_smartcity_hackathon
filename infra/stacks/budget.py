@@ -50,7 +50,7 @@ class BudgetStack(TaggedStack):
         notifications = [
             budgets.CfnBudget.NotificationWithSubscribersProperty(
                 notification=budgets.CfnBudget.NotificationProperty(
-                    comparison_operator="GREATER_THAN_OR_EQUAL_TO",
+                    comparison_operator="GREATER_THAN",
                     notification_type="ACTUAL",
                     threshold=float(threshold),
                     threshold_type="PERCENTAGE",
