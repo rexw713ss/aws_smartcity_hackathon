@@ -216,6 +216,7 @@ class ObjectStore(Protocol):
     def list(self, prefix: str) -> list[str]: ...
     def exists(self, uri: str) -> bool: ...
 
+
 # ports/catalog.py
 @runtime_checkable
 class DataCatalog(Protocol):
@@ -223,15 +224,18 @@ class DataCatalog(Protocol):
     def get(self, dataset_id: str) -> DatasetMetadata: ...
     def search_compatible(self, profile: DatasetProfile) -> list[DatasetMetadata]: ...
 
+
 # ports/query_engine.py
 @runtime_checkable
 class QueryEngine(Protocol):
     def execute(self, query: QuerySpec) -> QueryResult: ...
 
+
 # ports/model_provider.py
 @runtime_checkable
 class ModelProvider(Protocol):
     async def generate(self, request: ModelRequest) -> ModelResponse: ...
+
 
 # ports/forecast_service.py
 @runtime_checkable
@@ -239,11 +243,13 @@ class ForecastService(Protocol):
     def get_forecast(self, request: ForecastRequest) -> ForecastResult: ...
     def trigger_training(self, request: TrainingRequest) -> TrainingRun: ...
 
+
 # ports/workflow_runner.py   <-- proposed addition to docs/07 section 7
 @runtime_checkable
 class WorkflowRunner(Protocol):
     def start_ingestion(self, request: IngestionRequest) -> JobReference: ...
     def resume_after_approval(self, job_id: str, decision: ApprovalDecision) -> None: ...
+
 
 # ports/checkpoint_store.py
 @runtime_checkable
@@ -251,11 +257,13 @@ class CheckpointStore(Protocol):
     def save(self, workflow_id: str, checkpoint: WorkflowCheckpoint) -> None: ...
     def load(self, workflow_id: str) -> WorkflowCheckpoint | None: ...
 
+
 # ports/event_bus.py
 @runtime_checkable
 class EventBus(Protocol):
     def publish(self, event: DomainEvent) -> None: ...
     def subscribe(self, event_type: str, handler: Callable[[DomainEvent], None]) -> None: ...
+
 
 # ports/clock.py
 @runtime_checkable
@@ -339,8 +347,8 @@ tests/contract/
 ObjectStoreFactory = Callable[[], AbstractContextManager[ObjectStore]]
 OBJECT_STORE_FACTORIES: dict[str, ObjectStoreFactory] = {}
 
-def register_object_store(name: str) -> Callable[[ObjectStoreFactory], ObjectStoreFactory]:
-    ...
+
+def register_object_store(name: str) -> Callable[[ObjectStoreFactory], ObjectStoreFactory]: ...
 ```
 
 `conftest.py` turns each registry into a parametrized fixture:
@@ -367,8 +375,14 @@ A session-scoped autouse fixture in `tests/contract/conftest.py`, ordered as in 
 Non-Moto endpoint detection uses two layers. The primary layer is Moto's own service allowlist, which raises `ServiceNotWhitelisted` for any service outside the declared set:
 
 ```python
-mock_aws(config={"core": {"service_whitelist": ["s3", "glue", "athena", "stepfunctions"],
-                          "mock_credentials": True}})
+mock_aws(
+    config={
+        "core": {
+            "service_whitelist": ["s3", "glue", "athena", "stepfunctions"],
+            "mock_credentials": True,
+        }
+    }
+)
 ```
 
 That is stronger than a hand-rolled check because it fails on the *service*, not just the host, so a case that reaches for an unexpected service fails immediately. The second layer is a `botocore` `before-send.*.*` event handler that inspects the outbound request URL and raises if the host is not one Moto serves, covering the case of a client constructed outside a `mock_aws` context. Under `mock_aws()` the request is intercepted in-process, so a request reaching a real endpoint host is exactly the failure condition.
@@ -436,10 +450,11 @@ Infra tests live under `tests/infra/` rather than `infra/tests/` because `[tool.
 ```python
 @dataclass(frozen=True)
 class EnvironmentConfig:
-    name: str                     # dev | demo | hackathon
-    stack_prefix: str             # 1..32 chars
-    budget_usd: int               # 10 | 20 | 50
-    tags: Mapping[str, str]       # Project, Environment, Owner, CostCenter
+    name: str  # dev | demo | hackathon
+    stack_prefix: str  # 1..32 chars
+    budget_usd: int  # 10 | 20 | 50
+    tags: Mapping[str, str]  # Project, Environment, Owner, CostCenter
+
 
 ENVIRONMENTS: Mapping[str, EnvironmentConfig] = {...}
 DEFAULT_REGION = "ap-northeast-1"
@@ -461,6 +476,7 @@ Region resolution: `-c region` → `CDK_DEFAULT_REGION` → `DEFAULT_REGION` (Re
 
 ```python
 MANDATORY_TAGS = ("Project", "Environment", "Owner", "CostCenter")
+
 
 class TaggedStack(Stack):
     def __init__(self, scope, construct_id, *, tags: Mapping[str, str], **kwargs):
@@ -485,15 +501,14 @@ One `aws_cdk.aws_budgets.CfnBudget` — L1 is the only construct AWS Budgets off
 
 ```python
 CfnBudget(
-    self, "MonthlyCostBudget",
+    self,
+    "MonthlyCostBudget",
     budget=CfnBudget.BudgetDataProperty(
         budget_type="COST",
         time_unit="MONTHLY",
         budget_limit=CfnBudget.SpendProperty(amount=env.budget_usd, unit="USD"),
     ),
-    notifications_with_subscribers=[
-        _notification(threshold, email) for threshold in (80, 100)
-    ],
+    notifications_with_subscribers=[_notification(threshold, email) for threshold in (80, 100)],
 )
 ```
 
@@ -531,21 +546,26 @@ Synthesis in tests uses `Environment(account=PLACEHOLDER_ACCOUNT, region="ap-nor
 
 ```python
 class Outcome(StrEnum):
-    PASS = "pass"; FAIL = "fail"; WARN = "warn"; SKIP = "skip"
+    PASS = "pass"
+    FAIL = "fail"
+    WARN = "warn"
+    SKIP = "skip"
+
 
 class CheckResult(BaseModel):
     name: str
     outcome: Outcome
-    detail: str = Field(max_length=120)          # Req 5.12
-    remediation: str | None = None               # Req 5.13
+    detail: str = Field(max_length=120)  # Req 5.12
+    remediation: str | None = None  # Req 5.13
     elapsed_ms: int = Field(ge=0)
+
 
 class Report(BaseModel):
     tool: str
     region: str
     started_at: datetime
     elapsed_seconds: float
-    summary: dict[str, int]                      # Req 5.22
+    summary: dict[str, int]  # Req 5.22
     checks: list[CheckResult]
 ```
 
@@ -791,11 +811,29 @@ Tradeoff and mitigation: it touches a backend-owned file. The change is strictly
 Closed permitted sets as `StrEnum`s, which gives Pydantic-native rejection that already names the offending value and the key path (Requirement 10 criteria 3, 4):
 
 ```python
-class StorageProvider(StrEnum):   FILESYSTEM = "filesystem"; S3 = "s3"
-class CatalogProvider(StrEnum):   SQLITE = "sqlite";         GLUE = "glue"
-class QueryProvider(StrEnum):     DUCKDB = "duckdb";         ATHENA = "athena"
-class ModelProviderName(StrEnum): OLLAMA = "ollama";         BEDROCK = "bedrock"
-class ForecastProvider(StrEnum):  LOCAL = "local";           SAGEMAKER = "sagemaker"
+class StorageProvider(StrEnum):
+    FILESYSTEM = "filesystem"
+    S3 = "s3"
+
+
+class CatalogProvider(StrEnum):
+    SQLITE = "sqlite"
+    GLUE = "glue"
+
+
+class QueryProvider(StrEnum):
+    DUCKDB = "duckdb"
+    ATHENA = "athena"
+
+
+class ModelProviderName(StrEnum):
+    OLLAMA = "ollama"
+    BEDROCK = "bedrock"
+
+
+class ForecastProvider(StrEnum):
+    LOCAL = "local"
+    SAGEMAKER = "sagemaker"
 ```
 
 Each of the five top-level keys maps to a small model with a `provider` field plus provider-specific extras (`root`, `bucket`, `database`, `workgroup`), so `docs/01` §6's nested shape is honoured and env-var overrides work through the existing `__` delimiter (`YOUTH_COMPASS_STORAGE__PROVIDER=s3`).
@@ -1448,8 +1486,7 @@ Each property test carries a tag comment referencing its design property:
 
 ```python
 # Feature: aws-stage1-foundation, Property 5: ObjectStore round-trip preserves bytes exactly
-def test_object_store_round_trip(object_store: ObjectStore) -> None:
-    ...
+def test_object_store_round_trip(object_store: ObjectStore) -> None: ...
 ```
 
 If a future stage relaxes the dependency cap, these tests port to Hypothesis mechanically: the generators become strategies and the loop becomes `@given`. Recorded as [risk 5](#94-risks).
