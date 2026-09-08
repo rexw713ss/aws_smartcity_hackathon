@@ -1,254 +1,176 @@
 # AWS Architecture — New Taipei Youth Compass
 
-> Region: ap-northeast-1 (Tokyo)
-> Account: 330177109233
+> Region: ap-northeast-1 (Tokyo) | Account: 330177109233
 
-## Full Architecture Diagram
+## AWS Services Architecture
 
 ```mermaid
 graph TB
-    subgraph Users["Users"]
-        STEWARD["Data Steward<br/>(uploads CSV, approves mappings)"]
-        ANALYST["Policy Analyst<br/>(queries data, asks the copilot)"]
-        REVIEWER["Reviewer<br/>(approves/rejects mappings)"]
+    subgraph S3["Amazon S3 — Data Lake"]
+        S3_IN["📥 incoming/<br/>Raw uploaded CSVs"]
+        S3_QUA["🚫 quarantined/<br/>Failed validation"]
+        S3_STD["🔄 standardized/<br/>Canonical dimensions added"]
+        S3_CUR["✅ curated/<br/>Published analytical tables<br/>(Parquet, versioned)"]
+        S3_FC["📈 forecasts/<br/>Prediction artifacts"]
+        S3_META["📋 metadata/<br/>Quality reports, lineage"]
     end
 
-    subgraph Frontend["Frontend (other workstream)"]
-        DASH["Dashboard<br/>(React)"]
+    subgraph Compute["Serverless Compute"]
+        LAMBDA["AWS Lambda<br/>(ARM64 Graviton)<br/>Runs profile_csv +<br/>analyze_mapping"]
+        SFN["AWS Step Functions<br/>Ingestion Workflow:<br/>profile → map → validate →<br/>⏸ approval pause →<br/>transform → quality → publish"]
     end
 
-    subgraph Backend["Backend (other workstream)"]
-        API["FastAPI<br/>apps/api/main.py"]
-        DOMAIN["Domain Logic<br/>src/youth_compass/"]
-        CLI["CLI<br/>youth-compass profile|map"]
+    subgraph Analytics["Analytics & Catalog"]
+        GLUE["AWS Glue<br/>Data Catalog<br/>Table schemas for<br/>curated Parquet"]
+        DDB["Amazon DynamoDB<br/>App metadata:<br/>approval status,<br/>quality score,<br/>version pointer"]
+        ATHENA["Amazon Athena<br/>SQL over curated/<br/>Typed QuerySpec only<br/>Scanned-bytes capped"]
     end
 
-    subgraph Ports["Port Protocols (Stage 1)"]
-        direction LR
-        P_STORE["ObjectStore"]
-        P_CATALOG["DataCatalog"]
-        P_QUERY["QueryEngine"]
-        P_WORKFLOW["WorkflowRunner"]
-        P_EVENT["EventBus"]
-        P_MODEL["ModelProvider"]
-        P_FORECAST["ForecastService"]
-        P_CKPT["CheckpointStore"]
-        P_CLOCK["Clock"]
+    subgraph Events["Event-Driven"]
+        EB["Amazon EventBridge<br/>Audit events:<br/>dataset.published<br/>mapping.reviewed<br/>dataset.quarantined"]
     end
 
-    subgraph AWS_Stage2["AWS Services — Stage 2 (deployed)"]
-        direction TB
-
-        subgraph S3["Amazon S3 (Object Storage)"]
-            S3_IN["incoming/"]
-            S3_QUA["quarantined/"]
-            S3_STD["standardized/"]
-            S3_CUR["curated/"]
-            S3_FC["forecasts/"]
-            S3_META["metadata/"]
-        end
-
-        subgraph Catalog["Data Catalog"]
-            GLUE["AWS Glue<br/>Database: youth_compass_dev<br/>(table schemas)"]
-            DDB["Amazon DynamoDB<br/>Table: youthcompassdev-metadata<br/>(approval status, quality score,<br/>version pointer, rollback)"]
-        end
-
-        ATHENA["Amazon Athena<br/>(SQL queries over S3 Parquet,<br/>typed QuerySpec only,<br/>allowlisted tables/metrics,<br/>scanned-bytes cap)"]
-
-        LAMBDA["AWS Lambda<br/>(ARM64, calls profile_csv +<br/>analyze_mapping,<br/>no reimplementation)"]
-
-        SFN["AWS Step Functions<br/>(ingestion workflow:<br/>profile → map → validate →<br/>approval pause → transform →<br/>quality → publish)"]
-
-        EB["Amazon EventBridge<br/>(audit events:<br/>dataset.published,<br/>mapping.reviewed, etc.)"]
+    subgraph Security["IAM & Cost Controls"]
+        WRITE["Write_Role<br/>Lambda + Step Functions<br/>Can write curated/"]
+        COPILOT["Copilot_Role<br/>Athena only<br/>❌ DENIED PutObject +<br/>DeleteObject on curated/"]
+        BUDGET["AWS Budgets<br/>$10/mo dev<br/>$20/mo demo<br/>$50/mo hackathon<br/>Alerts at 80% + 100%"]
     end
 
-    subgraph IAM["IAM Roles (least-privilege)"]
-        WRITE_ROLE["Write_Role<br/>(workflow service:<br/>can write to curated)"]
-        COPILOT_ROLE["Copilot_Role<br/>(read-only:<br/>DENIED s3:PutObject +<br/>s3:DeleteObject on curated)"]
+    subgraph Stage3["Stage 3 — Deferred"]
+        BEDROCK["Amazon Bedrock<br/>Foundation models<br/>(mandatory per rules)"]
+        SAGEMAKER["Amazon SageMaker<br/>Forecast training +<br/>model registry"]
+        AGENTCORE["Bedrock AgentCore<br/>Agent hosting +<br/>MCP Gateway"]
     end
 
-    subgraph Cost["Cost Controls (Stage 1)"]
-        BUDGET["AWS Budgets<br/>$10/mo dev budget<br/>alerts at 80% + 100%"]
-        TAGS["Cost Allocation Tags<br/>Project, Environment,<br/>Owner, CostCenter"]
-    end
+    %% Ingestion flow
+    S3_IN -->|"S3 event"| EB
+    EB -->|"triggers"| SFN
+    SFN -->|"invokes"| LAMBDA
+    SFN -->|"on success"| S3_CUR
+    SFN -->|"on failure"| S3_QUA
+    SFN -->|"intermediate"| S3_STD
 
-    subgraph Stage3["Stage 3 (deferred — competition credits)"]
-        BEDROCK["Amazon Bedrock<br/>(foundation models,<br/>mandatory per rules)"]
-        SAGEMAKER["Amazon SageMaker<br/>(forecast training +<br/>model registry)"]
-        AGENTCORE["Bedrock AgentCore<br/>(LangGraph agent hosting,<br/>MCP Gateway)"]
-    end
+    %% Catalog + metadata
+    SFN -->|"register schema"| GLUE
+    SFN -->|"update metadata"| DDB
 
-    subgraph Scripts["Operational Scripts"]
-        PREFLIGHT["aws_preflight.py<br/>(10s readiness check)"]
-        SMOKE["aws_smoke_test.py<br/>(round-trip verification)"]
-        EXPORT["aws_export.py<br/>(data rescue before<br/>account suspension)"]
-        BOOTSTRAP["aws_bootstrap.py<br/>(empty account →<br/>verified stack)"]
-    end
+    %% Audit
+    SFN -->|"emits"| EB
+    LAMBDA -->|"emits"| EB
 
-    %% User flows
-    STEWARD -->|uploads CSV| S3_IN
-    REVIEWER -->|approves/rejects| SFN
-    ANALYST -->|queries| DASH
+    %% Query path
+    ATHENA -->|"scans"| S3_CUR
+    ATHENA -->|"reads schema"| GLUE
 
-    %% Frontend → Backend
-    DASH --> API
-    API --> DOMAIN
+    %% IAM boundaries
+    WRITE -.->|"assumed by"| LAMBDA
+    WRITE -.->|"assumed by"| SFN
+    COPILOT -.->|"assumed by"| ATHENA
 
-    %% Domain → Ports (no AWS imports here)
-    DOMAIN --> P_STORE & P_CATALOG & P_QUERY & P_WORKFLOW & P_EVENT
+    %% Cost
+    BUDGET -.->|"monitors"| S3
+    BUDGET -.->|"monitors"| Compute
+    BUDGET -.->|"monitors"| Analytics
 
-    %% Ports → AWS Adapters (Stage 2)
-    P_STORE -->|s3_store.py| S3
-    P_CATALOG -->|glue_catalog.py| GLUE & DDB
-    P_QUERY -->|athena_query.py| ATHENA
-    P_WORKFLOW -->|step_functions_runner.py| SFN
-    P_EVENT -->|eventbridge_bus.py| EB
-
-    %% Ports → Stage 3 (deferred)
-    P_MODEL -.->|bedrock_model.py| BEDROCK
-    P_FORECAST -.->|sagemaker_forecast.py| SAGEMAKER
-    P_CKPT -.->|agentcore_checkpoint.py| AGENTCORE
-
-    %% Ingestion workflow
-    S3_IN -->|S3 event / EventBridge| SFN
-    SFN -->|calls| LAMBDA
-    LAMBDA -->|profile_csv + analyze_mapping| DOMAIN
-    SFN -->|on success| S3_CUR
-    SFN -->|on failure| S3_QUA
-    SFN -->|waitForTaskToken| REVIEWER
-
-    %% Athena reads curated data
-    ATHENA -->|scans| S3_CUR
-
-    %% IAM
-    WRITE_ROLE -.->|assumed by| SFN & LAMBDA
-    COPILOT_ROLE -.->|assumed by| ATHENA
-
-    %% EventBridge audit
-    SFN -->|emits events| EB
-    LAMBDA -->|emits events| EB
-
-    %% Cost controls
-    BUDGET -.->|monitors all| AWS_Stage2
-    TAGS -.->|applied to| AWS_Stage2
-
-    %% Scripts
-    PREFLIGHT -->|read-only checks| AWS_Stage2
-    SMOKE -->|round-trip test| S3 & GLUE & ATHENA & SFN
-    EXPORT -->|data rescue| S3 & GLUE
-    BOOTSTRAP -->|deploys| Cost & AWS_Stage2
+    %% Stage 3 connections (deferred)
+    BEDROCK -.->|"Stage 3"| LAMBDA
+    SAGEMAKER -.->|"Stage 3"| S3_FC
+    AGENTCORE -.->|"Stage 3"| ATHENA
 
     %% Styling
     classDef deployed fill:#d4edda,stroke:#28a745,stroke-width:2px
     classDef deferred fill:#fff3cd,stroke:#ffc107,stroke-width:2px,stroke-dasharray: 5 5
-    classDef port fill:#e8f4fd,stroke:#0d6efd,stroke-width:2px
-    classDef script fill:#f0f0f0,stroke:#6c757d
-    classDef iam fill:#fce4ec,stroke:#e91e63
+    classDef iam fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    classDef cost fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px
 
-    class S3_IN,S3_QUA,S3_STD,S3_CUR,S3_FC,S3_META,GLUE,DDB,ATHENA,LAMBDA,SFN,EB,BUDGET,TAGS deployed
+    class S3_IN,S3_QUA,S3_STD,S3_CUR,S3_FC,S3_META deployed
+    class LAMBDA,SFN deployed
+    class GLUE,DDB,ATHENA deployed
+    class EB deployed
     class BEDROCK,SAGEMAKER,AGENTCORE deferred
-    class P_STORE,P_CATALOG,P_QUERY,P_WORKFLOW,P_EVENT,P_MODEL,P_FORECAST,P_CKPT,P_CLOCK port
-    class PREFLIGHT,SMOKE,EXPORT,BOOTSTRAP script
-    class WRITE_ROLE,COPILOT_ROLE iam
+    class WRITE,COPILOT iam
+    class BUDGET cost
 ```
 
-## Service Inventory
-
-### Deployed (Stage 1 + Stage 2) — all per-use, no always-on compute
-
-| Service | Resource | Purpose | Cost model |
-|---|---|---|---|
-| **Amazon S3** | 6 buckets (incoming, quarantined, standardized, curated, forecasts, metadata) | Data lake zones, versioned, public-access blocked | per GB stored + per request |
-| **AWS Glue** | Database `youth_compass_dev` | Table schemas for curated Parquet | per object cataloged (free tier covers this) |
-| **Amazon DynamoDB** | Table `youthcompassdev-metadata` (on-demand) | App metadata: approval status, quality score, version pointer for rollback | per read/write request, $0 when idle |
-| **Amazon Athena** | Workgroup (via adapter) | SQL over curated S3 Parquet, typed QuerySpec only | $5/TB scanned, capped by adapter |
-| **AWS Lambda** | Transform function (ARM64) | Calls `profile_csv` + `analyze_mapping` | per invocation, $0 when idle |
-| **AWS Step Functions** | Ingestion state machine | profile → map → validate → approval → publish | per state transition, $0 when idle |
-| **Amazon EventBridge** | Event bus | Audit events (dataset.published, mapping.reviewed, etc.) | per event published |
-| **AWS Budgets** | $10/mo dev budget | Alerts at 80% and 100% actual spend | free |
-| **AWS IAM** | Write_Role + Copilot_Role | Least-privilege: copilot denied writes on curated | free |
-| **CloudFormation** | 3 stacks (CDKToolkit, Budget, Data) | Infrastructure as code | free |
-
-### Deferred to Stage 3 (competition credits required)
-
-| Service | Purpose | Why deferred |
-|---|---|---|
-| **Amazon Bedrock** | Foundation model inference (mandatory per competition rules) | Per-token cost |
-| **Amazon SageMaker** | Forecast model training + registry | Per-instance-hour |
-| **Bedrock AgentCore** | LangGraph agent hosting + MCP Gateway | Hosting cost |
-
-## Data Flow
+## Ingestion Data Flow
 
 ```mermaid
 sequenceDiagram
-    participant Steward as Data Steward
     participant S3In as S3 incoming/
     participant EB as EventBridge
     participant SFN as Step Functions
-    participant Lambda as Lambda (transforms)
-    participant Reviewer as Reviewer
+    participant Lambda as Lambda
+    participant Reviewer as Human Reviewer
     participant S3Cur as S3 curated/
     participant S3Qua as S3 quarantined/
     participant Glue as Glue Catalog
     participant DDB as DynamoDB
-    participant Athena as Athena
-    participant Analyst as Policy Analyst
 
-    Steward->>S3In: Upload CSV
-    S3In->>EB: S3 ObjectCreated event
-    EB->>SFN: Start ingestion workflow
-    SFN->>Lambda: Profile + Map
-    Lambda-->>SFN: MappingAnalysis result
+    S3In->>EB: ObjectCreated event
+    EB->>SFN: Start workflow
+    SFN->>Lambda: Profile CSV
+    Lambda-->>SFN: DatasetProfile
+    SFN->>Lambda: Analyze mapping
+    Lambda-->>SFN: MappingAnalysis
 
-    alt Confidence below threshold
-        SFN->>Reviewer: Pause (waitForTaskToken)
-        Reviewer->>SFN: Approve / Reject
+    alt Low confidence
+        SFN->>Reviewer: ⏸ Pause (waitForTaskToken)
+        Reviewer->>SFN: Approve or Reject
     end
 
-    alt Approved or high confidence
-        SFN->>Lambda: Transform + Quality check
-        Lambda-->>SFN: Curated Parquet
-        SFN->>S3Cur: Publish to curated/
-        SFN->>Glue: Register table schema
-        SFN->>DDB: Update metadata + version pointer
-        SFN->>EB: dataset.published event
-    else Rejected or failed
-        SFN->>S3Qua: Route to quarantined/
-        SFN->>EB: dataset.quarantined event
+    alt Approved
+        SFN->>Lambda: Transform + Quality
+        SFN->>S3Cur: Publish Parquet
+        SFN->>Glue: Register schema
+        SFN->>DDB: Update version pointer
+        SFN->>EB: dataset.published
+    else Rejected or Failed
+        SFN->>S3Qua: Quarantine
+        SFN->>EB: dataset.quarantined
     end
-
-    Analyst->>Athena: Typed QuerySpec (via copilot)
-    Athena->>S3Cur: Scan curated Parquet
-    Athena-->>Analyst: QueryResult
 ```
 
 ## Security Boundary
 
 ```mermaid
 graph LR
-    subgraph WriteZone["Write Path (Write_Role)"]
-        SFN["Step Functions"]
-        LAMBDA["Lambda"]
-        S3W["S3: standardized,<br/>curated, forecasts,<br/>metadata"]
-        GLUE_W["Glue: create/update tables"]
-        DDB_W["DynamoDB: read/write"]
+    subgraph Write["Write_Role (workflow service)"]
+        W_SFN["Step Functions"]
+        W_LAMBDA["Lambda"]
+        W_S3["S3: write standardized/,<br/>curated/, forecasts/, metadata/"]
+        W_GLUE["Glue: create/update tables"]
+        W_DDB["DynamoDB: read + write"]
     end
 
-    subgraph ReadZone["Read Path (Copilot_Role)"]
-        ATHENA["Athena"]
-        S3R["S3 curated: READ ONLY"]
-        DDB_R["DynamoDB: READ ONLY"]
+    subgraph Read["Copilot_Role (read-only)"]
+        R_ATHENA["Athena"]
+        R_S3["S3 curated/: READ ONLY"]
+        R_DDB["DynamoDB: READ ONLY"]
     end
 
-    DENY["EXPLICIT DENY<br/>s3:PutObject<br/>s3:DeleteObject<br/>on curated/*"]
+    DENY["🚫 EXPLICIT DENY<br/>s3:PutObject<br/>s3:DeleteObject<br/>on curated/*"]
 
-    ATHENA --> S3R
-    ATHENA --> DDB_R
-    ATHENA -.- DENY
-    DENY -.-x S3W
+    R_ATHENA --> R_S3
+    R_ATHENA --> R_DDB
+    R_ATHENA -.- DENY
 
-    classDef deny fill:#fde8e8,stroke:#c53030,stroke-width:2px
+    classDef deny fill:#fde8e8,stroke:#c53030,stroke-width:3px
     class DENY deny
 ```
 
-The copilot (the AI that answers policy questions) physically cannot modify or delete published data, even if a prompt injection attempts to make it write. This is enforced at the IAM level, not in application code.
+## Service Cost Summary
+
+| Service | Billing model | Cost when idle |
+|---|---|---|
+| Amazon S3 (6 buckets) | per GB/month + per request | ~$0 at current scale |
+| AWS Glue Data Catalog | per object cataloged | free tier |
+| Amazon DynamoDB (on-demand) | per read/write request | $0 |
+| Amazon Athena | $5 per TB scanned | $0 |
+| AWS Lambda (ARM64) | per invocation + duration | $0 |
+| AWS Step Functions | per state transition | $0 |
+| Amazon EventBridge | per event published | $0 |
+| AWS Budgets | free | free |
+| AWS IAM | free | free |
+| **Amazon Bedrock** *(Stage 3)* | per input/output token | $0 |
+| **Amazon SageMaker** *(Stage 3)* | per instance-hour | $0 when no job |
+| **Bedrock AgentCore** *(Stage 3)* | hosting cost | deferred |
