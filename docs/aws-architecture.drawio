@@ -1,0 +1,214 @@
+<mxfile host="app.diagrams.net" modified="2026-09-07T00:00:00.000Z" agent="Kiro" version="24.0.0">
+  <diagram name="AWS Architecture" id="arch">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Users -->
+        <mxCell id="users" value="Users" style="shape=mxgraph.aws4.users;verticalLabelPosition=bottom;verticalAlign=top;align=center;sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#232F3E;strokeColor=none;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="480" width="60" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Frontend Layer -->
+        <mxCell id="frontend_group" value="Frontend Layer" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="160" y="440" width="200" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="apigw" value="API Gateway" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="200" y="480" width="48" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- Ingestion Layer -->
+        <mxCell id="ingestion_group" value="Ingestion Layer" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#E7157B;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="420" y="200" width="340" height="360" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3_incoming" value="S3&#xa;incoming/" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#3F8624;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="240" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="eventbridge" value="EventBridge" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.eventbridge;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="360" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="stepfn" value="Step Functions&#xa;Ingestion Workflow" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.step_functions;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="570" y="300" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="lambda_transform" value="Lambda&#xa;Transform&#xa;(ARM64)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#ED7100;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="690" y="240" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="lambda_profile" value="Lambda&#xa;Profiler" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#ED7100;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="690" y="380" width="48" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- Data Layer -->
+        <mxCell id="data_group" value="Data Layer" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#3F8624;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="840" y="160" width="340" height="440" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3_curated" value="S3&#xa;curated/" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#3F8624;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="200" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3_forecasts" value="S3&#xa;forecasts/" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#3F8624;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="980" y="200" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3_quarantined" value="S3&#xa;quarantined/" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#3F8624;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="200" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="glue" value="Glue&#xa;Data Catalog" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#8C4FFF;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.glue;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="340" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="dynamodb" value="DynamoDB&#xa;Metadata" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#C925D1;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="980" y="340" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="athena" value="Athena&#xa;Query Engine" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#8C4FFF;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.athena;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="340" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3_metadata" value="S3&#xa;metadata/" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#3F8624;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="480" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3_standardized" value="S3&#xa;standardized/" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#3F8624;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="980" y="480" width="48" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- AI Layer -->
+        <mxCell id="ai_group" value="AI &amp; ML Layer" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#ED7100;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="420" y="640" width="500" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="bedrock" value="Bedrock&#xa;Foundation Models" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#01A88D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sagemaker;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="680" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="sagemaker" value="SageMaker&#xa;Model Training" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#01A88D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sagemaker;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="600" y="680" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="agentcore" value="AgentCore&#xa;LangGraph + MCP" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#01A88D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sagemaker;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="750" y="680" width="48" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- Monitoring Layer -->
+        <mxCell id="monitoring_group" value="Monitoring &amp; Cost Controls" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#E7157B;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="300" width="200" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="cloudwatch" value="CloudWatch" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudwatch;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="340" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="budgets" value="Budgets" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cost_and_usage_report;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="460" width="48" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- IAM -->
+        <mxCell id="iam_group" value="IAM Roles" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#DD3522;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="80" width="200" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="write_role" value="Write_Role&#xa;(workflow)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#DD344C;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.role;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="120" width="48" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="copilot_role" value="Copilot_Role&#xa;(read-only)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#DD344C;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.role;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="120" width="48" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- Edges: User → API Gateway -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;" edge="1" source="users" target="apigw" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- API Gateway → Step Functions -->
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;" edge="1" source="apigw" target="stepfn" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- S3 incoming → EventBridge -->
+        <mxCell id="e3" value="S3 event" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;fontSize=10;" edge="1" source="s3_incoming" target="eventbridge" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- EventBridge → Step Functions -->
+        <mxCell id="e4" value="triggers" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;fontSize=10;" edge="1" source="eventbridge" target="stepfn" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions → Lambda Transform -->
+        <mxCell id="e5" value="invokes" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;fontSize=10;" edge="1" source="stepfn" target="lambda_transform" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions → Lambda Profiler -->
+        <mxCell id="e6" value="invokes" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;fontSize=10;" edge="1" source="stepfn" target="lambda_profile" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions → S3 curated -->
+        <mxCell id="e7" value="publish" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#3F8624;fontSize=10;" edge="1" source="stepfn" target="s3_curated" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions → S3 quarantined -->
+        <mxCell id="e8" value="on failure" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#DD3522;fontSize=10;" edge="1" source="lambda_transform" target="s3_quarantined" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions → Glue -->
+        <mxCell id="e9" value="register schema" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;fontSize=10;" edge="1" source="stepfn" target="glue" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions → DynamoDB -->
+        <mxCell id="e10" value="update metadata" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#232F3E;fontSize=10;" edge="1" source="lambda_transform" target="dynamodb" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Athena → S3 curated -->
+        <mxCell id="e11" value="scans" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#8C4FFF;fontSize=10;" edge="1" source="athena" target="s3_curated" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Athena → Glue -->
+        <mxCell id="e12" value="schema" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#8C4FFF;fontSize=10;" edge="1" source="athena" target="glue" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- AgentCore → Athena -->
+        <mxCell id="e13" value="queries" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#01A88D;fontSize=10;" edge="1" source="agentcore" target="athena" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- AgentCore → Bedrock -->
+        <mxCell id="e14" value="inference" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#01A88D;fontSize=10;" edge="1" source="agentcore" target="bedrock" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Lambda → Bedrock -->
+        <mxCell id="e15" value="mapping assist" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ED7100;fontSize=10;" edge="1" source="lambda_profile" target="bedrock" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- SageMaker → S3 forecasts -->
+        <mxCell id="e16" value="models" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#01A88D;fontSize=10;" edge="1" source="sagemaker" target="s3_forecasts" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- SageMaker → S3 curated (training data) -->
+        <mxCell id="e17" value="training data" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#01A88D;dashed=1;fontSize=10;" edge="1" source="sagemaker" target="s3_curated" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Write Role → Lambda + Step Functions -->
+        <mxCell id="e18" value="assumes" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#DD3522;dashed=1;fontSize=10;" edge="1" source="write_role" target="lambda_transform" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Copilot Role → Athena -->
+        <mxCell id="e19" value="assumes" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#DD3522;dashed=1;fontSize=10;" edge="1" source="copilot_role" target="athena" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- CloudWatch ← services -->
+        <mxCell id="e20" value="logs &amp; metrics" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#E7157B;dashed=1;fontSize=10;" edge="1" source="stepfn" target="cloudwatch" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Step Functions emits → EventBridge -->
+        <mxCell id="e21" value="audit events" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#E7157B;fontSize=10;" edge="1" source="stepfn" target="eventbridge" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
