@@ -10,6 +10,7 @@ class YouthRelationship(StrEnum):
     FULLY_WITHIN = "fully_within"
     PARTIALLY_OVERLAPS = "partially_overlaps"
     UNRELATED = "unrelated"
+    NO_AGE_DIMENSION = "no_age_dimension"
     UNDEFINED = "undefined"
 
 

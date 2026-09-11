@@ -10,6 +10,8 @@ from youth_compass.domain.contracts import (
     MappingValidationIssue,
     MappingValidationReport,
     MetricMapping,
+    PublicationManifest,
+    PublicationStatus,
     QualityIssue,
     QualityReport,
 )
@@ -57,6 +59,8 @@ __all__ = [
     "ObjectNotFoundError",
     "PrimitiveType",
     "ProfileWarning",
+    "PublicationManifest",
+    "PublicationStatus",
     "QualityIssue",
     "QualityReport",
     "QueryExecutionError",

@@ -11,3 +11,5 @@ uv run python scripts/export_contracts.py
 Do not edit generated schema files manually. Review schema diffs whenever a Pydantic contract changes.
 
 `mapping-analysis.schema.json` is the CLI review payload. It bundles the source profile, proposed mapping, and deterministic validation report so a future dashboard or AWS workflow can consume the same contract.
+
+`publication-manifest.schema.json` records immutable output paths, approval identity, row counts, intentional filters, rejected rows, quality status, mapping version, and transformation lineage.

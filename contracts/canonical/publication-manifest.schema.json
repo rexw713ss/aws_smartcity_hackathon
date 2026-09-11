@@ -1,0 +1,268 @@
+{
+  "$defs": {
+    "PublicationStatus": {
+      "enum": [
+        "published",
+        "quarantined"
+      ],
+      "title": "PublicationStatus",
+      "type": "string"
+    },
+    "QualityIssue": {
+      "properties": {
+        "blocking": {
+          "default": false,
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "severity": {
+          "$ref": "#/$defs/WarningSeverity"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "title": "QualityIssue",
+      "type": "object"
+    },
+    "QualityReport": {
+      "properties": {
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/QualityIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "quality_score": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Quality Score",
+          "type": "number"
+        },
+        "rows_accepted": {
+          "minimum": 0,
+          "title": "Rows Accepted",
+          "type": "integer"
+        },
+        "rows_received": {
+          "minimum": 0,
+          "title": "Rows Received",
+          "type": "integer"
+        },
+        "rows_rejected": {
+          "minimum": 0,
+          "title": "Rows Rejected",
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/QualityStatus"
+        }
+      },
+      "required": [
+        "status",
+        "quality_score",
+        "rows_received",
+        "rows_accepted",
+        "rows_rejected"
+      ],
+      "title": "QualityReport",
+      "type": "object"
+    },
+    "QualityStatus": {
+      "enum": [
+        "valid",
+        "warning",
+        "needs_review",
+        "rejected"
+      ],
+      "title": "QualityStatus",
+      "type": "string"
+    },
+    "WarningSeverity": {
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ],
+      "title": "WarningSeverity",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "approved_by": {
+      "title": "Approved By",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dataset_id": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "estimated_observation_count": {
+      "minimum": 0,
+      "title": "Estimated Observation Count",
+      "type": "integer"
+    },
+    "is_sample": {
+      "default": false,
+      "title": "Is Sample",
+      "type": "boolean"
+    },
+    "mapping_version": {
+      "title": "Mapping Version",
+      "type": "string"
+    },
+    "observation_count": {
+      "minimum": 0,
+      "title": "Observation Count",
+      "type": "integer"
+    },
+    "output_uri": {
+      "title": "Output Uri",
+      "type": "string"
+    },
+    "parquet_uri": {
+      "title": "Parquet Uri",
+      "type": "string"
+    },
+    "quality": {
+      "$ref": "#/$defs/QualityReport"
+    },
+    "rejected_rows_uri": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rejected Rows Uri"
+    },
+    "reused": {
+      "default": false,
+      "title": "Reused",
+      "type": "boolean"
+    },
+    "rows_accepted": {
+      "minimum": 0,
+      "title": "Rows Accepted",
+      "type": "integer"
+    },
+    "rows_filtered_out": {
+      "minimum": 0,
+      "title": "Rows Filtered Out",
+      "type": "integer"
+    },
+    "rows_filtered_totals": {
+      "minimum": 0,
+      "title": "Rows Filtered Totals",
+      "type": "integer"
+    },
+    "rows_filtered_youth": {
+      "minimum": 0,
+      "title": "Rows Filtered Youth",
+      "type": "integer"
+    },
+    "rows_received": {
+      "minimum": 0,
+      "title": "Rows Received",
+      "type": "integer"
+    },
+    "rows_rejected": {
+      "minimum": 0,
+      "title": "Rows Rejected",
+      "type": "integer"
+    },
+    "source_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "source_uri": {
+      "title": "Source Uri",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/PublicationStatus"
+    },
+    "topic": {
+      "title": "Topic",
+      "type": "string"
+    },
+    "transformation_version": {
+      "title": "Transformation Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "topic",
+    "source_uri",
+    "source_sha256",
+    "mapping_version",
+    "transformation_version",
+    "approved_by",
+    "status",
+    "output_uri",
+    "parquet_uri",
+    "rows_received",
+    "rows_accepted",
+    "rows_filtered_out",
+    "rows_filtered_youth",
+    "rows_filtered_totals",
+    "rows_rejected",
+    "observation_count",
+    "estimated_observation_count",
+    "quality"
+  ],
+  "title": "PublicationManifest",
+  "type": "object"
+}

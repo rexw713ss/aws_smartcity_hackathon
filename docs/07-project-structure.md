@@ -119,16 +119,21 @@ ingestion/
 └── sampling.py
 
 mapping/
-├── schema_mapper.py
+├── engine.py
 ├── registry.py
-├── transforms.py
+├── transform_registry.py
 ├── age.py
 ├── geography.py
 ├── gender.py
 └── time.py
+
+transformation/
+├── pipeline.py
+├── schema.py
+└── values.py
 ```
 
-`transforms.py` exposes the allowlisted transformation registry. No model-produced Python code is executed.
+`transform_registry.py` defines the allowlist. `values.py` executes deterministic row mappings, while `pipeline.py` owns the offline Parquet and quality-gate vertical slice. No model-produced Python code is executed.
 
 ## 5. Quality package
 

@@ -81,6 +81,44 @@ The output is one `MappingAnalysis` object containing:
 
 The mapper uses exact normalized aliases and an allowlisted transformation registry. It does not execute model-generated code. Unknown units, missing required time/geography/metric dimensions, incompatible types, and unknown transformations block publication. Empty optional columns do not fail type validation because no value will be transformed.
 
+## Transform and publish Parquet
+
+Publication requires an explicit local reviewer identity:
+
+```bash
+uv run youth-compass transform \
+  data/source/01_人口/_全部年度_全區.csv \
+  --approved-by local-reviewer \
+  --output /tmp/population-manifest.json
+```
+
+For a development-only sample, use `--max-rows`. The row limit becomes part of the immutable dataset version, so a sample can never be mistaken for a full publication:
+
+```bash
+uv run youth-compass transform \
+  data/source/02b_教育程度_含年齡/_全部年度_全區.csv \
+  --approved-by local-reviewer \
+  --max-rows 10000
+```
+
+The command:
+
+- profiles and validates the deterministic mapping before reading rows;
+- executes only registered transformations;
+- converts ROC years, districts, gender, age ranges, and known categories;
+- retains source row number, checksums, mapping version, and transformation version;
+- filters rows outside age 18-35 for youth-specific metrics;
+- applies documented overlap weights to partially overlapping age bands;
+- removes verified total rows from declared grain dimensions;
+- writes compressed canonical Parquet in bounded batches;
+- reopens Parquet and verifies schema and row count;
+- rejects duplicate declared grain and excessive row errors;
+- atomically publishes passing versions under `data/curated/`;
+- writes failing versions and row diagnostics under `data/quarantined/`;
+- reuses an identical immutable version on retry.
+
+Each version directory contains `part-000.parquet`, `manifest.json`, `mapping-analysis.json`, and, when needed, `rejected-rows.parquet`. Generated runtime data remains ignored by Git.
+
 ## Run the API
 
 ```bash
@@ -128,15 +166,18 @@ Implemented:
 - streaming generic CSV profiler;
 - deterministic mapping proposal and validation engine;
 - shared canonical field and transformation registries;
-- CLI `profile` and `map` commands;
+- deterministic row transformation and youth weighting;
+- atomic versioned Parquet publication and quarantine;
+- quality checks for row rejection, duplicate grain, empty output, and estimation;
+- lineage-rich publication manifest and rejected-row diagnostics;
+- CLI `profile`, `map`, and `transform` commands;
 - minimal FastAPI health endpoint;
 - generated canonical JSON Schemas;
 - unit and integration test suite.
 
 Not implemented yet:
 
-- transformation pipeline and curated Parquet publication;
-- approval workflow;
+- persisted approval workflow and reviewer UI;
 - DuckDB catalog/query adapter;
 - forecasting;
 - LangGraph agent;

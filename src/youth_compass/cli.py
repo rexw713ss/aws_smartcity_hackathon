@@ -8,6 +8,10 @@ import typer
 from youth_compass.config import load_settings
 from youth_compass.ingestion import CsvProfileOptions, profile_csv
 from youth_compass.mapping import MappingOptions, MappingProposalError, analyze_mapping
+from youth_compass.transformation import (
+    TransformOptions,
+    run_csv_transformation,
+)
 
 app = typer.Typer(
     name="youth-compass",
@@ -83,6 +87,65 @@ def map_dataset(
     except MappingProposalError as error:
         raise typer.BadParameter(str(error), param_hint="source") from error
     _emit_json(analysis.model_dump_json(indent=2), output, "Mapping analysis")
+
+
+@app.command("transform")
+def transform_dataset(
+    source: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+    approved_by: Annotated[
+        str,
+        typer.Option(
+            "--approved-by",
+            help="Reviewer identity authorizing deterministic publication.",
+        ),
+    ],
+    dataset_id: Annotated[
+        str | None,
+        typer.Option(help="Stable ASCII dataset identifier; defaults to inferred topic."),
+    ] = None,
+    topic: Annotated[
+        str | None,
+        typer.Option(help="Override deterministic topic inference."),
+    ] = None,
+    max_rows: Annotated[
+        int | None,
+        typer.Option(help="Create an explicitly versioned sample publication."),
+    ] = None,
+    output_root: Annotated[
+        Path | None,
+        typer.Option(help="Curated output root; defaults to data/curated."),
+    ] = None,
+    quarantine_root: Annotated[
+        Path | None,
+        typer.Option(help="Quarantine root; defaults to data/quarantined."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Also write the manifest JSON to this file."),
+    ] = None,
+) -> None:
+    """Transform an approved mapping and publish or quarantine versioned Parquet."""
+
+    settings = load_settings()
+    try:
+        options = TransformOptions(
+            approved_by=approved_by,
+            curated_root=output_root or settings.data_root / "curated",
+            quarantine_root=quarantine_root or settings.data_root / "quarantined",
+            dataset_id=dataset_id,
+            topic_hint=topic,
+            max_rows=max_rows,
+            batch_size=settings.transform.batch_size,
+            max_rejection_rate=settings.transform.max_rejection_rate,
+            transformation_version=settings.transform.transformation_version,
+        )
+        manifest = run_csv_transformation(source, options)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="source") from error
+    _emit_json(manifest.model_dump_json(indent=2), output, "Publication manifest")
 
 
 def _emit_json(payload: str, output: Path | None, label: str) -> None:

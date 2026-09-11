@@ -174,6 +174,12 @@ dataset_version x period x geography x demographic dimensions x metric_code
 
 Promotion to a dedicated fact table occurs when a topic has stable semantics and repeated use.
 
+### 4.8 `canonical_observations`
+
+The offline ingestion vertical slice first publishes a stable long-form Parquet table shared by every accepted topic. Each observation contains canonical time, geography, demographic dimensions, metric value and original value, unit, aggregation method, population scope, estimation status, and complete transformation lineage.
+
+Dedicated dashboard marts are reproducible derivatives of this table. This keeps ingestion portable while the later DuckDB/Athena adapters own topic-specific aggregation and query optimization.
+
 ## 5. Metadata contract
 
 Each dataset version stores:

@@ -21,6 +21,7 @@ artifacts/reports/*
 !artifacts/reports/.gitkeep
 
 # Runtime data zones; source data remains tracked
+data/.staging/
 data/incoming/*
 !data/incoming/.gitkeep
 data/quarantined/*

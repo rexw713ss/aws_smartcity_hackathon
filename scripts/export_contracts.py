@@ -9,6 +9,7 @@ from youth_compass.domain.contracts import (
     DatasetMetadata,
     MappingAnalysis,
     MappingProposal,
+    PublicationManifest,
     QualityReport,
 )
 from youth_compass.domain.profiles import DatasetProfile
@@ -19,6 +20,7 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "dataset-profile.schema.json": DatasetProfile,
     "mapping-proposal.schema.json": MappingProposal,
     "mapping-analysis.schema.json": MappingAnalysis,
+    "publication-manifest.schema.json": PublicationManifest,
     "quality-report.schema.json": QualityReport,
 }
 

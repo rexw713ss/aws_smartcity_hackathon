@@ -4,4 +4,7 @@ profile:
   sample_value_limit: 5
   distinct_value_cap: 10000
   duplicate_check_limit: 100000
-
+transform:
+  batch_size: 10000
+  max_rejection_rate: 0.01
+  transformation_version: canonical-v1
