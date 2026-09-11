@@ -1,0 +1,20 @@
+# Example AWS provider selection. Copy to configs/aws.yaml and fill placeholders.
+# Account-specific identifiers are supplied at runtime, never committed:
+#   AWS_ACCOUNT_ID / YOUTH_COMPASS_ACCOUNT_ID for the account number,
+#   standard AWS credential resolution for keys.
+# Every <PLACEHOLDER_...> token below must be replaced before use.
+environment: aws
+region: ap-northeast-1
+storage:
+  provider: s3
+  bucket: <PLACEHOLDER_CURATED_BUCKET>
+catalog:
+  provider: glue
+  database: <PLACEHOLDER_GLUE_DATABASE>
+query:
+  provider: athena
+  workgroup: <PLACEHOLDER_ATHENA_WORKGROUP>
+model:
+  provider: bedrock
+forecast:
+  provider: sagemaker

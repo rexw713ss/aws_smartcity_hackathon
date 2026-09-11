@@ -1,0 +1,12 @@
+environment: local
+storage:
+  provider: filesystem
+  root: ./data
+catalog:
+  provider: sqlite
+query:
+  provider: duckdb
+model:
+  provider: ollama
+forecast:
+  provider: local

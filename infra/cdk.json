@@ -1,0 +1,7 @@
+{
+  "app": "uv run python app.py",
+  "versionReporting": false,
+  "context": {
+    "@aws-cdk/core:checkSecretUsage": true
+  }
+}

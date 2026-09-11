@@ -1,0 +1,47 @@
+{
+  "Resources": {
+    "MonthlyCostBudget": {
+      "Properties": {
+        "Budget": {
+          "BudgetLimit": {
+            "Amount": 20,
+            "Unit": "USD"
+          },
+          "BudgetType": "COST",
+          "TimeUnit": "MONTHLY"
+        },
+        "NotificationsWithSubscribers": [
+          {
+            "Notification": {
+              "ComparisonOperator": "GREATER_THAN",
+              "NotificationType": "ACTUAL",
+              "Threshold": 80,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [
+              {
+                "Address": "budget-alerts@example.invalid",
+                "SubscriptionType": "EMAIL"
+              }
+            ]
+          },
+          {
+            "Notification": {
+              "ComparisonOperator": "GREATER_THAN",
+              "NotificationType": "ACTUAL",
+              "Threshold": 100,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [
+              {
+                "Address": "budget-alerts@example.invalid",
+                "SubscriptionType": "EMAIL"
+              }
+            ]
+          }
+        ]
+      },
+      "Type": "AWS::Budgets::Budget"
+    }
+  }
+}

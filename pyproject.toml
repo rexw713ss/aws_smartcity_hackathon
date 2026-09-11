@@ -25,7 +25,11 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "aws-cdk-lib>=2.170.0",
+    "boto3>=1.35.0",
+    "constructs>=10.4.0",
     "httpx>=0.28.0",
+    "moto[glue]>=5.0.0",
     "mypy>=1.17.0",
     "pytest>=8.4.0",
     "pytest-cov>=6.2.0",
@@ -63,5 +67,16 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["youth_compass"]
-exclude = ["^adapters/aws/"]
+files = ["src", "apps", "scripts", "infra"]
+exclude = [
+    # Stage 2 delivers these adapters; they are type-checked when they land.
+    "^adapters/aws/",
+    # CDK writes generated CloudFormation JSON and staging assets here.
+    "^infra/cdk\\.out/",
+]
+
+# botocore ships no type stubs / py.typed marker; scope the untyped-import
+# tolerance to it rather than weakening strict mode elsewhere.
+[[tool.mypy.overrides]]
+module = ["botocore.*", "boto3.*", "moto.*"]
+ignore_missing_imports = true
