@@ -39,6 +39,11 @@ class QualityStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class PublicationStatus(StrEnum):
+    PUBLISHED = "published"
+    QUARANTINED = "quarantined"
+
+
 class CanonicalField(BaseModel):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     description: str
@@ -130,6 +135,45 @@ class QualityReport(BaseModel):
     def row_counts_must_be_consistent(self) -> Self:
         if self.rows_accepted + self.rows_rejected != self.rows_received:
             raise ValueError("accepted and rejected row counts must equal rows_received")
+        return self
+
+
+class PublicationManifest(BaseModel):
+    dataset_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    dataset_version: str
+    topic: str
+    source_uri: str
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    mapping_version: str
+    transformation_version: str
+    approved_by: str
+    status: PublicationStatus
+    output_uri: str
+    parquet_uri: str
+    rejected_rows_uri: str | None = None
+    is_sample: bool = False
+    rows_received: int = Field(ge=0)
+    rows_accepted: int = Field(ge=0)
+    rows_filtered_out: int = Field(ge=0)
+    rows_filtered_youth: int = Field(ge=0)
+    rows_filtered_totals: int = Field(ge=0)
+    rows_rejected: int = Field(ge=0)
+    observation_count: int = Field(ge=0)
+    estimated_observation_count: int = Field(ge=0)
+    quality: QualityReport
+    reused: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def publication_counts_must_be_consistent(self) -> Self:
+        if self.rows_accepted + self.rows_rejected != self.rows_received:
+            raise ValueError("accepted and rejected row counts must equal rows_received")
+        if self.rows_filtered_out > self.rows_accepted:
+            raise ValueError("filtered rows cannot exceed accepted rows")
+        if self.rows_filtered_youth + self.rows_filtered_totals != self.rows_filtered_out:
+            raise ValueError("filtered row reasons must equal rows_filtered_out")
+        if self.estimated_observation_count > self.observation_count:
+            raise ValueError("estimated observations cannot exceed observations")
         return self
 
 

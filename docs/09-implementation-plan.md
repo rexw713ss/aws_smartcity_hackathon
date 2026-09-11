@@ -134,6 +134,8 @@ Review canonical schema, metric scope, and weighting assumptions.
 
 Estimated effort: 2-3 days.
 
+Current status: profiling, mapping, deterministic transformation, Parquet verification, quality/quarantine gates, lineage manifests, and idempotent version paths are implemented. The SQLite catalog, persisted approval pause/resume, and published-version pointer remain for the next backend slice.
+
 ### Tasks
 
 - Implement local object store and SQLite catalog.

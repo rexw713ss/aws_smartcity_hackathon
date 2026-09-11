@@ -12,6 +12,8 @@ from youth_compass.domain.contracts import (
     MappingProposal,
     MetricMapping,
     PopulationScope,
+    PublicationManifest,
+    PublicationStatus,
     QualityReport,
     QualityStatus,
 )
@@ -99,3 +101,39 @@ def test_dataset_metadata_requires_sha256() -> None:
             quality_score=0.0,
             created_at=datetime.now(UTC),
         )
+
+
+def test_publication_manifest_enforces_lineage_counts() -> None:
+    quality = QualityReport(
+        status=QualityStatus.VALID,
+        quality_score=1.0,
+        rows_received=2,
+        rows_accepted=2,
+        rows_rejected=0,
+    )
+    manifest = PublicationManifest(
+        dataset_id="population",
+        dataset_version="version-1",
+        topic="population",
+        source_uri="data/source/population.csv",
+        source_sha256="a" * 64,
+        mapping_version="mapping-v1",
+        transformation_version="canonical-v1",
+        approved_by="reviewer",
+        status=PublicationStatus.PUBLISHED,
+        output_uri="data/curated/population/version=1",
+        parquet_uri="data/curated/population/version=1/part-000.parquet",
+        rows_received=2,
+        rows_accepted=2,
+        rows_filtered_out=1,
+        rows_filtered_youth=1,
+        rows_filtered_totals=0,
+        rows_rejected=0,
+        observation_count=1,
+        estimated_observation_count=1,
+        quality=quality,
+    )
+    assert manifest.approved_by == "reviewer"
+
+    with pytest.raises(ValidationError, match="filtered rows cannot exceed accepted rows"):
+        PublicationManifest.model_validate({**manifest.model_dump(), "rows_filtered_out": 3})

@@ -153,15 +153,21 @@ For the hackathon MVP, all newly introduced topics should require approval even 
 Transformation runs only registered functions:
 
 ```text
-parse_roc_year
+parse_year
+parse_month
 normalize_district
+normalize_district_code
 normalize_gender
 parse_age_range
-calculate_youth_overlap
-normalize_unit
-remove_verified_total_rows
-cast_numeric
+parse_integer
+parse_float
+normalize_education
+normalize_marital_status
+normalize_direction
+normalize_event
 ```
+
+Youth overlap calculation and verified-total removal are deterministic pipeline policies layered on the registered field transformations. Unknown transformation names are never executed.
 
 Every output row retains:
 
@@ -171,6 +177,8 @@ Every output row retains:
 - transformation version;
 - estimation flag;
 - rejection reason when applicable.
+
+The local implementation emits a stable long-form canonical observation schema. Youth-specific rows outside 18-35 and verified total rows are counted as intentional filters, not rejected data. Partially overlapping additive person/household metrics retain both original and weighted values.
 
 ### 4.9 Quality check
 

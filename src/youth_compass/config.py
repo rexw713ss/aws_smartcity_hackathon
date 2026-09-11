@@ -22,6 +22,14 @@ class ProfileSettings(BaseModel):
     duplicate_check_limit: int = Field(default=100_000, ge=1_000)
 
 
+class TransformSettings(BaseModel):
+    """Limits and versioning for deterministic CSV transformation."""
+
+    batch_size: int = Field(default=10_000, ge=100, le=100_000)
+    max_rejection_rate: float = Field(default=0.01, ge=0.0, le=1.0)
+    transformation_version: str = Field(default="canonical-v1", min_length=1)
+
+
 # --- Provider selection ------------------------------------------------------
 #
 # Each Port is satisfied by one Adapter, chosen by configuration rather than
@@ -117,6 +125,7 @@ class AppSettings(BaseSettings):
     environment: str = "local"
     data_root: Path = Path("data")
     profile: ProfileSettings = ProfileSettings()
+    transform: TransformSettings = TransformSettings()
 
     storage: StorageSettings | None = None
     catalog: CatalogSettings | None = None
