@@ -10,6 +10,8 @@ from youth_compass.domain.contracts import (
     MappingValidationIssue,
     MappingValidationReport,
     MetricMapping,
+    PublicationManifest,
+    PublicationStatus,
     QualityIssue,
     QualityReport,
 )
@@ -40,6 +42,8 @@ __all__ = [
     "MetricMapping",
     "PrimitiveType",
     "ProfileWarning",
+    "PublicationManifest",
+    "PublicationStatus",
     "QualityIssue",
     "QualityReport",
     "SemanticRole",

@@ -59,3 +59,47 @@ def test_map_command_reports_unmappable_schema_without_traceback(tmp_path: Path)
     assert result.exit_code == 2
     assert "No canonical grain dimensions could be inferred" in result.output
     assert "Traceback" not in result.output
+
+
+def test_transform_command_requires_explicit_reviewer() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["transform", "tests/fixtures/employment_unfamiliar.csv"],
+    )
+
+    assert result.exit_code == 2
+    assert "--approved-by" in result.output
+
+
+def test_transform_command_emits_manifest(tmp_path: Path) -> None:
+    source = tmp_path / "population.csv"
+    source.write_text(
+        "year,district,age,population\n2025,板橋區,20-24,100\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "manifest-output.json"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        [
+            "transform",
+            str(source),
+            "--approved-by",
+            "cli-reviewer",
+            "--output-root",
+            str(tmp_path / "curated"),
+            "--quarantine-root",
+            str(tmp_path / "quarantined"),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "published"
+    assert payload["approved_by"] == "cli-reviewer"
+    assert Path(payload["parquet_uri"]).is_file()

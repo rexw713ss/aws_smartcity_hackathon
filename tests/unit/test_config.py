@@ -13,9 +13,11 @@ def test_load_settings_from_yaml(tmp_path: Path) -> None:
     assert settings.environment == "test"
     assert settings.data_root == Path("custom-data")
     assert settings.profile.sample_value_limit == 7
+    assert settings.transform.transformation_version == "canonical-v1"
 
 
 def test_missing_yaml_uses_defaults(tmp_path: Path) -> None:
     settings = AppSettings.from_yaml(tmp_path / "missing.yaml")
     assert settings.environment == "local"
     assert settings.data_root == Path("data")
+    assert settings.transform.batch_size == 10_000
