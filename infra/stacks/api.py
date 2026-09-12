@@ -141,7 +141,9 @@ class ApiStack(TaggedStack):
         incoming_bucket_name: str,
         curated_bucket_name: str,
         metadata_table_name: str,
+        metadata_bucket_name: str,
         glue_database_name: str,
+        athena_workgroup_name: str,
         state_machine_arn: str,
         region: str,
         model_id: str,
@@ -216,6 +218,15 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_METADATA_TABLE": metadata_table_name,
                 "YOUTH_COMPASS_GLUE_DATABASE": glue_database_name,
                 "YOUTH_COMPASS_STATE_MACHINE_ARN": state_machine_arn,
+                # Read analytics through Glue + Athena over the curated zone.
+                "YOUTH_COMPASS_CATALOG__PROVIDER": "glue",
+                "YOUTH_COMPASS_CATALOG__DATABASE": glue_database_name,
+                "YOUTH_COMPASS_QUERY__PROVIDER": "athena",
+                "YOUTH_COMPASS_QUERY__WORKGROUP": athena_workgroup_name,
+                "YOUTH_COMPASS_ATHENA_RESULTS_BUCKET": metadata_bucket_name,
+                "YOUTH_COMPASS_STORAGE__PROVIDER": "s3",
+                "YOUTH_COMPASS_STORAGE__BUCKET": curated_bucket_name,
+                "YOUTH_COMPASS_FORECAST__PROVIDER": "local",
                 # Bedrock: ap-northeast-1 is SCP-denied on the hackathon
                 # account, so the model region follows this stack's region.
                 "YOUTH_COMPASS_MODEL__PROVIDER": "bedrock",
@@ -258,6 +269,46 @@ class ApiStack(TaggedStack):
                 resources=_bedrock_resources(model_id, region),
             )
         )
+
+        # Read-only analytics through Athena over the curated zone. The API can
+        # run queries in this one workgroup and read their metadata/results, and
+        # read Glue schemas — but it cannot create or drop tables, and (below)
+        # cannot write or delete curated objects. Only the workflow publishes.
+        metadata_bucket = s3.Bucket.from_bucket_name(
+            self, "MetadataBucketRef", metadata_bucket_name
+        )
+        self.api_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "athena:StartQueryExecution",
+                    "athena:GetQueryExecution",
+                    "athena:GetQueryResults",
+                    "athena:StopQueryExecution",
+                    "athena:GetWorkGroup",
+                ],
+                resources=[
+                    f"arn:aws:athena:{region}:{cdk.Aws.ACCOUNT_ID}:workgroup/{athena_workgroup_name}"
+                ],
+            )
+        )
+        self.api_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "glue:GetTable",
+                    "glue:GetTables",
+                    "glue:GetDatabase",
+                    "glue:GetPartitions",
+                ],
+                resources=[
+                    f"arn:aws:glue:{region}:{cdk.Aws.ACCOUNT_ID}:catalog",
+                    f"arn:aws:glue:{region}:{cdk.Aws.ACCOUNT_ID}:database/{glue_database_name}",
+                    f"arn:aws:glue:{region}:{cdk.Aws.ACCOUNT_ID}:table/{glue_database_name}/*",
+                ],
+            )
+        )
+        # Athena writes query results into the metadata bucket and reads them
+        # back; scoped to the results prefix, not the whole bucket.
+        metadata_bucket.grant_read_write(self.api_fn, "athena-results/*")
 
         # --- HTTP API ---
         self.http_api = apigw.HttpApi(

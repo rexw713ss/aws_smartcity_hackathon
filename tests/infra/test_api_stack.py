@@ -43,7 +43,9 @@ def template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Template:
         incoming_bucket_name="incoming-bucket",
         curated_bucket_name="curated-bucket",
         metadata_table_name="metadata-table",
+        metadata_bucket_name="metadata-bucket",
         glue_database_name="youth_compass_hackathon",
+        athena_workgroup_name="youthcompass-analytics",
         state_machine_arn=STATE_MACHINE_ARN,
         region=PLACEHOLDER_REGION,
         model_id=MODEL_ID,
@@ -155,6 +157,30 @@ class TestApiPermissions:
             and "curated-bucket" in json.dumps(statement.get("Resource"))
         ]
         assert curated_writes == []
+
+    def test_can_query_athena_but_not_mutate_the_catalog(self, template: Template) -> None:
+        actions = {
+            action
+            for statement in self._statements(template)
+            for action in _as_list(statement.get("Action"))
+        }
+        # The acceptance test requires the API role to run queries...
+        assert "athena:StartQueryExecution" in actions
+        assert "glue:GetTable" in actions
+        # ...but never to create, drop, or alter tables.
+        for forbidden in ("glue:CreateTable", "glue:UpdateTable", "glue:DeleteTable"):
+            assert forbidden not in actions
+
+    def test_glue_read_is_scoped_to_the_one_database(self, template: Template) -> None:
+        glue_reads = [
+            statement
+            for statement in self._statements(template)
+            if any(a.startswith("glue:Get") for a in _as_list(statement.get("Action")))
+        ]
+        assert glue_reads, "expected a Glue read statement"
+        resources = json.dumps(glue_reads[0]["Resource"])
+        assert "youth_compass_hackathon" in resources
+        assert '"*"' not in resources
 
 
 class TestHttpApi:
