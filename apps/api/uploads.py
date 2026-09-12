@@ -24,6 +24,7 @@ from adapters.aws.s3_uploads import (
     UploadNotReadyError,
 )
 from adapters.aws.step_functions_runner import StepFunctionsRunner
+from adapters.aws.workflow_token_store import WorkflowTokenStore
 from apps.api.schemas import ApiModel
 from youth_compass.domain.errors import YouthCompassError
 from youth_compass.ports import (
@@ -102,12 +103,23 @@ def _runner(request: Request) -> WorkflowRunner:
             detail="ingestion workflow is not configured (YOUTH_COMPASS_STATE_MACHINE_ARN unset)",
         )
     region = os.environ.get("YOUTH_COMPASS_REGION", "us-east-1")
-    cache_key = (state_machine_arn, region)
+    metadata_table = os.environ.get("YOUTH_COMPASS_METADATA_TABLE")
+    cache_key = (state_machine_arn, region, metadata_table)
     cached = getattr(request.app.state, "aws_workflow_runner", None)
     if cached is None or cached[0] != cache_key:
+        # A durable token store makes approval state survive API/Lambda restarts
+        # (PR2). Without a configured table the runner falls back to in-process
+        # state, which is only appropriate for local development.
+        token_store = (
+            WorkflowTokenStore(table_name=metadata_table, region=region) if metadata_table else None
+        )
         cached = (
             cache_key,
-            StepFunctionsRunner(state_machine_arn=state_machine_arn, region=region),
+            StepFunctionsRunner(
+                state_machine_arn=state_machine_arn,
+                region=region,
+                token_store=token_store,
+            ),
         )
         request.app.state.aws_workflow_runner = cached
     return cached[1]

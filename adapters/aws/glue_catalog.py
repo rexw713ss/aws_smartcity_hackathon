@@ -22,7 +22,7 @@ class GlueCatalog:
         self,
         database: str,
         table_name: str,
-        region: str = "ap-northeast-1",
+        region: str = "us-east-1",
     ) -> None:
         self._database = database
         self._table_name = table_name

@@ -110,14 +110,13 @@ class S3UploadSigner:
             or len(submitted_by) > _MAX_SUBMITTED_BY_LENGTH
             or not submitted_by.isprintable()
         ):
-            raise UploadNotPermittedError(
-                "submitted_by must contain 1-256 printable characters"
-            )
+            raise UploadNotPermittedError("submitted_by must contain 1-256 printable characters")
 
         correlation_id = job_id or f"job-{uuid.uuid4().hex}"
-        if not correlation_id.startswith("job-") or not correlation_id.removeprefix(
-            "job-"
-        ).isalnum():
+        if (
+            not correlation_id.startswith("job-")
+            or not correlation_id.removeprefix("job-").isalnum()
+        ):
             raise UploadNotPermittedError("job_id must use the generated job-<id> format")
 
         # Generated key: never trust the client's filename for the S3 key. The

@@ -26,6 +26,7 @@ try:
     # Imported for their registration side effects (register_* decorators).
     import tests.contract.aws
     import tests.contract.aws.athena_query
+    import tests.contract.aws.dynamodb_checkpoint
     import tests.contract.aws.eventbridge_bus
     import tests.contract.aws.glue_catalog
     import tests.contract.aws.s3_store

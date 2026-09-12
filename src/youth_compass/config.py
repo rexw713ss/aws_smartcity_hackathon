@@ -82,7 +82,7 @@ class QuerySettings(BaseModel):
 class ModelSettings(BaseModel):
     provider: ModelProviderName = ModelProviderName.OLLAMA
     model_id: str | None = None
-    region: str = Field(default="ap-northeast-1", min_length=1)
+    region: str = Field(default="us-east-1", min_length=1)
     timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     max_attempts: int = Field(default=3, ge=1, le=10)
 

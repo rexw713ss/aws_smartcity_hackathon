@@ -20,7 +20,7 @@ _SCHEME = "s3://"
 class S3ObjectStore:
     """ObjectStore backed by a single S3 bucket."""
 
-    def __init__(self, bucket: str, region: str = "ap-northeast-1") -> None:
+    def __init__(self, bucket: str, region: str = "us-east-1") -> None:
         self._bucket = bucket
         self._s3 = boto3.client("s3", region_name=region)
 
