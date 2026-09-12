@@ -479,6 +479,16 @@
               }
             ]
           },
+          "forecast_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForecastResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -1370,6 +1380,74 @@
         ],
         "title": "FileFormat",
         "type": "string"
+      },
+      "ForecastPoint": {
+        "description": "One forecast value with its uncertainty interval.",
+        "properties": {
+          "district_code": {
+            "title": "District Code",
+            "type": "string"
+          },
+          "lower": {
+            "title": "Lower",
+            "type": "number"
+          },
+          "upper": {
+            "title": "Upper",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          },
+          "year_gregorian": {
+            "title": "Year Gregorian",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "district_code",
+          "year_gregorian",
+          "value",
+          "lower",
+          "upper"
+        ],
+        "title": "ForecastPoint",
+        "type": "object"
+      },
+      "ForecastResult": {
+        "description": "Forecast values and the lineage needed to judge them.",
+        "properties": {
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "model_version": {
+            "title": "Model Version",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastPoint"
+            },
+            "minItems": 1,
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "metric_code",
+          "model_version",
+          "points",
+          "generated_at"
+        ],
+        "title": "ForecastResult",
+        "type": "object"
       },
       "GeographyCoverage": {
         "properties": {

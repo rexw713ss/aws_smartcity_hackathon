@@ -12,7 +12,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 
 class TrainingStatus(StrEnum):
@@ -43,14 +43,20 @@ class ForecastPoint(BaseModel):
     lower: float
     upper: float
 
+    @model_validator(mode="after")
+    def _validate_interval(self) -> "ForecastPoint":
+        if not self.lower <= self.value <= self.upper:
+            raise ValueError("forecast interval must contain the point estimate")
+        return self
+
 
 class ForecastResult(BaseModel):
     """Forecast values and the lineage needed to judge them."""
 
     metric_code: str
     model_version: str
-    points: list[ForecastPoint]
-    generated_at: datetime
+    points: list[ForecastPoint] = Field(min_length=1)
+    generated_at: AwareDatetime
 
 
 class TrainingRequest(BaseModel):

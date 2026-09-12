@@ -38,6 +38,9 @@ from aws_cdk import (
     aws_apigatewayv2_integrations as integrations,
 )
 from aws_cdk import (
+    aws_athena as athena,
+)
+from aws_cdk import (
     aws_cloudfront as cloudfront,
 )
 from aws_cdk import (
@@ -140,6 +143,7 @@ class ApiStack(TaggedStack):
         env_config: EnvironmentConfig,
         incoming_bucket_name: str,
         curated_bucket_name: str,
+        metadata_bucket_name: str,
         metadata_table_name: str,
         glue_database_name: str,
         state_machine_arn: str,
@@ -193,7 +197,24 @@ class ApiStack(TaggedStack):
         # --- API Lambda ---
         incoming = s3.Bucket.from_bucket_name(self, "IncomingRef", incoming_bucket_name)
         curated = s3.Bucket.from_bucket_name(self, "CuratedRef", curated_bucket_name)
+        metadata = s3.Bucket.from_bucket_name(self, "MetadataBucketRef", metadata_bucket_name)
         metadata_table = dynamodb.Table.from_table_name(self, "MetadataRef", metadata_table_name)
+        athena_workgroup_name = f"youth-compass-{env_config.name}"
+        athena_workgroup = athena.CfnWorkGroup(
+            self,
+            "CopilotAthenaWorkGroup",
+            name=athena_workgroup_name,
+            description="Cost-capped read-only queries for Youth Compass Agent observations",
+            state="ENABLED",
+            work_group_configuration=athena.CfnWorkGroup.WorkGroupConfigurationProperty(
+                bytes_scanned_cutoff_per_query=100 * 1024 * 1024,
+                enforce_work_group_configuration=True,
+                publish_cloud_watch_metrics_enabled=True,
+                result_configuration=athena.CfnWorkGroup.ResultConfigurationProperty(
+                    output_location=f"s3://{metadata_bucket_name}/athena-results/"
+                ),
+            ),
+        )
 
         self.api_fn = lambda_.Function(
             self,
@@ -216,6 +237,14 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_METADATA_TABLE": metadata_table_name,
                 "YOUTH_COMPASS_GLUE_DATABASE": glue_database_name,
                 "YOUTH_COMPASS_STATE_MACHINE_ARN": state_machine_arn,
+                "YOUTH_COMPASS_STORAGE__PROVIDER": "s3",
+                "YOUTH_COMPASS_STORAGE__BUCKET": curated_bucket_name,
+                "YOUTH_COMPASS_CATALOG__PROVIDER": "glue",
+                "YOUTH_COMPASS_CATALOG__DATABASE": glue_database_name,
+                "YOUTH_COMPASS_CATALOG__TABLE_NAME": metadata_table_name,
+                "YOUTH_COMPASS_QUERY__PROVIDER": "athena",
+                "YOUTH_COMPASS_QUERY__WORKGROUP": athena_workgroup_name,
+                "YOUTH_COMPASS_QUERY__OUTPUT_BUCKET": metadata_bucket_name,
                 # Bedrock: ap-northeast-1 is SCP-denied on the hackathon
                 # account, so the model region follows this stack's region.
                 "YOUTH_COMPASS_MODEL__PROVIDER": "bedrock",
@@ -231,6 +260,57 @@ class ApiStack(TaggedStack):
         incoming.grant_read_write(self.api_fn)
         curated.grant_read(self.api_fn)
         metadata_table.grant_read_write_data(self.api_fn)
+
+        self.api_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetBucketLocation", "s3:ListBucket"],
+                resources=[metadata.bucket_arn],
+                conditions={"StringLike": {"s3:prefix": ["athena-results/*"]}},
+            )
+        )
+        self.api_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:AbortMultipartUpload", "s3:GetObject", "s3:PutObject"],
+                resources=[metadata.arn_for_objects("athena-results/*")],
+            )
+        )
+
+        self.api_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "athena:GetQueryExecution",
+                    "athena:GetQueryResults",
+                    "athena:StartQueryExecution",
+                    "athena:StopQueryExecution",
+                ],
+                resources=[
+                    f"arn:{cdk.Aws.PARTITION}:athena:{region}:"
+                    f"{cdk.Aws.ACCOUNT_ID}:workgroup/{athena_workgroup_name}"
+                ],
+            )
+        )
+        self.api_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "glue:GetDatabase",
+                    "glue:GetPartitions",
+                    "glue:GetTable",
+                    "glue:GetTables",
+                ],
+                resources=[
+                    f"arn:{cdk.Aws.PARTITION}:glue:{region}:{cdk.Aws.ACCOUNT_ID}:catalog",
+                    (
+                        f"arn:{cdk.Aws.PARTITION}:glue:{region}:"
+                        f"{cdk.Aws.ACCOUNT_ID}:database/{glue_database_name}"
+                    ),
+                    (
+                        f"arn:{cdk.Aws.PARTITION}:glue:{region}:"
+                        f"{cdk.Aws.ACCOUNT_ID}:table/{glue_database_name}/*"
+                    ),
+                ],
+            )
+        )
+        athena_workgroup.node.add_dependency(metadata)
 
         # Resuming a paused approval. This is the permission a deployed API was
         # previously missing entirely.

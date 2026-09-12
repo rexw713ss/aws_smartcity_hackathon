@@ -41,6 +41,7 @@ from youth_compass.agent.planning import (
     ToolCapabilityRegistry,
     default_decision_capabilities,
     register_acquisition_capabilities,
+    register_forecast_capabilities,
     register_observation_capabilities,
 )
 from youth_compass.agent.visualization import VisualizationBuilder
@@ -53,13 +54,22 @@ from youth_compass.decisioning import (
     FeatureRegistry,
     FeatureValue,
 )
+from youth_compass.domain.contracts import DatasetMetadata
 from youth_compass.domain.errors import (
     ModelInvocationError,
     QueryExecutionError,
     SourceAcquisitionError,
     YouthCompassError,
 )
-from youth_compass.ports import DataRequirement, ModelProvider, ModelRequest, SourceCandidate
+from youth_compass.ports import (
+    DataRequirement,
+    ForecastRequest,
+    ForecastResult,
+    ForecastService,
+    ModelProvider,
+    ModelRequest,
+    SourceCandidate,
+)
 
 
 class CopilotPlanner(Protocol):
@@ -157,6 +167,7 @@ class GroundedCopilotService:
         decomposer: QueryDecomposer | None = None,
         capabilities: ToolCapabilityRegistry | None = None,
         observation_tools: ObservationToolSuite | None = None,
+        forecast_service: ForecastService | None = None,
         answer_composer: AnswerComposer | None = None,
         acquisition: DataAcquisitionService | None = None,
         visualization_builder: VisualizationBuilder | None = None,
@@ -167,6 +178,7 @@ class GroundedCopilotService:
         self._planner = planner or DeterministicCopilotPlanner()
         self._decomposer = decomposer or DeterministicQueryDecomposer()
         self._observation_tools = observation_tools
+        self._forecast_service = forecast_service
         self._acquisition = acquisition
         self._visualizations = visualization_builder or VisualizationBuilder()
         deterministic_composer = DeterministicAnswerComposer()
@@ -178,6 +190,8 @@ class GroundedCopilotService:
         self._capabilities = capabilities or default_decision_capabilities()
         if capabilities is None and observation_tools is not None:
             register_observation_capabilities(self._capabilities)
+        if capabilities is None and forecast_service is not None:
+            register_forecast_capabilities(self._capabilities)
         if capabilities is None and acquisition is not None:
             register_acquisition_capabilities(self._capabilities)
         self._router = SmartToolRouter(self._capabilities)
@@ -468,6 +482,15 @@ class GroundedCopilotService:
                 ),
             )
         )
+        if AnalysisOperation.FORECAST_METRIC in decomposition.operations:
+            return await self._answer_forecast(
+                now,
+                decomposition,
+                routed_plan,
+                trace,
+                inspection,
+                metadata,
+            )
         if AnalysisOperation.QUERY_OBSERVATIONS not in decomposition.operations:
             fallback_answer = (
                 f"{inspection.dataset_id}@{inspection.dataset_version} contains "
@@ -599,6 +622,102 @@ class GroundedCopilotService:
                 "Canonical rows sharing an entity, period, metric, unit, and scope are summed.",
                 "Changes compare the first and last observations in the requested period.",
             ),
+            visualizations=visualizations,
+        )
+
+    async def _answer_forecast(
+        self,
+        now: datetime,
+        decomposition: DecomposedQuery,
+        routed_plan: RoutedToolPlan,
+        trace: list[ToolTrace],
+        inspection: DatasetInspection,
+        metadata: DatasetMetadata,
+    ) -> CopilotResponse:
+        service = self._forecast_service
+        if service is None:
+            raise RuntimeError("forecast service is unavailable")
+        try:
+            result = service.get_forecast(
+                ForecastRequest(
+                    metric_code=inspection.metric_code,
+                    district_codes=list(decomposition.entity_ids),
+                    horizon_years=_forecast_horizon(decomposition.time_expression, now.year),
+                    as_of=now.date(),
+                )
+            )
+        except YouthCompassError as exc:
+            trace.append(
+                ToolTrace(tool="forecast_metric", outcome="unavailable", summary=str(exc)[:300])
+            )
+            return self._observation_failure(
+                now,
+                decomposition,
+                routed_plan,
+                trace,
+                warning=str(exc),
+                inspection=inspection,
+            )
+        trace.append(
+            ToolTrace(
+                tool="forecast_metric",
+                outcome="ok",
+                summary=(f"retrieved {len(result.points)} points from {result.model_version}"),
+            )
+        )
+        citation = EvidenceCitation(
+            citation_id="data-1",
+            dataset_id=inspection.dataset_id,
+            dataset_version=inspection.dataset_version,
+            quality_score=inspection.quality_score,
+            retrieved_at=metadata.published_at or metadata.created_at,
+        )
+        if AnalysisOperation.EXPLAIN_LINEAGE in decomposition.operations:
+            trace.append(
+                ToolTrace(
+                    tool="explain_lineage",
+                    outcome="ok",
+                    summary=(f"attached input dataset citation and model {result.model_version}"),
+                )
+            )
+        fallback_answer = _forecast_answer(result)
+        answer = await self._compose_answer(
+            AnswerCompositionContext(
+                question=decomposition.original_question,
+                analysis_type="forecast",
+                grounded_facts_json=_grounded_json(
+                    {
+                        "dataset_inspection": inspection.model_dump(mode="json"),
+                        "forecast": result.model_dump(mode="json"),
+                        "citation": citation.model_dump(mode="json"),
+                    }
+                ),
+                allowed_citation_ids=(citation.citation_id,),
+                fallback_answer=fallback_answer,
+            ),
+            trace,
+        )
+        visualizations = self._visualizations.forecast(
+            decomposition.original_question,
+            result,
+            (citation.citation_id,),
+        )
+        self._trace_visualizations(trace, visualizations)
+        return CopilotResponse(
+            status=CopilotStatus.ANSWERED,
+            answer=answer,
+            generated_at=now,
+            decomposition=decomposition,
+            routed_plan=routed_plan,
+            dataset_inspection=inspection,
+            forecast_result=result,
+            citations=(citation,),
+            tool_trace=tuple(trace),
+            assumptions=(
+                "Forecast points come from the latest published model available as of the request.",
+                "Intervals describe model uncertainty and are not guaranteed outcomes.",
+            ),
+            warnings=("The forecast is predictive, not evidence of policy causation.",),
             visualizations=visualizations,
         )
 
@@ -851,6 +970,29 @@ def _observation_answer(series: ObservationSeries, comparison: EntityComparison 
     return (
         f"For {series.metric_code}, " + "; ".join(summaries) + ". "
         "Values come from the cited published dataset version."
+    )
+
+
+def _forecast_horizon(time_expression: str | None, current_year: int) -> int:
+    if time_expression is None:
+        return 3
+    count = re.search(r"(\d+)\s*(?:years?|năm|年)", time_expression)
+    if count:
+        return max(1, min(20, int(count.group(1))))
+    years = [int(value) for value in re.findall(r"(?:19|20)\d{2}", time_expression)]
+    if years:
+        return max(1, min(20, max(years) - current_year))
+    return 3
+
+
+def _forecast_answer(result: ForecastResult) -> str:
+    first = result.points[0]
+    last = result.points[-1]
+    return (
+        f"Model {result.model_version} forecasts {result.metric_code} from "
+        f"{first.year_gregorian} to {last.year_gregorian}. The final point estimate is "
+        f"{last.value:g}, with an uncertainty interval from {last.lower:g} to "
+        f"{last.upper:g}."
     )
 
 

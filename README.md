@@ -74,3 +74,7 @@ manifests and hostname allowlists are configured.
 Copilot answers also include versioned, frontend-independent chart and table specifications for
 decision rankings, feature contributions, observation trends, comparisons, dataset coverage, and
 source candidates. See `docs/23-answer-visualizations.md`.
+
+The AWS Agent observation path is wired to a cost-capped Athena workgroup and a Glue/DynamoDB
+published-version catalog. It activates once ingestion publishes canonical Parquet plus the
+metadata pointer contract documented in `docs/24-athena-agent-runtime.md`.

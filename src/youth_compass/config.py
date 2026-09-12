@@ -72,11 +72,15 @@ class StorageSettings(BaseModel):
 class CatalogSettings(BaseModel):
     provider: CatalogProvider = CatalogProvider.SQLITE
     database: str | None = None
+    table_name: str | None = None
 
 
 class QuerySettings(BaseModel):
     provider: QueryProvider = QueryProvider.DUCKDB
     workgroup: str | None = None
+    output_bucket: str | None = None
+    timeout_seconds: int = Field(default=20, ge=1, le=120)
+    scan_limit_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
 
 
 class ModelSettings(BaseModel):
@@ -202,6 +206,7 @@ class AppSettings(BaseSettings):
     )
 
     environment: str = "local"
+    region: str = Field(default="us-east-1", min_length=1)
     data_root: Path = Path("data")
     profile: ProfileSettings = ProfileSettings()
     transform: TransformSettings = TransformSettings()

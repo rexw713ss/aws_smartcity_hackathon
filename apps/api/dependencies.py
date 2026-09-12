@@ -8,6 +8,7 @@ from adapters.local import (
     DuckDBQueryEngine,
     FileSystemObjectStore,
     LocalTabularSourceAdapter,
+    PrecomputedParquetForecastService,
     SQLiteCatalog,
     SQLiteCheckpointStore,
     SystemClock,
@@ -22,11 +23,20 @@ from youth_compass.agent import (
     ObservationToolSuite,
     default_decision_capabilities,
     register_acquisition_capabilities,
+    register_forecast_capabilities,
     register_observation_capabilities,
 )
+from youth_compass.agent.observation_tools import DatasetCatalogReader, QueryEngineFactory
 from youth_compass.analytics import CuratedAnalyticsService
 from youth_compass.application import LocalIngestionWorkflow, LocalWorkflowOptions
-from youth_compass.config import AppSettings, ModelProviderName, load_settings
+from youth_compass.config import (
+    AppSettings,
+    CatalogProvider,
+    ForecastProvider,
+    ModelProviderName,
+    QueryProvider,
+    load_settings,
+)
 from youth_compass.decisioning import (
     DEFAULT_DECISION_PROFILES,
     DEFAULT_FEATURES,
@@ -47,6 +57,8 @@ class LocalRuntime:
         self.settings = settings or load_settings()
         metadata_database = self.data_root / "metadata" / "youth-compass.sqlite3"
         self.catalog = SQLiteCatalog(metadata_database)
+        self._agent_catalog: DatasetCatalogReader = self.catalog
+        self._agent_query_engine_factory: QueryEngineFactory = self._local_observation_query_engine
         self.checkpoints = SQLiteCheckpointStore(metadata_database)
         self.feature_registry = FeatureRegistry(DEFAULT_FEATURES)
         self.profile_registry = DecisionProfileRegistry(DEFAULT_DECISION_PROFILES)
@@ -81,14 +93,15 @@ class LocalRuntime:
             self.workflow,
             result_limit=self.settings.acquisition.result_limit,
         )
+        self._configure_agent_observation_backend()
 
     def analytics(self, dataset_id: str) -> CuratedAnalyticsService:
         metadata = self.catalog.get(dataset_id)
         if metadata.status is not DatasetStatus.PUBLISHED:
             raise AnalyticsNotAvailableError(f"dataset {dataset_id!r} has no published version")
-        return CuratedAnalyticsService(self._observation_query_engine(metadata), metadata)
+        return CuratedAnalyticsService(self._local_observation_query_engine(metadata), metadata)
 
-    def _observation_query_engine(self, metadata: DatasetMetadata) -> DuckDBQueryEngine:
+    def _local_observation_query_engine(self, metadata: DatasetMetadata) -> DuckDBQueryEngine:
         """Build an allowlisted engine for one immutable canonical dataset version."""
 
         parquet = (
@@ -104,6 +117,54 @@ class LocalRuntime:
             allowed_dimensions=set(CANONICAL_FIELDS) - {"metric_value"},
         )
 
+    def _configure_agent_observation_backend(self) -> None:
+        """Select Athena only for Agent observation tools in an AWS runtime."""
+
+        catalog = self.settings.catalog
+        query = self.settings.query
+        if catalog is None or query is None:
+            return
+        wants_aws = (
+            catalog.provider is CatalogProvider.GLUE or query.provider is QueryProvider.ATHENA
+        )
+        if not wants_aws:
+            return
+        if (
+            catalog.provider is not CatalogProvider.GLUE
+            or query.provider is not QueryProvider.ATHENA
+        ):
+            raise ConfigurationError("Agent observations require Glue and Athena together")
+        if not catalog.database or not catalog.table_name:
+            raise ConfigurationError("Glue Agent observations require database and table_name")
+        if not query.workgroup or not query.output_bucket:
+            raise ConfigurationError(
+                "Athena Agent observations require workgroup and output_bucket"
+            )
+
+        from adapters.aws.athena_query import AthenaQueryEngine
+        from adapters.aws.glue_catalog import GlueCatalog
+
+        self._agent_catalog = GlueCatalog(
+            database=catalog.database,
+            table_name=catalog.table_name,
+            region=self.settings.region,
+        )
+
+        def build(metadata: DatasetMetadata) -> AthenaQueryEngine:
+            return AthenaQueryEngine(
+                database=catalog.database or "",
+                workgroup=query.workgroup or "",
+                output_bucket=query.output_bucket or "",
+                region=self.settings.region,
+                allowed_tables={metadata.dataset_id},
+                allowed_metrics={"metric_value"},
+                allowed_dimensions=set(CANONICAL_FIELDS) - {"metric_value"},
+                timeout_seconds=query.timeout_seconds,
+                scan_limit_bytes=query.scan_limit_bytes,
+            )
+
+        self._agent_query_engine_factory = build
+
     def copilot(self) -> GroundedCopilotService:
         """Build the offline agent over the current immutable feature snapshot."""
 
@@ -111,6 +172,11 @@ class LocalRuntime:
             return self._copilot_service
         decomposer = None
         answer_composer = None
+        forecast_service = None
+        if self.settings.forecast and self.settings.forecast.provider is ForecastProvider.LOCAL:
+            forecast_service = PrecomputedParquetForecastService(
+                self.data_root / "forecasts" / "current.parquet"
+            )
         if self.settings.model and self.settings.model.provider is ModelProviderName.BEDROCK:
             from adapters.aws.bedrock_model import BedrockModelProvider
 
@@ -131,6 +197,8 @@ class LocalRuntime:
                 capabilities = default_decision_capabilities()
                 register_observation_capabilities(capabilities)
                 register_acquisition_capabilities(capabilities)
+                if forecast_service is not None:
+                    register_forecast_capabilities(capabilities)
                 decomposer = FallbackQueryDecomposer(
                     ModelQueryDecomposer(bedrock, capabilities), DeterministicQueryDecomposer()
                 )
@@ -146,7 +214,10 @@ class LocalRuntime:
             profile_registry=self.profile_registry,
             decomposer=decomposer,
             answer_composer=answer_composer,
-            observation_tools=ObservationToolSuite(self.catalog, self._observation_query_engine),
+            observation_tools=ObservationToolSuite(
+                self._agent_catalog, self._agent_query_engine_factory
+            ),
+            forecast_service=forecast_service,
             acquisition=self.acquisition,
         )
         return self._copilot_service

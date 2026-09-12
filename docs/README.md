@@ -45,6 +45,8 @@ The system has three core capabilities:
 | [21-api-deployment.md](./21-api-deployment.md) | Deployed API and static site: live URLs, frontend integration, write-token and CORS model, deploy commands, and what changed in shared code |
 | [22-dynamic-data-acquisition.md](./22-dynamic-data-acquisition.md) | Controlled source discovery, HTTPS acquisition, ingestion handoff, and remaining replay work |
 | [23-answer-visualizations.md](./23-answer-visualizations.md) | Versioned chart/table contract, deterministic visualization builders, and frontend handoff |
+| [24-athena-agent-runtime.md](./24-athena-agent-runtime.md) | Glue published-pointer lookup, Athena Agent wiring, security guardrails, and activation contract |
+| [25-precomputed-forecast-agent.md](./25-precomputed-forecast-agent.md) | Retrieval-only forecast tool, Parquet contract, and Agent flow |
 | [aws-architecture.md](./aws-architecture.md) | Full AWS architecture diagram: all services, data flow, security boundary |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 

@@ -20,7 +20,7 @@ This is a living status document, not a design document. The numbered `docs/00-`
 | Stage 3 — generative AI (Bedrock + grounded copilot) | **Done**, merged, live |
 | Glue table registration on publish | **Done**, deployed, verified live |
 | Public API + static site hosting | **Done**, deployed, verified live — see `docs/21-api-deployment.md` |
-| Forecasting ("Predict" pillar) | **Not implemented** — see section 5 |
+| Forecasting ("Predict" pillar) | **Local retrieval implemented**; artifact generation and AWS adapter remain |
 | Real row-level transform in the deployed Lambda | **Not implemented** — see section 5 |
 | Deployed stacks | Budget, Data, Workflow, Api — all complete in `us-east-1` |
 | Test suite | 588 passing, 1 skipped (opt-in real-AWS test) |
@@ -110,18 +110,17 @@ the account may invoke it.
 
 Being explicit here, because two of these are easy to assume are done.
 
-### 5.1 Forecasting — the "Predict" pillar does not exist
+### 5.1 Forecast publication pipeline and AWS adapter remain
 
-There is **no forecasting implementation at all**, local or AWS:
+The agent now has a production local retrieval path:
 
-- `src/youth_compass/forecasting/` is an **empty directory**
-- `adapters/local/` contains no forecast adapter
-- `adapters/aws/` contains no SageMaker adapter
-- The only `ForecastService` implementation is `tests/contract/reference/forecast_service.py`, registered as `reference` — a **test-only stub** that exists to exercise the contract suite
+- `PrecomputedParquetForecastService` reads the published local artifact;
+- `forecast_metric` is registered with the smart router;
+- API responses include model version, uncertainty intervals, source citation, and line/table visualization specs.
 
-So the `ForecastService` port and its `ForecastRequest` / `ForecastResult` / `ForecastPoint` models are defined and contract-tested, but nothing implements them for production use.
-
-SageMaker has been dropped by decision — local prediction is the agreed direction. That local implementation still needs to be written, and it is currently the largest missing piece of the product story. The architecture already anticipates the cheap path: ship the forecast as a **precomputed Parquet artifact** in the `forecasts/` bucket (per `docs/10` section 11) rather than training anything live.
+What remains is the offline job that generates and atomically publishes
+`data/forecasts/current.parquet`, plus an AWS artifact reader or SageMaker adapter. See
+`docs/25-precomputed-forecast-agent.md` for the exact schema and activation contract.
 
 ### 5.2 The deployed transform does not transform rows
 
@@ -186,7 +185,7 @@ Guardrails: the Budgets stack deploys before any data resource, `make aws-teardo
 
 ## 10. Suggested next steps
 
-1. **Local forecasting** — the one missing product pillar. Cheapest credible path is a precomputed Parquet artifact in the `forecasts/` bucket, served through the `ForecastService` port.
+1. **Forecast artifact generation** — implement the baseline/backtest job that publishes the Parquet artifact consumed by the new Agent tool.
 2. **Real row-level transform in the Lambda** — makes curated output a genuine Parquet fact table instead of a copied CSV. Prerequisite for point 3.
 3. **Athena-backed dashboard reads** — the deployed API currently serves the bundled demo snapshot for catalog and analytics endpoints. Invisible to a judge, so deliberately deferred; see `docs/21-api-deployment.md` section 6.
 4. **Real authentication** if the API outlives the demo: the write guard is a shared secret, and the copilot endpoint is unauthenticated Bedrock spend.

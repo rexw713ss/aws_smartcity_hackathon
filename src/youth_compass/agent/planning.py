@@ -345,6 +345,19 @@ def register_observation_capabilities(registry: ToolCapabilityRegistry) -> None:
     )
 
 
+def register_forecast_capabilities(registry: ToolCapabilityRegistry) -> None:
+    """Add retrieval of published forecast artifacts to a runtime registry."""
+
+    registry.register(
+        ToolCapability(
+            name="forecast_metric",
+            operation=AnalysisOperation.FORECAST_METRIC,
+            description="Retrieve a published forecast with uncertainty and model lineage.",
+            requires=(AnalysisOperation.INSPECT_DATASET,),
+        )
+    )
+
+
 def register_acquisition_capabilities(registry: ToolCapabilityRegistry) -> None:
     """Advertise controlled source discovery and ingestion handoff capabilities."""
 

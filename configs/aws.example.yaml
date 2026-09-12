@@ -11,9 +11,13 @@ storage:
 catalog:
   provider: glue
   database: <PLACEHOLDER_GLUE_DATABASE>
+  table_name: <PLACEHOLDER_METADATA_TABLE>
 query:
   provider: athena
   workgroup: <PLACEHOLDER_ATHENA_WORKGROUP>
+  output_bucket: <PLACEHOLDER_ATHENA_OUTPUT_BUCKET>
+  timeout_seconds: 20
+  scan_limit_bytes: 104857600
 model:
   provider: bedrock
   model_id: us.anthropic.claude-sonnet-4-6

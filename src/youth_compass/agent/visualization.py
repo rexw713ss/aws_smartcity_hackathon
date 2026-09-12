@@ -13,7 +13,7 @@ from youth_compass.agent.contracts import (
     VisualizationType,
     VisualizationValue,
 )
-from youth_compass.ports import SourceCandidate
+from youth_compass.ports import ForecastResult, SourceCandidate
 
 _MAX_CHART_ROWS = 200
 _MAX_TABLE_ROWS = 200
@@ -204,6 +204,58 @@ class VisualizationBuilder:
             ),
         )
 
+    def forecast(
+        self,
+        question: str,
+        result: ForecastResult,
+        citation_ids: tuple[str, ...],
+    ) -> tuple[VisualizationSpec, ...]:
+        """Build a renderer-neutral forecast line and its accessible table fallback."""
+
+        labels = _labels(question)
+        rows: list[dict[str, VisualizationValue]] = [
+            {
+                "period": str(point.year_gregorian),
+                "entity_id": point.district_code,
+                "entity_name": point.district_code,
+                "value": point.value,
+                "lower": point.lower,
+                "upper": point.upper,
+                "model_version": result.model_version,
+            }
+            for point in result.points
+        ]
+        return (
+            VisualizationSpec(
+                visualization_id="forecast-trend",
+                type=VisualizationType.LINE,
+                title=f"{result.metric_code} {labels['forecast_suffix']}",
+                description=labels["forecast_description"],
+                x=_encoding("period", labels["period"], "temporal"),
+                y=_encoding("value", labels["forecast_value"], "quantitative"),
+                series_field="entity_name",
+                rows=tuple(rows[:_MAX_CHART_ROWS]),
+                citation_ids=citation_ids,
+                truncated=len(rows) > _MAX_CHART_ROWS,
+            ),
+            VisualizationSpec(
+                visualization_id="forecast-table",
+                type=VisualizationType.DATA_TABLE,
+                title=labels["forecast_table_title"],
+                columns=(
+                    _column("period", labels["period"]),
+                    _column("entity_name", labels["entity"]),
+                    _column("value", labels["forecast_value"]),
+                    _column("lower", labels["lower"]),
+                    _column("upper", labels["upper"]),
+                    _column("model_version", labels["model_version"]),
+                ),
+                rows=tuple(rows[:_MAX_TABLE_ROWS]),
+                citation_ids=citation_ids,
+                truncated=len(rows) > _MAX_TABLE_ROWS,
+            ),
+        )
+
     def sources(
         self, question: str, candidates: tuple[SourceCandidate, ...]
     ) -> tuple[VisualizationSpec, ...]:
@@ -271,8 +323,14 @@ def _labels(question: str) -> dict[str, str]:
             "estimated_value": "估算值",
             "feature": "特徵",
             "format": "格式",
+            "forecast_description": "預測值及其不確定性上下界",
+            "forecast_suffix": "預測",
+            "forecast_table_title": "預測資料表",
+            "forecast_value": "預測值",
             "license": "授權條款",
+            "lower": "下界",
             "metric": "指標",
+            "model_version": "模型版本",
             "observation_table_title": "觀測資料表",
             "period": "期間",
             "period_end": "結束期間",
@@ -288,6 +346,7 @@ def _labels(question: str) -> dict[str, str]:
             "source_id": "來源識別碼",
             "source_title": "可用的外部資料來源",
             "trend_suffix": "趨勢",
+            "upper": "上界",
             "value": "數值",
         }
     return {
@@ -303,8 +362,14 @@ def _labels(question: str) -> dict[str, str]:
         "estimated_value": "Estimated value",
         "feature": "Feature",
         "format": "Format",
+        "forecast_description": "Point forecasts with lower and upper uncertainty bounds",
+        "forecast_suffix": "forecast",
+        "forecast_table_title": "Forecast data",
+        "forecast_value": "Forecast value",
         "license": "License",
+        "lower": "Lower bound",
         "metric": "Metric",
+        "model_version": "Model version",
         "observation_table_title": "Observation data",
         "period": "Period",
         "period_end": "Period end",
@@ -320,5 +385,6 @@ def _labels(question: str) -> dict[str, str]:
         "source_id": "Source ID",
         "source_title": "Available external data sources",
         "trend_suffix": "trend",
+        "upper": "Upper bound",
         "value": "Value",
     }

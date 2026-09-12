@@ -1,5 +1,7 @@
 """Deterministic visualization contracts for frontend renderers."""
 
+from datetime import UTC, datetime
+
 from youth_compass.agent import (
     CandidateInsight,
     EntityChange,
@@ -10,6 +12,7 @@ from youth_compass.agent import (
     VisualizationBuilder,
     VisualizationType,
 )
+from youth_compass.ports import ForecastPoint, ForecastResult
 
 
 def test_decision_builds_ranking_contribution_and_table_specs() -> None:
@@ -125,3 +128,28 @@ def test_traditional_chinese_question_localizes_labels_not_data_fields() -> None
     assert specs[0].x is not None and specs[0].x.label == "期間"
     assert specs[0].rows[0]["entity_name"] == "板橋"
     assert "period" in specs[0].rows[0]
+
+
+def test_forecast_builds_interval_line_and_table() -> None:
+    result = ForecastResult(
+        metric_code="population_count",
+        model_version="seasonal-naive-v1",
+        generated_at=datetime(2026, 9, 1, tzinfo=UTC),
+        points=[
+            ForecastPoint(
+                district_code="banqiao",
+                year_gregorian=2027,
+                value=121,
+                lower=115,
+                upper=127,
+            )
+        ],
+    )
+
+    specs = VisualizationBuilder().forecast("預測板橋青年人口", result, ("data-1",))
+
+    assert [item.type for item in specs] == [VisualizationType.LINE, VisualizationType.DATA_TABLE]
+    assert specs[0].rows[0]["lower"] == 115
+    assert specs[0].rows[0]["upper"] == 127
+    assert specs[1].columns[-1].label == "模型版本"
+    assert all(item.citation_ids == ("data-1",) for item in specs)

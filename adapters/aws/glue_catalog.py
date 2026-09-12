@@ -10,7 +10,7 @@ rollback by repointing rather than deleting.
 import boto3
 import botocore.exceptions
 
-from youth_compass.domain.contracts import DatasetMetadata
+from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import DatasetNotFoundError
 from youth_compass.domain.profiles import DatasetProfile
 
@@ -66,14 +66,15 @@ class GlueCatalog:
                 "status": dataset.status.value if dataset.status else "unknown",
             }
         )
-        # Published-version pointer: a special item that tracks which version is live.
-        self._ddb.put_item(
-            Item={
-                "dataset_id": dataset.dataset_id,
-                "version": "__published__",
-                "published_version": dataset.version,
-            }
-        )
+        if dataset.status is DatasetStatus.PUBLISHED:
+            # Published-version pointer: a special item that tracks which version is live.
+            self._ddb.put_item(
+                Item={
+                    "dataset_id": dataset.dataset_id,
+                    "version": "__published__",
+                    "published_version": dataset.version,
+                }
+            )
 
     def get(self, dataset_id: str) -> DatasetMetadata:
         """Get by looking up the published version pointer, then the full record."""
@@ -94,14 +95,37 @@ class GlueCatalog:
     def search_compatible(self, profile: DatasetProfile) -> list[DatasetMetadata]:
         """Scan for datasets whose grain is compatible with the profile."""
         wanted = set(profile.candidate_grain)
-        results: list[DatasetMetadata] = []
-        response = self._ddb.scan()
-        for item in response.get("Items", []):
-            if item.get("version") == "__published__":
+        records = self.list_datasets()
+        if not wanted:
+            return records
+        return [metadata for metadata in records if wanted.issubset(set(metadata.grain.dimensions))]
+
+    def list_datasets(self) -> list[DatasetMetadata]:
+        """Return only the immutable versions selected by published pointers."""
+
+        items: list[dict[str, object]] = []
+        start_key: dict[str, object] | None = None
+        while True:
+            kwargs = {"ExclusiveStartKey": start_key} if start_key else {}
+            response = self._ddb.scan(**kwargs)
+            items.extend(response.get("Items", []))
+            start_key = response.get("LastEvaluatedKey")
+            if not start_key:
+                break
+
+        pointers = {
+            str(item["dataset_id"]): str(item["published_version"])
+            for item in items
+            if item.get("version") == "__published__" and item.get("published_version")
+        }
+        published: dict[str, DatasetMetadata] = {}
+        for item in items:
+            dataset_id = str(item.get("dataset_id", ""))
+            version = str(item.get("version", ""))
+            payload = item.get("metadata_json")
+            if pointers.get(dataset_id) != version or not isinstance(payload, str):
                 continue
-            if "metadata_json" not in item:
-                continue
-            metadata = DatasetMetadata.model_validate_json(item["metadata_json"])
-            if not wanted or wanted.issubset(set(metadata.grain.dimensions)):
-                results.append(metadata)
-        return results
+            metadata = DatasetMetadata.model_validate_json(payload)
+            if metadata.status is DatasetStatus.PUBLISHED:
+                published[dataset_id] = metadata
+        return [published[key] for key in sorted(published)]

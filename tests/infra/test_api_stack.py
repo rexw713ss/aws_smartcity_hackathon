@@ -42,6 +42,7 @@ def template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Template:
         env_config=config,
         incoming_bucket_name="incoming-bucket",
         curated_bucket_name="curated-bucket",
+        metadata_bucket_name="metadata-bucket",
         metadata_table_name="metadata-table",
         glue_database_name="youth_compass_hackathon",
         state_machine_arn=STATE_MACHINE_ARN,
@@ -156,6 +157,30 @@ class TestApiPermissions:
         ]
         assert curated_writes == []
 
+    def test_agent_can_query_only_its_athena_workgroup(self, template: Template) -> None:
+        athena_statements = [
+            statement
+            for statement in self._statements(template)
+            if "athena:StartQueryExecution" in _as_list(statement.get("Action"))
+        ]
+        assert len(athena_statements) == 1
+        assert "workgroup/youth-compass-hackathon" in json.dumps(athena_statements[0]["Resource"])
+        assert athena_statements[0]["Resource"] != "*"
+
+    def test_athena_results_permissions_do_not_allow_delete(self, template: Template) -> None:
+        metadata_statements = [
+            statement
+            for statement in self._statements(template)
+            if "metadata-bucket" in json.dumps(statement.get("Resource"))
+        ]
+        actions = {
+            action
+            for statement in metadata_statements
+            for action in _as_list(statement.get("Action"))
+        }
+        assert "s3:PutObject" in actions
+        assert "s3:DeleteObject" not in actions
+
 
 class TestHttpApi:
     def test_exposes_an_http_api_with_preflight(self, template: Template) -> None:
@@ -173,6 +198,41 @@ class TestHttpApi:
         outputs = template.find_outputs("*")
         assert "ApiBaseUrl" in outputs
         assert "SiteUrl" in outputs
+
+
+class TestAthenaRuntime:
+    def test_provisions_a_cost_capped_workgroup(self, template: Template) -> None:
+        template.has_resource_properties(
+            "AWS::Athena::WorkGroup",
+            {
+                "Name": "youth-compass-hackathon",
+                "WorkGroupConfiguration": Match.object_like(
+                    {
+                        "BytesScannedCutoffPerQuery": 100 * 1024 * 1024,
+                        "EnforceWorkGroupConfiguration": True,
+                    }
+                ),
+            },
+        )
+
+    def test_lambda_receives_aws_observation_configuration(self, template: Template) -> None:
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "Environment": {
+                    "Variables": Match.object_like(
+                        {
+                            "YOUTH_COMPASS_CATALOG__PROVIDER": "glue",
+                            "YOUTH_COMPASS_CATALOG__DATABASE": "youth_compass_hackathon",
+                            "YOUTH_COMPASS_CATALOG__TABLE_NAME": "metadata-table",
+                            "YOUTH_COMPASS_QUERY__PROVIDER": "athena",
+                            "YOUTH_COMPASS_QUERY__WORKGROUP": "youth-compass-hackathon",
+                            "YOUTH_COMPASS_QUERY__OUTPUT_BUCKET": "metadata-bucket",
+                        }
+                    )
+                }
+            },
+        )
 
 
 class TestStaticSite:
