@@ -71,5 +71,9 @@ class SourceNormalizationError(YouthCompassError):
     """An uploaded source cannot be converted into a canonical tabular stream."""
 
 
+class SourceAcquisitionError(YouthCompassError):
+    """An external source could not be safely discovered or fetched."""
+
+
 class ConfigurationError(YouthCompassError):
     """Configuration is invalid; provider selection failed validation."""

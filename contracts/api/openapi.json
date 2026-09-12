@@ -1,10 +1,40 @@
 {
   "components": {
     "schemas": {
+      "AcquisitionStart": {
+        "description": "Public handoff from source acquisition to the ingestion workflow.",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/SourceCandidate"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ingestion_job_id": {
+            "title": "Ingestion Job Id",
+            "type": "string"
+          },
+          "ingestion_status": {
+            "title": "Ingestion Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate",
+          "ingestion_job_id",
+          "ingestion_status",
+          "created_at"
+        ],
+        "title": "AcquisitionStart",
+        "type": "object"
+      },
       "AnalysisOperation": {
         "description": "Generic operations that may be routed to registered tools.",
         "enum": [
           "search_catalog",
+          "discover_sources",
           "inspect_dataset",
           "acquire_source",
           "query_observations",
@@ -419,6 +449,16 @@
               }
             ]
           },
+          "data_requirement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataRequirement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "dataset_inspection": {
             "anyOf": [
               {
@@ -474,6 +514,14 @@
               }
             ]
           },
+          "source_candidates": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SourceCandidate"
+            },
+            "title": "Source Candidates",
+            "type": "array"
+          },
           "status": {
             "$ref": "#/components/schemas/CopilotStatus"
           },
@@ -483,6 +531,14 @@
               "$ref": "#/components/schemas/ToolTrace"
             },
             "title": "Tool Trace",
+            "type": "array"
+          },
+          "visualizations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VisualizationSpec"
+            },
+            "title": "Visualizations",
             "type": "array"
           },
           "warnings": {
@@ -507,10 +563,65 @@
         "enum": [
           "answered",
           "insufficient_data",
+          "acquisition_required",
           "unsupported_question"
         ],
         "title": "CopilotStatus",
         "type": "string"
+      },
+      "DataRequirement": {
+        "description": "A bounded description of data missing from the published catalog.",
+        "properties": {
+          "accepted_formats": {
+            "default": [
+              "csv",
+              "json",
+              "excel"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileFormat"
+            },
+            "title": "Accepted Formats",
+            "type": "array"
+          },
+          "entity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
+          "metric_codes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Codes",
+            "type": "array"
+          },
+          "time_expression": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Expression"
+          },
+          "topic_terms": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Topic Terms",
+            "type": "array"
+          }
+        },
+        "title": "DataRequirement",
+        "type": "object"
       },
       "DatasetGrain": {
         "properties": {
@@ -874,6 +985,7 @@
           "clarification_question": {
             "anyOf": [
               {
+                "maxLength": 400,
                 "type": "string"
               },
               {
@@ -904,6 +1016,7 @@
             "type": "boolean"
           },
           "objective": {
+            "maxLength": 300,
             "minLength": 1,
             "title": "Objective",
             "type": "string"
@@ -932,6 +1045,7 @@
           "time_expression": {
             "anyOf": [
               {
+                "maxLength": 120,
                 "type": "string"
               },
               {
@@ -1993,6 +2107,146 @@
         "title": "SemanticRole",
         "type": "string"
       },
+      "SourceAcquisitionRequest": {
+        "description": "Reviewer identity selecting one candidate previously returned by the agent.",
+        "properties": {
+          "candidateId": {
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "title": "Candidateid",
+            "type": "string"
+          },
+          "submittedBy": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Submittedby",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidateId",
+          "submittedBy"
+        ],
+        "title": "SourceAcquisitionRequest",
+        "type": "object"
+      },
+      "SourceCandidate": {
+        "description": "Allowlisted source metadata safe to expose to a reviewer.",
+        "properties": {
+          "candidate_id": {
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "connector_id": {
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "title": "Connector Id",
+            "type": "string"
+          },
+          "download_url": {
+            "pattern": "^https://",
+            "title": "Download Url",
+            "type": "string"
+          },
+          "entity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
+          "file_name": {
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "metric_codes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Codes",
+            "type": "array"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "publisher": {
+            "minLength": 1,
+            "title": "Publisher",
+            "type": "string"
+          },
+          "source_format": {
+            "$ref": "#/components/schemas/FileFormat"
+          },
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "topic_terms": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Topic Terms",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "connector_id",
+          "title",
+          "publisher",
+          "download_url",
+          "file_name",
+          "source_format"
+        ],
+        "title": "SourceCandidate",
+        "type": "object"
+      },
       "StartedIngestionResponse": {
         "description": "Portable reference to the workflow started for an uploaded object.",
         "properties": {
@@ -2220,6 +2474,219 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VisualizationColumn": {
+        "description": "One localized column in a table fallback.",
+        "properties": {
+          "field": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "field",
+          "label"
+        ],
+        "title": "VisualizationColumn",
+        "type": "object"
+      },
+      "VisualizationEncoding": {
+        "description": "Stable mapping from one row field to a visual channel.",
+        "properties": {
+          "data_type": {
+            "enum": [
+              "nominal",
+              "ordinal",
+              "quantitative",
+              "temporal"
+            ],
+            "title": "Data Type",
+            "type": "string"
+          },
+          "field": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "field",
+          "label",
+          "data_type"
+        ],
+        "title": "VisualizationEncoding",
+        "type": "object"
+      },
+      "VisualizationSpec": {
+        "description": "Declarative, allowlisted visualization with grounded inline rows.",
+        "properties": {
+          "citation_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Citation Ids",
+            "type": "array"
+          },
+          "columns": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VisualizationColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "rows": {
+            "default": [],
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/VisualizationValue"
+              },
+              "type": "object"
+            },
+            "maxItems": 500,
+            "title": "Rows",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "series_field": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Field"
+          },
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "type": {
+            "$ref": "#/components/schemas/VisualizationType"
+          },
+          "visualization_id": {
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "title": "Visualization Id",
+            "type": "string"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VisualizationEncoding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "y": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VisualizationEncoding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "visualization_id",
+          "type",
+          "title"
+        ],
+        "title": "VisualizationSpec",
+        "type": "object"
+      },
+      "VisualizationType": {
+        "description": "Frontend-agnostic visualization templates supported by the API.",
+        "enum": [
+          "line",
+          "comparison_bar",
+          "ranking_bar",
+          "contribution_bar",
+          "data_table"
+        ],
+        "title": "VisualizationType",
+        "type": "string"
+      },
+      "VisualizationValue": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
       "WarningSeverity": {
         "enum": [
           "info",
@@ -2381,6 +2848,48 @@
         "summary": "City Summary",
         "tags": [
           "dashboard"
+        ]
+      }
+    },
+    "/api/v1/copilot/acquisitions": {
+      "post": {
+        "description": "Snapshot an allowlisted candidate into the approval-gated ingestion workflow.",
+        "operationId": "acquire_source_api_v1_copilot_acquisitions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceAcquisitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcquisitionStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Acquire Source",
+        "tags": [
+          "copilot"
         ]
       }
     },

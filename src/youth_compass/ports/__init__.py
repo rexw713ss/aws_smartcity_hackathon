@@ -30,6 +30,12 @@ from youth_compass.ports.model_provider import (
 from youth_compass.ports.object_store import ObjectStore
 from youth_compass.ports.query_engine import QueryEngine, QueryResult, QuerySpec
 from youth_compass.ports.source_adapter import NormalizedTabularSource, SourceAdapter
+from youth_compass.ports.source_connector import (
+    AcquiredSource,
+    DataRequirement,
+    SourceCandidate,
+    SourceConnector,
+)
 from youth_compass.ports.workflow_runner import (
     ApprovalDecision,
     IngestionRequest,
@@ -39,10 +45,12 @@ from youth_compass.ports.workflow_runner import (
 )
 
 __all__ = [
+    "AcquiredSource",
     "ApprovalDecision",
     "CheckpointStore",
     "Clock",
     "DataCatalog",
+    "DataRequirement",
     "DomainEvent",
     "EventBus",
     "ForecastPoint",
@@ -61,6 +69,8 @@ __all__ = [
     "QueryResult",
     "QuerySpec",
     "SourceAdapter",
+    "SourceCandidate",
+    "SourceConnector",
     "TrainingRequest",
     "TrainingRun",
     "TrainingStatus",

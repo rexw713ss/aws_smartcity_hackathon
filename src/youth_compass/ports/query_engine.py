@@ -26,6 +26,14 @@ class QuerySpec(BaseModel):
     filters: dict[str, FilterValue] = Field(default_factory=dict)
     order_by: list[str] = Field(default_factory=list)
     max_rows: int = Field(default=1000, ge=1, le=100_000)
+    group_by_dimensions: bool = False
+    """Aggregate each metric with SUM over ``dimensions`` instead of returning raw rows.
+
+    Curated facts are stored at their source grain (age band x gender x month), so
+    an entity-level question scans far more rows than it needs. Without this the
+    caller must pull every row and add them up itself, which trips ``max_rows`` on
+    a real dataset. SUM matches what those callers already did in application code.
+    """
 
 
 class QueryResult(BaseModel):

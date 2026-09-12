@@ -8,3 +8,11 @@ transform:
   batch_size: 10000
   max_rejection_rate: 0.01
   transformation_version: canonical-v1
+acquisition:
+  enabled: false
+  connector_id: configured_http
+  allowed_hosts: []
+  max_download_bytes: 26214400
+  timeout_seconds: 20
+  result_limit: 5
+  sources: []

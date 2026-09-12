@@ -62,3 +62,42 @@ def test_duckdb_query_filters_with_bound_parameters(tmp_path: Path) -> None:
 def test_duckdb_query_rejects_non_allowlisted_fields(tmp_path: Path, spec: QuerySpec) -> None:
     with pytest.raises(QueryNotPermittedError):
         _engine(tmp_path).execute(spec)
+
+
+def test_group_by_dimensions_sums_rows_at_source_grain(tmp_path: Path) -> None:
+    """Curated facts sit at age-band x gender grain.
+
+    Without engine-side grouping a district-level question has to scan every
+    source row and add them up in application code, which trips the row guard on
+    a real dataset.
+    """
+
+    path = tmp_path / "population.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "district_code": ["01", "01", "01", "02"],
+                "gender_code": ["M", "F", "M", "F"],
+                "metric_value": [100.0, 150.0, 200.0, 75.0],
+            }
+        ),
+        path,
+    )
+    engine = DuckDBQueryEngine(
+        tables={"population": path},
+        allowed_metrics={"metric_value"},
+        allowed_dimensions={"district_code", "gender_code"},
+    )
+    spec = QuerySpec(
+        table="population",
+        metrics=["metric_value"],
+        dimensions=["district_code"],
+        group_by_dimensions=True,
+    )
+
+    grouped = engine.execute(spec)
+    assert grouped.columns == ["district_code", "metric_value"]
+    assert {row[0]: row[1] for row in grouped.rows} == {"01": 450.0, "02": 75.0}
+
+    raw = engine.execute(spec.model_copy(update={"group_by_dimensions": False}))
+    assert len(raw.rows) == 4, "the default path must stay unaggregated"

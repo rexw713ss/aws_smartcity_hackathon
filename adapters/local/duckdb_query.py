@@ -35,7 +35,14 @@ class DuckDBQueryEngine:
     def execute(self, query: QuerySpec) -> QueryResult:
         path = self._validate(query)
         columns = [*query.dimensions, *query.metrics]
-        select = ", ".join(_quote(column) for column in columns)
+        if query.group_by_dimensions:
+            projected = [
+                *(_quote(column) for column in query.dimensions),
+                *(f"SUM({_quote(metric)}) AS {_quote(metric)}" for metric in query.metrics),
+            ]
+        else:
+            projected = [_quote(column) for column in columns]
+        select = ", ".join(projected)
         clauses: list[str] = []
         parameters: list[object] = [str(path)]
         for key, value in query.filters.items():
@@ -44,7 +51,9 @@ class DuckDBQueryEngine:
         sql = f"SELECT {select} FROM read_parquet(?)"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        order_by = query.order_by or columns
+        if query.group_by_dimensions and query.dimensions:
+            sql += " GROUP BY " + ", ".join(_quote(column) for column in query.dimensions)
+        order_by = query.order_by or (query.dimensions if query.group_by_dimensions else columns)
         sql += " ORDER BY " + ", ".join(_quote(column) for column in order_by)
         sql += " LIMIT ?"
         parameters.append(query.max_rows + 1)

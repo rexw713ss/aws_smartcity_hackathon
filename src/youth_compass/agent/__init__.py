@@ -1,8 +1,17 @@
 """Grounded conversational decision-support orchestration."""
 
+from youth_compass.agent.answering import (
+    AnswerComposer,
+    DeterministicAnswerComposer,
+    FallbackAnswerComposer,
+    ModelAnswerComposer,
+)
 from youth_compass.agent.contracts import (
     AnalysisOperation,
+    AnswerCompositionContext,
+    AnswerDraft,
     CandidateInsight,
+    ComposedAnswer,
     CopilotIntent,
     CopilotResponse,
     CopilotStatus,
@@ -19,6 +28,18 @@ from youth_compass.agent.contracts import (
     RoutedToolStep,
     ToolCapability,
     ToolTrace,
+    VisualizationColumn,
+    VisualizationEncoding,
+    VisualizationSpec,
+    VisualizationType,
+    VisualizationValue,
+)
+from youth_compass.agent.evals import (
+    AgentEvalCase,
+    AgentEvalHarness,
+    AgentEvalReport,
+    AgentEvalResult,
+    load_eval_cases,
 )
 from youth_compass.agent.observation_tools import (
     CompareEntitiesTool,
@@ -34,6 +55,7 @@ from youth_compass.agent.planning import (
     SmartToolRouter,
     ToolCapabilityRegistry,
     default_decision_capabilities,
+    register_acquisition_capabilities,
     register_observation_capabilities,
 )
 from youth_compass.agent.service import (
@@ -42,11 +64,20 @@ from youth_compass.agent.service import (
     GroundedCopilotService,
     ModelCopilotPlanner,
 )
+from youth_compass.agent.visualization import VisualizationBuilder
 
 __all__ = [
+    "AgentEvalCase",
+    "AgentEvalHarness",
+    "AgentEvalReport",
+    "AgentEvalResult",
     "AnalysisOperation",
+    "AnswerComposer",
+    "AnswerCompositionContext",
+    "AnswerDraft",
     "CandidateInsight",
     "CompareEntitiesTool",
+    "ComposedAnswer",
     "CopilotIntent",
     "CopilotPlanner",
     "CopilotResponse",
@@ -54,15 +85,18 @@ __all__ = [
     "DatasetInspection",
     "DecisionExecutionPlan",
     "DecomposedQuery",
+    "DeterministicAnswerComposer",
     "DeterministicCopilotPlanner",
     "DeterministicQueryDecomposer",
     "EntityChange",
     "EntityComparison",
     "EvidenceCitation",
+    "FallbackAnswerComposer",
     "FallbackQueryDecomposer",
     "FeatureContributionInsight",
     "GroundedCopilotService",
     "InspectDatasetTool",
+    "ModelAnswerComposer",
     "ModelCopilotPlanner",
     "ModelQueryDecomposer",
     "ObservationPoint",
@@ -76,6 +110,14 @@ __all__ = [
     "ToolCapability",
     "ToolCapabilityRegistry",
     "ToolTrace",
+    "VisualizationBuilder",
+    "VisualizationColumn",
+    "VisualizationEncoding",
+    "VisualizationSpec",
+    "VisualizationType",
+    "VisualizationValue",
     "default_decision_capabilities",
+    "load_eval_cases",
+    "register_acquisition_capabilities",
     "register_observation_capabilities",
 ]

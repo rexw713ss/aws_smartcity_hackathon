@@ -30,9 +30,10 @@ _INSPECTION_DIMENSIONS = [
     "is_estimated",
 ]
 _TOKEN = re.compile(r"[\w]+", re.UNICODE)
-_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _LAST_YEARS = re.compile(
     r"(?:last|past|trong)\s+(\d+)\s+(?:years?|năm)|\b(\d+)\s+năm\s+(?:qua|gần đây)"
+    r"|(?:過去|最近)\s*(\d+)\s*年"
 )
 
 
@@ -74,6 +75,10 @@ class InspectDatasetTool:
                 table=metadata.dataset_id,
                 dimensions=_INSPECTION_DIMENSIONS,
                 metrics=["metric_value"],
+                # Curated facts sit at age-band x gender grain; inspection only needs
+                # the distinct coverage, so group in the engine rather than scanning
+                # every source row into memory and tripping the row guard.
+                group_by_dimensions=True,
                 max_rows=100_000,
             )
         )
@@ -127,6 +132,10 @@ class QueryObservationsTool:
                 dimensions=_INSPECTION_DIMENSIONS,
                 metrics=["metric_value"],
                 filters={"metric_code": inspection.metric_code},
+                # Same reason as inspection. The per-entity, per-period summing below
+                # is unchanged and stays correct: summing already-summed groups is
+                # the same total.
+                group_by_dimensions=True,
                 max_rows=100_000,
             )
         )
@@ -326,7 +335,7 @@ def _filter_period(
         return [row for row in records if start <= _year(row) <= end]
     match = _LAST_YEARS.search(expression.casefold())
     if match:
-        count = int(match.group(1) or match.group(2))
+        count = int(match.group(1) or match.group(2) or match.group(3))
         latest = max(_year(row) for row in records)
         return [row for row in records if _year(row) > latest - count]
     return records

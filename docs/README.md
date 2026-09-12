@@ -43,6 +43,8 @@ The system has three core capabilities:
 | [19-reusable-feature-and-decision-layer.md](./19-reusable-feature-and-decision-layer.md) | Reusable feature contracts, decision profiles, constraints, and deterministic scoring |
 | [20-grounded-copilot.md](./20-grounded-copilot.md) | Grounded agent tools, decision planning, evidence citations, evaluation, and Bedrock seam |
 | [21-api-deployment.md](./21-api-deployment.md) | Deployed API and static site: live URLs, frontend integration, write-token and CORS model, deploy commands, and what changed in shared code |
+| [22-dynamic-data-acquisition.md](./22-dynamic-data-acquisition.md) | Controlled source discovery, HTTPS acquisition, ingestion handoff, and remaining replay work |
+| [23-answer-visualizations.md](./23-answer-visualizations.md) | Versioned chart/table contract, deterministic visualization builders, and frontend handoff |
 | [aws-architecture.md](./aws-architecture.md) | Full AWS architecture diagram: all services, data flow, security boundary |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 

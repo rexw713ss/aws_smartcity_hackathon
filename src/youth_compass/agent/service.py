@@ -1,14 +1,22 @@
 """Deterministic, evidence-grounded copilot orchestration."""
 
 import json
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Protocol
 
 from pydantic import ValidationError
 
+from youth_compass.acquisition import DataAcquisitionService
+from youth_compass.agent.answering import (
+    AnswerComposer,
+    DeterministicAnswerComposer,
+    FallbackAnswerComposer,
+)
 from youth_compass.agent.contracts import (
     AnalysisOperation,
+    AnswerCompositionContext,
     CandidateInsight,
     CopilotIntent,
     CopilotResponse,
@@ -23,6 +31,7 @@ from youth_compass.agent.contracts import (
     RoutedToolPlan,
     ToolCapability,
     ToolTrace,
+    VisualizationSpec,
 )
 from youth_compass.agent.observation_tools import ObservationToolSuite
 from youth_compass.agent.planning import (
@@ -31,8 +40,10 @@ from youth_compass.agent.planning import (
     SmartToolRouter,
     ToolCapabilityRegistry,
     default_decision_capabilities,
+    register_acquisition_capabilities,
     register_observation_capabilities,
 )
+from youth_compass.agent.visualization import VisualizationBuilder
 from youth_compass.decisioning import (
     CandidateScore,
     DecisionProfileRegistry,
@@ -42,8 +53,13 @@ from youth_compass.decisioning import (
     FeatureRegistry,
     FeatureValue,
 )
-from youth_compass.domain.errors import ModelInvocationError, QueryExecutionError, YouthCompassError
-from youth_compass.ports import ModelProvider, ModelRequest
+from youth_compass.domain.errors import (
+    ModelInvocationError,
+    QueryExecutionError,
+    SourceAcquisitionError,
+    YouthCompassError,
+)
+from youth_compass.ports import DataRequirement, ModelProvider, ModelRequest, SourceCandidate
 
 
 class CopilotPlanner(Protocol):
@@ -65,6 +81,8 @@ class DeterministicCopilotPlanner:
         "buy a home",
         "buy house",
         "housing location",
+        "買房",
+        "購屋",
     )
     _CHARGER_TERMS = (
         "trụ sạc",
@@ -74,6 +92,8 @@ class DeterministicCopilotPlanner:
         "ev charger",
         "charging station",
         "charger placement",
+        "充電站",
+        "充電樁",
     )
 
     async def plan(self, question: str, entity_ids: tuple[str, ...]) -> CopilotIntent | None:
@@ -137,6 +157,9 @@ class GroundedCopilotService:
         decomposer: QueryDecomposer | None = None,
         capabilities: ToolCapabilityRegistry | None = None,
         observation_tools: ObservationToolSuite | None = None,
+        answer_composer: AnswerComposer | None = None,
+        acquisition: DataAcquisitionService | None = None,
+        visualization_builder: VisualizationBuilder | None = None,
     ) -> None:
         self._provider = feature_provider
         self._features = feature_registry
@@ -144,9 +167,19 @@ class GroundedCopilotService:
         self._planner = planner or DeterministicCopilotPlanner()
         self._decomposer = decomposer or DeterministicQueryDecomposer()
         self._observation_tools = observation_tools
+        self._acquisition = acquisition
+        self._visualizations = visualization_builder or VisualizationBuilder()
+        deterministic_composer = DeterministicAnswerComposer()
+        self._answer_composer: AnswerComposer = (
+            FallbackAnswerComposer(answer_composer, deterministic_composer)
+            if answer_composer is not None
+            else deterministic_composer
+        )
         self._capabilities = capabilities or default_decision_capabilities()
         if capabilities is None and observation_tools is not None:
             register_observation_capabilities(self._capabilities)
+        if capabilities is None and acquisition is not None:
+            register_acquisition_capabilities(self._capabilities)
         self._router = SmartToolRouter(self._capabilities)
         self._scorer = DecisionScoringEngine(feature_registry)
 
@@ -198,7 +231,7 @@ class GroundedCopilotService:
                 self._observation_tools is not None
                 and AnalysisOperation.INSPECT_DATASET in decomposition.operations
             ):
-                return self._answer_observations(
+                return await self._answer_observations(
                     now,
                     decomposition,
                     routed_plan,
@@ -344,11 +377,36 @@ class GroundedCopilotService:
                 citations=citations,
             )
         top = eligible[0]
-        answer = (
+        fallback_answer = (
             f"{top.entity_name or top.entity_id} ranks first for "
             f"{profile.display_name} with a deterministic score of {top.score:.1f}/100. "
             "Review the feature contributions and cited dataset versions before making a decision."
         )
+        answer = await self._compose_answer(
+            AnswerCompositionContext(
+                question=question,
+                analysis_type="decision",
+                grounded_facts_json=_grounded_json(
+                    {
+                        "profile_code": profile.profile_code,
+                        "profile_version": profile.version,
+                        "profile_name": profile.display_name,
+                        "top_candidate": top.model_dump(mode="json"),
+                        "candidate_count": len(candidates),
+                        "citations": [item.model_dump(mode="json") for item in citations],
+                    }
+                ),
+                allowed_citation_ids=tuple(item.citation_id for item in citations),
+                fallback_answer=fallback_answer,
+            ),
+            trace,
+        )
+        visualizations = self._visualizations.decision(
+            question,
+            candidates,
+            tuple(item.citation_id for item in citations),
+        )
+        self._trace_visualizations(trace, visualizations)
         return CopilotResponse(
             status=CopilotStatus.ANSWERED,
             answer=answer,
@@ -364,9 +422,10 @@ class GroundedCopilotService:
                 "Scores compare only the candidates present in the retrieved feature snapshot.",
             ),
             warnings=tuple(warnings),
+            visualizations=visualizations,
         )
 
-    def _answer_observations(
+    async def _answer_observations(
         self,
         now: datetime,
         decomposition: DecomposedQuery,
@@ -410,18 +469,33 @@ class GroundedCopilotService:
             )
         )
         if AnalysisOperation.QUERY_OBSERVATIONS not in decomposition.operations:
+            fallback_answer = (
+                f"{inspection.dataset_id}@{inspection.dataset_version} contains "
+                f"{inspection.metric_code} from {inspection.period_start} to "
+                f"{inspection.period_end} across {inspection.entity_count} entities."
+            )
+            answer = await self._compose_answer(
+                AnswerCompositionContext(
+                    question=decomposition.original_question,
+                    analysis_type="dataset_inspection",
+                    grounded_facts_json=_grounded_json(inspection.model_dump(mode="json")),
+                    fallback_answer=fallback_answer,
+                ),
+                trace,
+            )
+            visualizations = self._visualizations.inspection(
+                decomposition.original_question, inspection
+            )
+            self._trace_visualizations(trace, visualizations)
             return CopilotResponse(
                 status=CopilotStatus.ANSWERED,
-                answer=(
-                    f"{inspection.dataset_id}@{inspection.dataset_version} contains "
-                    f"{inspection.metric_code} from {inspection.period_start} to "
-                    f"{inspection.period_end} across {inspection.entity_count} entities."
-                ),
+                answer=answer,
                 generated_at=now,
                 decomposition=decomposition,
                 routed_plan=routed_plan,
                 dataset_inspection=inspection,
                 tool_trace=tuple(trace),
+                visualizations=visualizations,
             )
         try:
             series = tools.query_observations.execute(decomposition, inspection, metadata)
@@ -485,9 +559,34 @@ class GroundedCopilotService:
                     summary="attached 1 dataset-version citation",
                 )
             )
+        fallback_answer = _observation_answer(series, comparison)
+        answer = await self._compose_answer(
+            AnswerCompositionContext(
+                question=decomposition.original_question,
+                analysis_type="observation_comparison",
+                grounded_facts_json=_grounded_json(
+                    {
+                        "dataset_inspection": inspection.model_dump(mode="json"),
+                        "observation_series": series.model_dump(mode="json"),
+                        "comparison": (comparison.model_dump(mode="json") if comparison else None),
+                        "citation": citation.model_dump(mode="json"),
+                    }
+                ),
+                allowed_citation_ids=(citation.citation_id,),
+                fallback_answer=fallback_answer,
+            ),
+            trace,
+        )
+        visualizations = self._visualizations.observations(
+            decomposition.original_question,
+            series,
+            comparison,
+            (citation.citation_id,),
+        )
+        self._trace_visualizations(trace, visualizations)
         return CopilotResponse(
             status=CopilotStatus.ANSWERED,
-            answer=_observation_answer(series, comparison),
+            answer=answer,
             generated_at=now,
             decomposition=decomposition,
             routed_plan=routed_plan,
@@ -500,10 +599,11 @@ class GroundedCopilotService:
                 "Canonical rows sharing an entity, period, metric, unit, and scope are summed.",
                 "Changes compare the first and last observations in the requested period.",
             ),
+            visualizations=visualizations,
         )
 
-    @staticmethod
     def _observation_failure(
+        self,
         now: datetime,
         decomposition: DecomposedQuery,
         routed_plan: RoutedToolPlan,
@@ -513,9 +613,22 @@ class GroundedCopilotService:
         inspection: DatasetInspection | None = None,
         series: ObservationSeries | None = None,
     ) -> CopilotResponse:
+        requirement, source_candidates = self._discover_sources(decomposition, trace)
+        visualizations = self._visualizations.sources(
+            decomposition.original_question, source_candidates
+        )
+        self._trace_visualizations(trace, visualizations)
         return CopilotResponse(
-            status=CopilotStatus.INSUFFICIENT_DATA,
-            answer="There is not enough compatible observation data for this analysis.",
+            status=(
+                CopilotStatus.ACQUISITION_REQUIRED
+                if source_candidates
+                else CopilotStatus.INSUFFICIENT_DATA
+            ),
+            answer=_data_gap_answer(
+                decomposition.original_question,
+                source_candidates,
+                "There is not enough compatible observation data for this analysis.",
+            ),
             generated_at=now,
             decomposition=decomposition,
             routed_plan=routed_plan,
@@ -523,10 +636,26 @@ class GroundedCopilotService:
             observation_series=series,
             tool_trace=tuple(trace),
             warnings=(warning,),
+            data_requirement=requirement,
+            source_candidates=source_candidates,
+            visualizations=visualizations,
         )
 
-    @staticmethod
+    async def _compose_answer(
+        self, context: AnswerCompositionContext, trace: list[ToolTrace]
+    ) -> str:
+        result = await self._answer_composer.compose(context)
+        trace.append(
+            ToolTrace(
+                tool="answer_composer",
+                outcome=result.mode,
+                summary=(f"composed grounded narrative with {len(result.citation_ids)} citations"),
+            )
+        )
+        return result.answer
+
     def _insufficient(
+        self,
         now: datetime,
         plan: DecisionExecutionPlan,
         trace: list[ToolTrace],
@@ -537,9 +666,30 @@ class GroundedCopilotService:
         candidates: tuple[CandidateInsight, ...] = (),
         citations: tuple[EvidenceCitation, ...] = (),
     ) -> CopilotResponse:
+        requirement, source_candidates = self._discover_sources(
+            decomposition, trace, metric_codes=plan.feature_codes
+        )
+        visualizations = (
+            self._visualizations.sources(decomposition.original_question, source_candidates)
+            if source_candidates
+            else self._visualizations.decision(
+                decomposition.original_question,
+                candidates,
+                tuple(item.citation_id for item in citations),
+            )
+        )
+        self._trace_visualizations(trace, visualizations)
         return CopilotResponse(
-            status=CopilotStatus.INSUFFICIENT_DATA,
-            answer="There is not enough validated feature data to produce a grounded ranking.",
+            status=(
+                CopilotStatus.ACQUISITION_REQUIRED
+                if source_candidates
+                else CopilotStatus.INSUFFICIENT_DATA
+            ),
+            answer=_data_gap_answer(
+                decomposition.original_question,
+                source_candidates,
+                "There is not enough validated feature data to produce a grounded ranking.",
+            ),
             generated_at=now,
             decomposition=decomposition,
             routed_plan=routed_plan,
@@ -548,7 +698,54 @@ class GroundedCopilotService:
             citations=citations,
             tool_trace=tuple(trace),
             warnings=warnings,
+            data_requirement=requirement,
+            source_candidates=source_candidates,
+            visualizations=visualizations,
         )
+
+    @staticmethod
+    def _trace_visualizations(
+        trace: list[ToolTrace], visualizations: tuple[VisualizationSpec, ...]
+    ) -> None:
+        if visualizations:
+            trace.append(
+                ToolTrace(
+                    tool="visualization_builder",
+                    outcome="ok",
+                    summary=f"built {len(visualizations)} grounded visualization specs",
+                )
+            )
+
+    def _discover_sources(
+        self,
+        decomposition: DecomposedQuery,
+        trace: list[ToolTrace],
+        *,
+        metric_codes: tuple[str, ...] = (),
+    ) -> tuple[DataRequirement, tuple[SourceCandidate, ...]]:
+        requirement = DataRequirement(
+            topic_terms=decomposition.subject_terms,
+            metric_codes=metric_codes or decomposition.metric_terms,
+            entity_ids=decomposition.entity_ids,
+            time_expression=decomposition.time_expression,
+        )
+        if self._acquisition is None:
+            return requirement, ()
+        try:
+            candidates = self._acquisition.discover(requirement)
+        except SourceAcquisitionError as exc:
+            trace.append(
+                ToolTrace(tool="discover_sources", outcome="failed", summary=str(exc)[:300])
+            )
+            return requirement, ()
+        trace.append(
+            ToolTrace(
+                tool="discover_sources",
+                outcome="candidates" if candidates else "no_match",
+                summary=f"found {len(candidates)} allowlisted source candidates",
+            )
+        )
+        return requirement, candidates
 
 
 def _citations(
@@ -575,6 +772,25 @@ def _citations(
             )
         )
     return tuple(citations), lookup
+
+
+def _data_gap_answer(
+    question: str,
+    source_candidates: tuple[SourceCandidate, ...],
+    fallback: str,
+) -> str:
+    if not source_candidates:
+        return fallback
+    if re.search(r"[\u3400-\u9fff]", question):
+        return (
+            f"目前已發布的資料不足，但找到{len(source_candidates)}個允許使用的外部資料來源。"  # noqa: RUF001
+            "請選擇來源並完成資料映射與品質審核後，再繼續分析。"  # noqa: RUF001
+        )
+    return (
+        f"The published catalog is insufficient, but {len(source_candidates)} allowlisted "
+        "external source candidate(s) were found. Select a source and complete mapping and "
+        "quality review before continuing the analysis."
+    )
 
 
 def _candidate_insights(
@@ -636,3 +852,7 @@ def _observation_answer(series: ObservationSeries, comparison: EntityComparison 
         f"For {series.metric_code}, " + "; ".join(summaries) + ". "
         "Values come from the cited published dataset version."
     )
+
+
+def _grounded_json(payload: object) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)

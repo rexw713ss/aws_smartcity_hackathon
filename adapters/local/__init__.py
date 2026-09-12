@@ -7,6 +7,7 @@ from adapters.local.feature_store import (
     FeatureParquetMaterializer,
 )
 from adapters.local.filesystem_store import FileSystemObjectStore
+from adapters.local.http_source import AllowlistedHttpSourceConnector
 from adapters.local.observation_feature_builder import (
     CanonicalObservationFeatureBuilder,
     FeatureBuildError,
@@ -22,6 +23,7 @@ from adapters.local.sqlite_feature_catalog import (
 from adapters.local.system_clock import SystemClock
 
 __all__ = [
+    "AllowlistedHttpSourceConnector",
     "CanonicalObservationFeatureBuilder",
     "DuckDBFeatureProvider",
     "DuckDBQueryEngine",

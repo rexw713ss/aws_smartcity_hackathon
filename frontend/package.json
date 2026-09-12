@@ -1,0 +1,29 @@
+{
+  "name": "youth-compass-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "recharts": "2.6.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/react": "18.2.28",
+    "@types/react-dom": "18.2.8",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "10.4.14",
+    "postcss": "^8.5.28",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.1.6",
+    "vite": "^8.3.0"
+  }
+}

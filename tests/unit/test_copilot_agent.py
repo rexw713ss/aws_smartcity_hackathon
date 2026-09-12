@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 
 from youth_compass.agent import (
+    AnswerCompositionContext,
+    ComposedAnswer,
     CopilotStatus,
     DeterministicCopilotPlanner,
     GroundedCopilotService,
@@ -49,6 +51,19 @@ class StaticModelProvider:
     async def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)
         return ModelResponse(text=self.text, model_id="bedrock-test")
+
+
+class RecordingAnswerComposer:
+    def __init__(self) -> None:
+        self.contexts: list[AnswerCompositionContext] = []
+
+    async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
+        self.contexts.append(context)
+        return ComposedAnswer(
+            answer="Banqiao là lựa chọn phù hợp nhất.",
+            citation_ids=(),
+            mode="model",
+        )
 
 
 def _value(entity: str, feature: str, value: float, *, quality: float = 0.9) -> FeatureValue:
@@ -120,6 +135,8 @@ def test_home_question_ranks_with_citations_and_no_storage_uri_leak() -> None:
         "get_features",
         "rank_candidates",
         "explain_lineage",
+        "answer_composer",
+        "visualization_builder",
     ]
     assert set(provider.queries[0].feature_codes) == {
         "property_cost",
@@ -151,6 +168,37 @@ def test_charger_question_applies_feasibility_constraint() -> None:
     assert response.candidates[0].entity_id == "site-a"
     assert response.candidates[1].eligible is False
     assert "site_feasibility" in response.candidates[1].failed_constraints[0]
+
+
+def test_service_composes_only_public_grounded_decision_facts() -> None:
+    feature_provider = StaticFeatureProvider(
+        tuple(
+            _value("banqiao", feature, value)
+            for feature, value in {
+                "property_cost": 80,
+                "transit_accessibility": 90,
+                "amenity_accessibility": 85,
+                "environmental_risk": 20,
+            }.items()
+        )
+    )
+    composer = RecordingAnswerComposer()
+    service = GroundedCopilotService(
+        feature_provider=feature_provider,
+        feature_registry=FeatureRegistry(DEFAULT_FEATURES),
+        profile_registry=DecisionProfileRegistry(DEFAULT_DECISION_PROFILES),
+        answer_composer=composer,
+    )
+
+    response = asyncio.run(service.answer("Tôi nên mua nhà ở đâu?"))
+
+    assert response.answer == "Banqiao là lựa chọn phù hợp nhất."
+    assert len(composer.contexts) == 1
+    assert composer.contexts[0].analysis_type == "decision"
+    assert "file:///" not in composer.contexts[0].grounded_facts_json
+    assert response.tool_trace[-2].tool == "answer_composer"
+    assert response.tool_trace[-2].outcome == "model"
+    assert response.tool_trace[-1].tool == "visualization_builder"
 
 
 def test_unsupported_question_does_not_query_data() -> None:
