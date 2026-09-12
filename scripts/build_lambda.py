@@ -87,12 +87,17 @@ def build() -> Path:
     return _BUILD_DIR
 
 
-# The API's real import chain. boto3/botocore are omitted because the Lambda
-# runtime already provides them; streamlit is a dashboard-only dependency; and
+# The API's real import chain. streamlit is a dashboard-only dependency, and
 # polars/pyarrow are deliberately excluded because the read-only API defers them
 # (see adapters/local/feature_store.py and application/ingestion_workflow.py).
-# Together those exclusions are what keep this package inside the 250 MB limit.
+# Those exclusions are what keep this package inside the 250 MB limit.
+#
+# boto3 is bundled rather than taken from the runtime: Lambda's built-in copy
+# lags by many months, and Converse's structured-output field is recent enough
+# that the bundled version made Bedrock reject every schema-constrained request
+# with "This model doesn't support the outputConfig field".
 _API_RUNTIME_DEPS = [
+    "boto3",
     "fastapi",
     "mangum",
     "pydantic",
