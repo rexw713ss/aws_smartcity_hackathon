@@ -11,14 +11,25 @@ imported by any module under ``src/youth_compass/``.
 """
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from youth_compass.domain.errors import YouthCompassError
 from youth_compass.ingestion.csv_profiler import profile_csv
 from youth_compass.mapping.engine import MappingOptions, analyze_mapping
+
+if TYPE_CHECKING:
+    from youth_compass.domain.contracts import (
+        MappingProposal,
+        PopulationScope,
+        PublicationManifest,
+    )
+
+logger = logging.getLogger("youth_compass.transform_lambda")
+logger.setLevel(logging.INFO)
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -81,71 +92,171 @@ def _await_approval(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _transform(event: dict[str, Any]) -> dict[str, Any]:
-    """Publish the approved dataset to curated + Glue, or route to quarantine.
+    """Run the real canonical transform and publish versioned Parquet, or quarantine.
 
-    The object is copied into the curated (approved) or quarantined (rejected)
-    zone. On approval the curated location is additionally registered as a Glue
-    table whose column schema is derived from the source profile, so the
-    published data is immediately queryable through Athena. Rejected data is
-    never registered, keeping quarantined rows out of the catalog.
+    The approved source is transformed into canonical observations by the same
+    ``run_csv_transformation`` the local pipeline uses, written as Parquet under
+    the canonical ``CANONICAL_OBSERVATION_SCHEMA``. The output object is uploaded
+    to the versioned curated layout
 
-    The heavy row-level transform is exercised by the local pipeline; here we
-    prove the publish/quarantine branch, the curated-zone write, and the
-    catalog registration.
+        curated/{dataset_id}/version={dataset_version}/part-000.parquet
+
+    and the curated location is registered as a typed Glue table so Athena can
+    query it. Whether the result publishes or quarantines is decided by the
+    transform's own quality gates (via the manifest status), not by the approval
+    flag alone: an approved-but-low-quality dataset is quarantined and never
+    enters the catalog.
     """
     import boto3
 
     approved = bool(event.get("approved", True))
     source_uri = event.get("source_uri", "")
     job_id = event.get("job_id", "unknown")
+    reviewer = event.get("decided_by") or event.get("submitted_by") or "workflow"
     if not source_uri.startswith("s3://"):
         raise YouthCompassError("transform requires an s3:// source_uri")
     _, _, rest = source_uri.partition("s3://")
     src_bucket, _, src_key = rest.partition("/")
 
     region = os.environ.get("YOUTH_COMPASS_REGION", "us-east-1")
+    curated_bucket = os.environ["YOUTH_COMPASS_CURATED_BUCKET"]
+    quarantined_bucket = os.environ["YOUTH_COMPASS_QUARANTINED_BUCKET"]
+
+    # A rejection decision short-circuits the transform: quarantine the raw
+    # source and register nothing.
+    if not approved:
+        return _quarantine_source(
+            src_bucket=src_bucket,
+            src_key=src_key,
+            job_id=job_id,
+            bucket=quarantined_bucket,
+            region=region,
+        )
+
+    from youth_compass.domain.contracts import PublicationStatus
+
+    manifest, proposal = _run_canonical_transform(
+        src_bucket=src_bucket,
+        src_key=src_key,
+        source_uri=source_uri,
+        reviewer=reviewer,
+        region=region,
+    )
+
+    published = manifest.status == PublicationStatus.PUBLISHED
+    zone_bucket = curated_bucket if published else quarantined_bucket
+    zone = "curated" if published else "quarantined"
+    version_prefix = f"{zone}/{manifest.dataset_id}/version={manifest.dataset_version}"
+    parquet_key = f"{version_prefix}/part-000.parquet"
+
     s3 = boto3.client("s3", region_name=region)
-    zone_bucket = (
-        os.environ["YOUTH_COMPASS_CURATED_BUCKET"]
-        if approved
-        else os.environ["YOUTH_COMPASS_QUARANTINED_BUCKET"]
-    )
-    zone = "curated" if approved else "quarantined"
-    dest_key = f"{zone}/{job_id}/{Path(src_key).name}"
-    s3.copy_object(
-        Bucket=zone_bucket,
-        Key=dest_key,
-        CopySource={"Bucket": src_bucket, "Key": src_key},
-    )
+    s3.upload_file(manifest.parquet_uri, zone_bucket, parquet_key)
 
     result: dict[str, Any] = {
         "status": "ok",
         "action": "transform",
-        "published": approved,
+        "published": published,
         "zone": zone,
-        "uri": f"s3://{zone_bucket}/{dest_key}",
+        "dataset_id": manifest.dataset_id,
+        "dataset_version": manifest.dataset_version,
+        "uri": f"s3://{zone_bucket}/{parquet_key}",
+        "observation_count": manifest.observation_count,
+        "rows_received": manifest.rows_received,
+        "rows_rejected": manifest.rows_rejected,
+        "quality_score": manifest.quality.quality_score,
         "glue_table": None,
     }
     # Only published data enters the catalog; quarantined rows must stay out.
-    if approved:
+    if published:
         result["glue_table"] = _register_curated_table(
-            job_id=job_id,
-            source=_download_from_s3(src_bucket, src_key),
-            location=f"s3://{zone_bucket}/{zone}/{job_id}/",
+            manifest=manifest,
+            location=f"s3://{zone_bucket}/{version_prefix}/",
             region=region,
         )
+        _register_dataset_metadata(manifest=manifest, proposal=proposal, region=region)
     return result
 
 
-# PrimitiveType -> Hive/Glue column type. Glue has no "empty"; such a column
-# carried no values to infer from, so the widest safe type is used.
-_GLUE_COLUMN_TYPES = {
-    "boolean": "boolean",
-    "integer": "bigint",
-    "float": "double",
-    "date": "date",
+def _run_canonical_transform(
+    *,
+    src_bucket: str,
+    src_key: str,
+    source_uri: str,
+    reviewer: str,
+    region: str,
+) -> "tuple[PublicationManifest, MappingProposal]":
+    """Download the source, transform it, and return the manifest and mapping.
+
+    Imported lazily: ``run_csv_transformation`` pulls in polars and pyarrow,
+    which are only on the transform action's path, not profile/analyze. The
+    proposal is re-derived from the source so the published dataset's grain,
+    role, and scope can be recorded in metadata alongside the manifest.
+    """
+    from youth_compass.transformation import (
+        TransformationError,
+        TransformOptions,
+        run_csv_transformation,
+    )
+
+    source = _download_from_s3(src_bucket, src_key)
+    # Lambda's filesystem is read-only outside /tmp; the transform stages and
+    # publishes under a curated/quarantine root, so both live in /tmp.
+    work_root = Path(tempfile.mkdtemp(prefix="transform-", dir="/tmp"))
+    try:
+        manifest = run_csv_transformation(
+            source,
+            TransformOptions(
+                approved_by=reviewer,
+                curated_root=work_root / "curated",
+                quarantine_root=work_root / "quarantined",
+                source_uri=source_uri,
+            ),
+        )
+    except TransformationError as exc:
+        raise YouthCompassError(f"transformation failed: {exc}") from exc
+    analysis = analyze_mapping(profile_csv(source))
+    return manifest, analysis.proposal
+
+
+def _quarantine_source(
+    *,
+    src_bucket: str,
+    src_key: str,
+    job_id: str,
+    bucket: str,
+    region: str,
+) -> dict[str, Any]:
+    """Copy a rejected source into quarantine unchanged; register nothing."""
+    import boto3
+
+    dest_key = f"quarantined/{job_id}/{Path(src_key).name}"
+    boto3.client("s3", region_name=region).copy_object(
+        Bucket=bucket,
+        Key=dest_key,
+        CopySource={"Bucket": src_bucket, "Key": src_key},
+    )
+    return {
+        "status": "ok",
+        "action": "transform",
+        "published": False,
+        "zone": "quarantined",
+        "uri": f"s3://{bucket}/{dest_key}",
+        "glue_table": None,
+    }
+
+
+# Arrow type string -> Hive/Glue column type for the canonical Parquet schema.
+_ARROW_TO_GLUE = {
+    "int8": "tinyint",
+    "int16": "smallint",
+    "int32": "int",
+    "int64": "bigint",
+    "float": "float",
+    "double": "double",
+    "bool": "boolean",
     "string": "string",
-    "empty": "string",
+    "date32[day]": "date",
+    "date64[ms]": "date",
 }
 
 
@@ -157,9 +268,29 @@ def _glue_identifier(value: str) -> str:
     return stripped if stripped[0].isalpha() else f"t_{stripped}"
 
 
-def _register_curated_table(*, job_id: str, source: Path, location: str, region: str) -> str | None:
-    """Create or update the Glue table describing the curated location.
+def _canonical_glue_columns() -> list[dict[str, str]]:
+    """The 45 canonical fields as Glue columns, typed from the Arrow schema."""
+    from youth_compass.transformation.schema import CANONICAL_OBSERVATION_SCHEMA
 
+    columns: list[dict[str, str]] = []
+    for field in CANONICAL_OBSERVATION_SCHEMA:
+        arrow_type = str(field.type)
+        glue_type = _ARROW_TO_GLUE.get(arrow_type)
+        if glue_type is None:  # pragma: no cover - guards a schema change
+            raise YouthCompassError(
+                f"no Glue type mapping for Arrow type {arrow_type!r} (field {field.name!r})"
+            )
+        columns.append({"Name": field.name, "Type": glue_type})
+    return columns
+
+
+def _register_curated_table(
+    *, manifest: "PublicationManifest", location: str, region: str
+) -> str | None:
+    """Create or update the Glue table for a published canonical dataset.
+
+    The table carries the canonical column schema, a Parquet SerDe, the
+    version-prefixed S3 location, and the dataset version in its parameters.
     Returns the qualified ``database.table`` name, or ``None`` when no Glue
     database is configured (local and Moto runs that do not exercise Glue).
     """
@@ -170,28 +301,25 @@ def _register_curated_table(*, job_id: str, source: Path, location: str, region:
     if not database:
         return None
 
-    profile = profile_csv(source)
-    columns = [
-        {
-            "Name": _glue_identifier(column.name),
-            "Type": _GLUE_COLUMN_TYPES.get(str(column.inferred_type), "string"),
-        }
-        for column in profile.columns
-    ]
-    table_name = _glue_identifier(job_id)
+    table_name = _glue_identifier(manifest.dataset_id)
     table_input: dict[str, Any] = {
         "Name": table_name,
         "TableType": "EXTERNAL_TABLE",
-        # skip.header.line.count keeps the CSV header row out of query results.
-        "Parameters": {"classification": "csv", "skip.header.line.count": "1"},
+        "Parameters": {
+            "classification": "parquet",
+            "youth_compass_dataset_id": manifest.dataset_id,
+            "youth_compass_dataset_version": manifest.dataset_version,
+            "youth_compass_mapping_version": manifest.mapping_version,
+        },
         "StorageDescriptor": {
-            "Columns": columns,
+            "Columns": _canonical_glue_columns(),
             "Location": location,
-            "InputFormat": "org.apache.hadoop.mapred.TextInputFormat",
-            "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+            "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+            "OutputFormat": ("org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"),
             "SerdeInfo": {
-                "SerializationLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
-                "Parameters": {"field.delim": ","},
+                "SerializationLibrary": (
+                    "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+                ),
             },
         },
     }
@@ -202,9 +330,69 @@ def _register_curated_table(*, job_id: str, source: Path, location: str, region:
     except botocore.exceptions.ClientError as exc:
         if exc.response.get("Error", {}).get("Code") != "AlreadyExistsException":
             raise
-        # Re-publishing the same job replaces the schema rather than failing.
+        # A new version of an existing dataset repoints the same table.
         glue.update_table(DatabaseName=database, TableInput=table_input)
     return f"{database}.{table_name}"
+
+
+def _register_dataset_metadata(
+    *, manifest: "PublicationManifest", proposal: "MappingProposal", region: str
+) -> None:
+    """Persist DatasetMetadata + a published-version pointer in DynamoDB.
+
+    Writes the same item shape ``GlueCatalog.get`` reads, so the deployed API's
+    catalog lookup resolves this published dataset. Skipped when no metadata
+    table is configured (local and Moto runs that do not exercise it).
+    """
+    import boto3
+
+    from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
+
+    table_name = os.environ.get("YOUTH_COMPASS_METADATA_TABLE")
+    if not table_name:
+        return
+
+    metadata = DatasetMetadata(
+        dataset_id=manifest.dataset_id,
+        version=manifest.dataset_version,
+        source_uri=manifest.source_uri,
+        source_sha256=manifest.source_sha256,
+        topic=manifest.topic,
+        dataset_role=proposal.dataset_role,
+        grain=proposal.grain,
+        population_scope=_dataset_population_scope(proposal),
+        status=DatasetStatus.PUBLISHED,
+        quality_score=manifest.quality.quality_score,
+        mapping_version=manifest.mapping_version,
+        approved_by=manifest.approved_by,
+    )
+    table = boto3.resource("dynamodb", region_name=region).Table(table_name)
+    table.put_item(
+        Item={
+            "dataset_id": metadata.dataset_id,
+            "version": metadata.version,
+            "metadata_json": metadata.model_dump_json(),
+            "quality_score": str(metadata.quality_score),
+            "status": metadata.status.value,
+        }
+    )
+    # The pointer the catalog reads to resolve the live version of a dataset.
+    table.put_item(
+        Item={
+            "dataset_id": metadata.dataset_id,
+            "version": "__published__",
+            "published_version": metadata.version,
+        }
+    )
+
+
+def _dataset_population_scope(proposal: "MappingProposal") -> "PopulationScope":
+    """The dataset's scope: a metric's scope if declared, else the general default."""
+    from youth_compass.domain.contracts import PopulationScope
+
+    for metric in proposal.metrics:
+        return metric.population_scope
+    return PopulationScope.UNKNOWN
 
 
 def _download_from_s3(bucket: str, key: str) -> Path:
