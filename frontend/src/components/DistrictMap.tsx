@@ -80,10 +80,12 @@ export default function DistrictMap({
   const fillFor = (code: string): string => {
     const hit = highlights.byCode.get(code)
     if (!hit) return 'var(--map-base)'
-    if (hit.value === null || highlights.maximum <= 0) return 'var(--map-cited)'
-    // Ember intensity encodes the backend's own figure. Nothing is recomputed:
-    // the ratio is only an opacity, never a number shown to the reader.
-    const share = Math.max(0, Math.min(1, hit.value / highlights.maximum))
+    const span = highlights.maximum - highlights.minimum
+    if (hit.value === null || span <= 0) return 'var(--map-cited)'
+    // Ember intensity encodes the backend's own figure, scaled across the
+    // observed range so a wholly negative metric still reads. Nothing is
+    // recomputed: the ratio is an opacity, never a number shown to the reader.
+    const share = Math.max(0, Math.min(1, (hit.value - highlights.minimum) / span))
     return `color-mix(in srgb, var(--accent) ${18 + share * 70}%, var(--map-base))`
   }
 

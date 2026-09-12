@@ -34,6 +34,17 @@ class InMemoryQueryEngine:
             raise QueryExecutionError(f"unknown metrics: {', '.join(missing)}")
         index = {name: i for i, name in enumerate(table["columns"])}
         rows = [[row[index[c]] for c in requested] for row in table["rows"]]
+        if query.group_by_dimensions:
+            grouped: dict[object, list[object]] = {}
+            for row in rows:
+                key = row[0]
+                existing = grouped.get(key)
+                if existing is None:
+                    grouped[key] = list(row)
+                    continue
+                for position in range(1, len(row)):
+                    existing[position] += row[position]
+            rows = [grouped[key] for key in sorted(grouped)]
         truncated = len(rows) > query.max_rows
         rows = rows[: query.max_rows]
         return QueryResult(

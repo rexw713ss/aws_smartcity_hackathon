@@ -1,4 +1,4 @@
-import type { CopilotResponse, VisualizationSpec } from './copilot'
+import type { CopilotResponse, VisualizationSpec, VisualizationValue } from './copilot'
 import { resolveDistrict, type District } from './districts'
 
 export type DistrictHighlight = {
@@ -16,6 +16,8 @@ export type HighlightSet = {
   byCode: Map<string, DistrictHighlight>
   /** Entity ids the backend returned that are not districts (sites, grid cells). */
   unplaceable: string[]
+  /** Observed value range of the driving visualization; a change metric is negative. */
+  minimum: number
   maximum: number
 }
 
@@ -33,48 +35,74 @@ function readingField(spec: VisualizationSpec): { field: string; label: string; 
   return column ? { field: column.field, label: column.label, unit: column.unit } : null
 }
 
+const districtFor = (row: Record<string, VisualizationValue>) => {
+  const id = row.entity_id ?? row.district_code ?? null
+  const label = row.entity_name ?? row.district_name ?? null
+  const district =
+    resolveDistrict(typeof id === 'string' ? id : null) ??
+    resolveDistrict(typeof label === 'string' ? label : null)
+  const shown = typeof label === 'string' ? label : typeof id === 'string' ? id : null
+  return { district, shown }
+}
+
 /** Collect the districts a grounded answer actually spoke about.
  *
  * Reads only the visualization rows the backend already returned — no extra
  * request, no recalculation, and no inference about entities that are not
- * districts. An entity that does not resolve exactly is reported, not guessed. */
+ * districts. An entity that does not resolve exactly is reported, not guessed.
+ *
+ * Exactly one visualization drives the map. A single answer can carry several
+ * with different quantities — a trend returns population per month alongside
+ * absolute change per district, and the change values are negative — so merging
+ * them would paint one colour scale from two incompatible units. The spec
+ * covering the most districts wins, and the readout names it. */
 export function districtHighlights(response: CopilotResponse | null): HighlightSet {
-  const byCode = new Map<string, DistrictHighlight>()
+  const empty: HighlightSet = { byCode: new Map(), unplaceable: [], minimum: 0, maximum: 0 }
+  if (!response) return empty
+
   const unplaceable = new Set<string>()
-  if (!response) return { byCode, unplaceable: [], maximum: 0 }
+  let best: { spec: VisualizationSpec; rows: Map<string, Record<string, VisualizationValue>> } | null = null
 
   for (const spec of response.visualizations) {
-    const reading = readingField(spec)
+    const rows = new Map<string, Record<string, VisualizationValue>>()
     for (const row of spec.rows) {
-      const id = row.entity_id ?? row.district_code ?? null
-      const label = row.entity_name ?? row.district_name ?? null
-      const district =
-        resolveDistrict(typeof id === 'string' ? id : null) ??
-        resolveDistrict(typeof label === 'string' ? label : null)
-
+      const { district, shown } = districtFor(row)
       if (!district) {
-        const shown = typeof label === 'string' ? label : typeof id === 'string' ? id : null
         if (shown) unplaceable.add(shown)
         continue
       }
-      // First spec wins: the backend orders decision rankings first, so the
-      // ranking reading is the one a reader expects to see on the map.
-      if (byCode.has(district.code)) continue
-      const value = reading ? numeric(row[reading.field]) : null
-      byCode.set(district.code, {
-        district,
-        value,
-        valueLabel: reading?.label ?? null,
-        unit: reading?.unit ?? null,
-        rank: numeric(row.rank),
-        source: spec.title,
-      })
+      // Keep the first row per district: a trend carries one row per period.
+      if (!rows.has(district.code)) rows.set(district.code, row)
     }
+    if (!best || rows.size > best.rows.size) best = { spec, rows }
   }
 
-  const maximum = [...byCode.values()].reduce(
-    (top, item) => (item.value !== null && item.value > top ? item.value : top),
-    0,
-  )
-  return { byCode, unplaceable: [...unplaceable], maximum }
+  if (!best || best.rows.size === 0) {
+    return { ...empty, unplaceable: [...unplaceable] }
+  }
+
+  const reading = readingField(best.spec)
+  const byCode = new Map<string, DistrictHighlight>()
+  for (const [code, row] of best.rows) {
+    const district = resolveDistrict(code)
+    if (!district) continue
+    byCode.set(code, {
+      district,
+      value: reading ? numeric(row[reading.field]) : null,
+      valueLabel: reading?.label ?? null,
+      unit: reading?.unit ?? null,
+      rank: numeric(row.rank),
+      source: best.spec.title,
+    })
+  }
+
+  // A change metric is negative across every district, so the scale has to span
+  // the observed range rather than assume it starts at zero.
+  const values = [...byCode.values()].map(item => item.value).filter((v): v is number => v !== null)
+  return {
+    byCode,
+    unplaceable: [...unplaceable],
+    minimum: values.length ? Math.min(...values) : 0,
+    maximum: values.length ? Math.max(...values) : 0,
+  }
 }

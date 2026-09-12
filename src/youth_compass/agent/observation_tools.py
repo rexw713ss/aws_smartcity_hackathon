@@ -75,6 +75,10 @@ class InspectDatasetTool:
                 table=metadata.dataset_id,
                 dimensions=_INSPECTION_DIMENSIONS,
                 metrics=["metric_value"],
+                # Curated facts sit at age-band x gender grain; inspection only needs
+                # the distinct coverage, so group in the engine rather than scanning
+                # every source row into memory and tripping the row guard.
+                group_by_dimensions=True,
                 max_rows=100_000,
             )
         )
@@ -128,6 +132,10 @@ class QueryObservationsTool:
                 dimensions=_INSPECTION_DIMENSIONS,
                 metrics=["metric_value"],
                 filters={"metric_code": inspection.metric_code},
+                # Same reason as inspection. The per-entity, per-period summing below
+                # is unchanged and stays correct: summing already-summed groups is
+                # the same total.
+                group_by_dimensions=True,
                 max_rows=100_000,
             )
         )

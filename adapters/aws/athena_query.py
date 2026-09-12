@@ -68,7 +68,14 @@ class AthenaQueryEngine:
 
     def _render_sql(self, query: QuerySpec) -> str:
         columns = [*query.dimensions, *query.metrics]
-        select = ", ".join(f'"{c}"' for c in columns)
+        if query.group_by_dimensions:
+            projected = [
+                *(f'"{c}"' for c in query.dimensions),
+                *(f'SUM("{m}") AS "{m}"' for m in query.metrics),
+            ]
+        else:
+            projected = [f'"{c}"' for c in columns]
+        select = ", ".join(projected)
         sql = f'SELECT {select} FROM "{self._database}"."{query.table}"'
         if query.filters:
             clauses = []
@@ -78,6 +85,8 @@ class AthenaQueryEngine:
                 else:
                     clauses.append(f'"{key}" = {value}')
             sql += " WHERE " + " AND ".join(clauses)
+        if query.group_by_dimensions and query.dimensions:
+            sql += " GROUP BY " + ", ".join(f'"{c}"' for c in query.dimensions)
         if query.order_by:
             sql += " ORDER BY " + ", ".join(f'"{c}"' for c in query.order_by)
         sql += f" LIMIT {query.max_rows}"
