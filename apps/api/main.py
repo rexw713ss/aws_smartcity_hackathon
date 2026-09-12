@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.copilot import router as copilot_router
@@ -24,6 +25,7 @@ from apps.api.schemas import (
     QualityResponse,
     UploadResponse,
 )
+from apps.api.security import WRITE_TOKEN_HEADER, require_write_token
 from apps.api.uploads import (
     aws_workflow_configured,
     get_aws_job_reference,
@@ -52,7 +54,27 @@ _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 def create_app(data_root: Path = Path("data")) -> FastAPI:
     app = FastAPI(title="New Taipei Youth Compass API", version=__version__)
-    app.state.runtime = LocalRuntime(data_root)
+    runtime = LocalRuntime(data_root)
+    app.state.runtime = runtime
+    # Exposed separately so request-scoped guards can read settings without
+    # reaching through the runtime.
+    app.state.settings = runtime.settings
+
+    # A browser-based frontend served from another origin cannot call this API
+    # unless its origin is allowed here. Defaults to empty, so nothing is
+    # exposed cross-origin until a deployment configures it.
+    allowed_origins = list(runtime.settings.api.allowed_origins)
+    if allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=allowed_origins,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            # The write guard travels in a custom header, so it must be
+            # allowed through preflight.
+            allow_headers=["Content-Type", WRITE_TOKEN_HEADER],
+            max_age=600,
+        )
+
     app.include_router(copilot_router)
     app.include_router(uploads_router)
 
@@ -105,6 +127,7 @@ def create_app(data_root: Path = Path("data")) -> FastAPI:
         response_model=UploadResponse,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["reviewer"],
+        dependencies=[Depends(require_write_token)],
     )
     async def upload_dataset(
         request: Request,
@@ -152,6 +175,7 @@ def create_app(data_root: Path = Path("data")) -> FastAPI:
         "/api/v1/ingestion-jobs/{job_id}/decision",
         response_model=JobStatusResponse,
         tags=["reviewer"],
+        dependencies=[Depends(require_write_token)],
     )
     def decide_ingestion(
         job_id: str, payload: DecisionRequest, request: Request
