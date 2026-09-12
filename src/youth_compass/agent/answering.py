@@ -72,7 +72,7 @@ class ModelAnswerComposer:
                     ensure_ascii=False,
                     sort_keys=True,
                 ),
-                max_tokens=500,
+                max_tokens=1500,
                 temperature=0,
                 response_schema=AnswerDraft.model_json_schema(),
             )

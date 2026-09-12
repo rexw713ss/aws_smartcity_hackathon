@@ -10,6 +10,7 @@ from youth_compass.agent import (
     ModelQueryDecomposer,
     QueryDecomposer,
     SmartToolRouter,
+    ToolCapabilityRegistry,
     default_decision_capabilities,
     load_eval_cases,
     register_observation_capabilities,
@@ -26,14 +27,14 @@ def main() -> None:
     cases = load_eval_cases(args.cases)
     registry = default_decision_capabilities()
     register_observation_capabilities(registry)
-    decomposer = _decomposer(args.provider)
+    decomposer = _decomposer(args.provider, registry)
     report = asyncio.run(AgentEvalHarness(decomposer, SmartToolRouter(registry)).run(cases))
     print(report.model_dump_json(indent=2))
     if report.failed:
         raise SystemExit(1)
 
 
-def _decomposer(provider: str) -> QueryDecomposer:
+def _decomposer(provider: str, capabilities: ToolCapabilityRegistry) -> QueryDecomposer:
     if provider == "deterministic":
         return DeterministicQueryDecomposer()
     settings = load_settings()
@@ -50,7 +51,8 @@ def _decomposer(provider: str) -> QueryDecomposer:
             region=model.region,
             timeout_seconds=model.timeout_seconds,
             max_attempts=model.max_attempts,
-        )
+        ),
+        capabilities,
     )
 
 

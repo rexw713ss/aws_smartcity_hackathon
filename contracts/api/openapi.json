@@ -985,6 +985,7 @@
           "clarification_question": {
             "anyOf": [
               {
+                "maxLength": 400,
                 "type": "string"
               },
               {
@@ -1015,6 +1016,7 @@
             "type": "boolean"
           },
           "objective": {
+            "maxLength": 300,
             "minLength": 1,
             "title": "Objective",
             "type": "string"
@@ -1043,6 +1045,7 @@
           "time_expression": {
             "anyOf": [
               {
+                "maxLength": 120,
                 "type": "string"
               },
               {

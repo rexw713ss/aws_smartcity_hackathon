@@ -136,22 +136,48 @@ class DeterministicQueryDecomposer:
 class ModelQueryDecomposer:
     """Schema-constrained decomposer for a Bedrock-backed ModelProvider."""
 
-    def __init__(self, provider: ModelProvider) -> None:
+    def __init__(
+        self, provider: ModelProvider, capabilities: "ToolCapabilityRegistry | None" = None
+    ) -> None:
         self._provider = provider
+        # The operation glossary is read from the registry the router will search,
+        # so the prompt cannot drift from the tools that actually exist. Without
+        # it the model guesses project-specific semantics — picking
+        # discover_sources (external sources) over search_catalog (already
+        # published), or omitting explain_lineage entirely.
+        self._capabilities = capabilities
 
     async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
                     "Decompose the question into safe analysis operations. Return only JSON "
-                    "matching the schema. Do not name tools, SQL, tables, or storage paths."
+                    "matching the schema. Do not name tools, SQL, tables, or storage paths.\n"
+                    "`operations` must be drawn only from this list, in execution order:\n"
+                    + self._operation_glossary()
+                    + "\n"
+                    "Keep every string field short: `objective` is one clause, "
+                    "`subject_terms` and `metric_terms` are single words or short noun "
+                    "phrases. Never write an explanatory sentence into a field, and never "
+                    "explain your reasoning inside a value.\n"
+                    "`time_expression` is the bare period the user named, at most a few "
+                    "words (for example '2023 to 2025' or 'past 5 years'). If the question "
+                    "names no concrete period — 'future', 'recently', or nothing at all — "
+                    "set it to null. Do not describe why it is unknown.\n"
+                    "Start with search_catalog for anything the published catalog may "
+                    "already hold; discover_sources is only for data the catalog lacks. "
+                    "End with explain_lineage whenever the answer will cite evidence.\n"
+                    "Set `needs_clarification` only when the question names no analysable "
+                    "subject at all. A question that names a subject and a period is "
+                    "answerable: decompose it and let the downstream tools report whatever "
+                    "evidence is missing."
                 ),
                 prompt=json.dumps(
                     {"question": question, "entity_ids": entity_ids},
                     ensure_ascii=False,
                     sort_keys=True,
                 ),
-                max_tokens=600,
+                max_tokens=4000,
                 temperature=0,
                 response_schema=DecomposedQuery.model_json_schema(),
             )
@@ -162,6 +188,27 @@ class ModelQueryDecomposer:
             raise ModelInvocationError("model returned an invalid query decomposition") from exc
         return decomposition.model_copy(
             update={"original_question": question, "entity_ids": entity_ids}
+        )
+
+    def _operation_glossary(self) -> str:
+        """One line per operation this runtime can actually route.
+
+        Only registered operations are listed. Naming an operation and then
+        saying it is unavailable gives the model a choice it must not make, and
+        in practice it reasons about the gap inside a free-text field until it
+        exhausts the token budget.
+        """
+
+        described = {
+            capability.operation: capability.description
+            for capability in (self._capabilities.list() if self._capabilities else ())
+        }
+        if not described:
+            return "\n".join(f"- {operation.value}" for operation in AnalysisOperation)
+        return "\n".join(
+            f"- {operation.value}: {described[operation]}"
+            for operation in AnalysisOperation
+            if operation in described
         )
 
 

@@ -20,6 +20,9 @@ from youth_compass.agent import (
     ModelAnswerComposer,
     ModelQueryDecomposer,
     ObservationToolSuite,
+    default_decision_capabilities,
+    register_acquisition_capabilities,
+    register_observation_capabilities,
 )
 from youth_compass.analytics import CuratedAnalyticsService
 from youth_compass.application import LocalIngestionWorkflow, LocalWorkflowOptions
@@ -122,8 +125,13 @@ class LocalRuntime:
                 timeout_seconds=self.settings.model.timeout_seconds,
                 max_attempts=self.settings.model.max_attempts,
             )
+            # The decomposer describes operations using the same registry the
+            # router will search, so the prompt cannot drift from reality.
+            capabilities = default_decision_capabilities()
+            register_observation_capabilities(capabilities)
+            register_acquisition_capabilities(capabilities)
             decomposer = FallbackQueryDecomposer(
-                ModelQueryDecomposer(bedrock), DeterministicQueryDecomposer()
+                ModelQueryDecomposer(bedrock, capabilities), DeterministicQueryDecomposer()
             )
             answer_composer = ModelAnswerComposer(bedrock)
         provider = DuckDBFeatureProvider(

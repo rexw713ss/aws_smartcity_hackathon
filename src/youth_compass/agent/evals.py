@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from youth_compass.agent.contracts import AnalysisOperation, DecomposedQuery, RoutedToolPlan
 from youth_compass.agent.planning import QueryDecomposer, SmartToolRouter
+from youth_compass.domain.errors import ModelInvocationError
 
 
 class AgentEvalCase(BaseModel):
@@ -33,8 +34,10 @@ class AgentEvalResult(BaseModel):
     case_id: str
     passed: bool
     failures: tuple[str, ...] = ()
-    decomposition: DecomposedQuery
-    routed_plan: RoutedToolPlan
+    # Absent when the model itself failed, so a provider error is reported as a
+    # failed case rather than aborting the whole run.
+    decomposition: DecomposedQuery | None = None
+    routed_plan: RoutedToolPlan | None = None
 
 
 class AgentEvalReport(BaseModel):
@@ -59,7 +62,21 @@ class AgentEvalHarness:
     async def run(self, cases: tuple[AgentEvalCase, ...]) -> AgentEvalReport:
         results: list[AgentEvalResult] = []
         for case in cases:
-            decomposition = await self._decomposer.decompose(case.question, case.entity_ids)
+            try:
+                decomposition = await self._decomposer.decompose(case.question, case.entity_ids)
+            except ModelInvocationError as exc:
+                # A model that fails on one question is a result to record, not a
+                # reason to abandon the measurement. Aborting the run hid the
+                # pass rate for every other case and made a flaky provider
+                # indistinguishable from a broken harness.
+                results.append(
+                    AgentEvalResult(
+                        case_id=case.case_id,
+                        passed=False,
+                        failures=(f"model invocation failed: {exc}",),
+                    )
+                )
+                continue
             routed_plan = self._router.route(decomposition)
             failures = _failures(case, decomposition, routed_plan)
             results.append(

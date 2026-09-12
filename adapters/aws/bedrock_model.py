@@ -64,6 +64,15 @@ class BedrockModelProvider:
             )
             response = _parse_response(raw, self._model_id)
             if request.response_schema is not None:
+                # A truncated response and a schema violation are different bugs
+                # with different fixes — raise the token budget versus fix the
+                # prompt — so name which one happened instead of reporting both
+                # as "invalid structured output".
+                if response.stop_reason == "max_tokens":
+                    raise ModelInvocationError(
+                        "Bedrock hit max_tokens before completing the JSON response; "
+                        f"raise ModelRequest.max_tokens above {request.max_tokens}"
+                    )
                 payload = json.loads(response.text)
                 jsonschema.validate(instance=payload, schema=request.response_schema)
             return response
@@ -73,8 +82,12 @@ class BedrockModelProvider:
             ) from exc
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as exc:
             raise ModelInvocationError(f"Bedrock invocation failed: {str(exc)[:300]}") from exc
+        except ModelInvocationError:
+            raise
         except (json.JSONDecodeError, jsonschema.ValidationError, jsonschema.SchemaError) as exc:
-            raise ModelInvocationError("Bedrock returned invalid structured output") from exc
+            raise ModelInvocationError(
+                f"Bedrock returned invalid structured output: {str(exc)[:200]}"
+            ) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise ModelInvocationError("Bedrock returned an invalid Converse response") from exc
 

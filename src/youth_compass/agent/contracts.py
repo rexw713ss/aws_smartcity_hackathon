@@ -39,15 +39,20 @@ class DecomposedQuery(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    # original_question echoes the user, so it carries no upper bound here.
+    # Every field the model composes does: a model that cannot decide what to
+    # write in a free-text field degenerates into a run-on string and burns the
+    # whole token budget, truncating the JSON. Bedrock strips maxLength from the
+    # schema, so these bounds are enforced on validation instead.
     original_question: str = Field(min_length=3)
-    objective: str = Field(min_length=1)
+    objective: str = Field(min_length=1, max_length=300)
     subject_terms: tuple[str, ...] = ()
     metric_terms: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
-    time_expression: str | None = None
+    time_expression: str | None = Field(default=None, max_length=120)
     operations: tuple[AnalysisOperation, ...] = Field(min_length=1)
     needs_clarification: bool = False
-    clarification_question: str | None = None
+    clarification_question: str | None = Field(default=None, max_length=400)
 
 
 class ToolCapability(BaseModel):
