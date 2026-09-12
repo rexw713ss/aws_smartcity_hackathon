@@ -19,9 +19,10 @@ This is a living status document, not a design document. The numbered `docs/00-`
 | PR2 — production ingestion workflow (durable state + real callback tokens) | **Done**, merged, deployed |
 | Stage 3 — generative AI (Bedrock + grounded copilot) | **Done**, merged, live |
 | Glue table registration on publish | **Done**, deployed, verified live |
+| Public API + static site hosting | **Done**, deployed, verified live — see `docs/21-api-deployment.md` |
 | Forecasting ("Predict" pillar) | **Not implemented** — see section 5 |
 | Real row-level transform in the deployed Lambda | **Not implemented** — see section 5 |
-| Deployed stacks | Budget, Data, Workflow — all `UPDATE_COMPLETE` in `us-east-1` |
+| Deployed stacks | Budget, Data, Workflow, Api — all complete in `us-east-1` |
 | Test suite | 588 passing, 1 skipped (opt-in real-AWS test) |
 | Static checks | `ruff` clean, `ruff format` clean, `mypy --strict` clean (84 source files) |
 
@@ -59,6 +60,18 @@ Account `765996595659`, region `us-east-1`.
 
 **Step Functions Standard workflow:**
 `arn:aws:states:us-east-1:765996595659:stateMachine:IngestionWorkflow29B06432-5XJBOuZbHvNw`
+
+**Public surface** (see `docs/21-api-deployment.md` for the full guide):
+
+| What | URL |
+|---|---|
+| API | `https://ewsx0mlrf4.execute-api.us-east-1.amazonaws.com` |
+| Site | `https://d2pz0g4ehmpkee.cloudfront.net` |
+
+An ARM64 API Lambda behind an API Gateway HTTP API, plus a private S3 bucket
+served through CloudFront. Reads are public; writes require a shared-secret
+header. The API role now holds `states:SendTaskSuccess`/`SendTaskFailure`, which
+closes the gap recorded in section 5.3 below.
 
 **Plus:** EventBridge rule on `incoming/` object-created events, and a Budgets stack that deploys before any data resource.
 
@@ -111,9 +124,13 @@ SageMaker has been dropped by decision — local prediction is the agreed direct
 
 That logic exists and is well tested — but in the **local** pipeline (`src/youth_compass/transformation/`), not in the Lambda. Consequence: curated output is the original CSV, not a transformed Parquet fact table. The publish/quarantine branch, the curated write, and catalog registration are all genuinely proven; the heavy transform is the gap.
 
-### 5.3 API-role IAM for approval callbacks
+### 5.3 API-role IAM for approval callbacks — resolved
 
-Resuming a paused workflow needs `states:SendTaskSuccess` / `SendTaskFailure`. This works locally with developer credentials. A deployed API role has not been granted these permissions yet.
+~~Resuming a paused workflow needs `states:SendTaskSuccess` / `SendTaskFailure`, which a deployed API role had not been granted.~~
+
+Granted by the Api stack and verified live: a job was paused at
+`awaiting_approval` and then approved through the deployed API, resuming the
+execution to `SUCCEEDED` with a curated object and a Glue table.
 
 ---
 
@@ -165,6 +182,7 @@ Guardrails: the Budgets stack deploys before any data resource, `make aws-teardo
 ## 10. Suggested next steps
 
 1. **Local forecasting** — the one missing product pillar. Cheapest credible path is a precomputed Parquet artifact in the `forecasts/` bucket, served through the `ForecastService` port.
-2. **Real row-level transform in the Lambda** — makes curated output a genuine Parquet fact table instead of a copied CSV.
-3. **API-role IAM** for `SendTaskSuccess` / `SendTaskFailure` before the API is deployed to AWS.
-4. **Before the account is suspended:** run the data export (`scripts/aws_export.py --region us-east-1`). The organizer does not preserve team data.
+2. **Real row-level transform in the Lambda** — makes curated output a genuine Parquet fact table instead of a copied CSV. Prerequisite for point 3.
+3. **Athena-backed dashboard reads** — the deployed API currently serves the bundled demo snapshot for catalog and analytics endpoints. Invisible to a judge, so deliberately deferred; see `docs/21-api-deployment.md` section 6.
+4. **Real authentication** if the API outlives the demo: the write guard is a shared secret, and the copilot endpoint is unauthenticated Bedrock spend.
+5. **Before the account is suspended:** run the data export (`scripts/aws_export.py --region us-east-1`). The organizer does not preserve team data.

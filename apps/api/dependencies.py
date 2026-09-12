@@ -27,9 +27,9 @@ from youth_compass.decisioning import (
     DecisionProfileRegistry,
     FeatureRegistry,
 )
+from youth_compass.domain.canonical import CANONICAL_FIELDS
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import AnalyticsNotAvailableError, ConfigurationError
-from youth_compass.transformation.schema import CANONICAL_FIELDS
 
 
 class LocalRuntime:

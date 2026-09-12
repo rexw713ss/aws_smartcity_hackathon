@@ -15,7 +15,7 @@ import os
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import Field
 
 from adapters.aws.s3_uploads import (
@@ -26,6 +26,7 @@ from adapters.aws.s3_uploads import (
 from adapters.aws.step_functions_runner import StepFunctionsRunner
 from adapters.aws.workflow_token_store import WorkflowTokenStore
 from apps.api.schemas import ApiModel
+from apps.api.security import require_write_token
 from youth_compass.domain.errors import YouthCompassError
 from youth_compass.ports import (
     ApprovalDecision,
@@ -35,7 +36,13 @@ from youth_compass.ports import (
     WorkflowRunner,
 )
 
-router = APIRouter(prefix="/api/v1/uploads", tags=["uploads"])
+# Both routes here mutate state: one hands out a signed write into the incoming
+# bucket, the other starts a workflow execution. Guard the whole router.
+router = APIRouter(
+    prefix="/api/v1/uploads",
+    tags=["uploads"],
+    dependencies=[Depends(require_write_token)],
+)
 
 
 class UploadRequest(ApiModel):

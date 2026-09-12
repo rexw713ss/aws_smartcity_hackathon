@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>New Taipei Youth Compass — deployment check</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        margin: 0 auto; max-width: 46rem; padding: 2rem 1.25rem; line-height: 1.55;
+      }
+      h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+      p.sub { margin-top: 0; opacity: 0.75; }
+      table { border-collapse: collapse; width: 100%; margin-top: 1.5rem; }
+      th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #8883; }
+      th { font-weight: 600; width: 12rem; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+      .ok { color: #1a7f37; font-weight: 600; }
+      .bad { color: #b3261e; font-weight: 600; }
+      .note { margin-top: 2rem; padding: 0.9rem 1rem; border-left: 3px solid #8886; opacity: 0.9; }
+    </style>
+  </head>
+  <body>
+    <h1>New Taipei Youth Compass</h1>
+    <p class="sub">
+      Placeholder page. This exists to prove the static hosting and the
+      cross-origin API call work; replace it with the real frontend build.
+    </p>
+
+    <table>
+      <caption class="sub" style="text-align: left; padding-bottom: 0.5rem">
+        Live checks against the deployed API
+      </caption>
+      <tbody>
+        <tr><th scope="row">API base URL</th><td><code id="api-url">…</code></td></tr>
+        <tr><th scope="row">Health</th><td id="health">checking…</td></tr>
+        <tr><th scope="row">Catalog read</th><td id="catalog">checking…</td></tr>
+        <tr><th scope="row">Write guard</th><td id="guard">checking…</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      Reads are public. Writes require the <code>X-Youth-Compass-Token</code>
+      header, so the write-guard check below expects <code>401</code> — a
+      <code>401</code> here means the protection is working.
+    </div>
+
+    <script>
+      // Injected at deploy time by `make deploy-site`; falls back for local use.
+      const API_BASE = window.YOUTH_COMPASS_API_BASE || "__API_BASE_URL__";
+      document.getElementById("api-url").textContent = API_BASE;
+
+      const show = (id, ok, text) => {
+        const cell = document.getElementById(id);
+        cell.textContent = text;
+        cell.className = ok ? "ok" : "bad";
+      };
+
+      (async () => {
+        try {
+          const response = await fetch(`${API_BASE}/health`);
+          const body = await response.json();
+          show("health", response.ok, `${response.status} — version ${body.version}`);
+        } catch (error) {
+          show("health", false, `request failed: ${error.message}`);
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/api/v1/datasets`);
+          const body = await response.json();
+          show("catalog", response.ok, `${response.status} — ${body.length} dataset(s)`);
+        } catch (error) {
+          show("catalog", false, `request failed: ${error.message}`);
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/api/v1/uploads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contentType: "text/csv", submittedBy: "placeholder" }),
+          });
+          // 401 is the expected, correct outcome without a token.
+          show("guard", response.status === 401, `${response.status} — ${
+            response.status === 401 ? "rejected without a token, as intended" : "unexpected"
+          }`);
+        } catch (error) {
+          show("guard", false, `request failed: ${error.message}`);
+        }
+      })();
+    </script>
+  </body>
+</html>

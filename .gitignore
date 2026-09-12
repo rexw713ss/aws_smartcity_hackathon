@@ -57,3 +57,4 @@ build/
 
 # Local reports and previews generated during development
 output/
+.api-write-secret
