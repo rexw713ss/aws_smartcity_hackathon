@@ -20,8 +20,8 @@ This is a living status document, not a design document. The numbered `docs/00-`
 | Stage 3 — generative AI (Bedrock + grounded copilot) | **Done**, merged, live |
 | Glue table registration on publish | **Done**, deployed, verified live |
 | Public API + static site hosting | **Done**, deployed, verified live — see `docs/21-api-deployment.md` |
+| Real analytics loop (canonical transform, versioned Parquet, Glue, Athena) | **Done**, deployed, verified live — see `docs/22-real-analytics-loop.md` |
 | Forecasting ("Predict" pillar) | **Not implemented** — see section 5 |
-| Real row-level transform in the deployed Lambda | **Not implemented** — see section 5 |
 | Deployed stacks | Budget, Data, Workflow, Api — all complete in `us-east-1` |
 | Test suite | 588 passing, 1 skipped (opt-in real-AWS test) |
 | Static checks | `ruff` clean, `ruff format` clean, `mypy --strict` clean (84 source files) |
@@ -123,11 +123,11 @@ So the `ForecastService` port and its `ForecastRequest` / `ForecastResult` / `Fo
 
 SageMaker has been dropped by decision — local prediction is the agreed direction. That local implementation still needs to be written, and it is currently the largest missing piece of the product story. The architecture already anticipates the cheap path: ship the forecast as a **precomputed Parquet artifact** in the `forecasts/` bucket (per `docs/10` section 11) rather than training anything live.
 
-### 5.2 The deployed transform does not transform rows
+### 5.2 The deployed transform now transforms rows — resolved
 
-`adapters/aws/transform_lambda.py` `_transform` copies the source object into the curated or quarantined zone and registers the Glue table. It does **not** run the row-level canonical transformation (dimension normalisation, youth weighting, Parquet output, rejection thresholds).
+~~The transform Lambda copied the source object and did not run the row-level canonical transformation.~~
 
-That logic exists and is well tested — but in the **local** pipeline (`src/youth_compass/transformation/`), not in the Lambda. Consequence: curated output is the original CSV, not a transformed Parquet fact table. The publish/quarantine branch, the curated write, and catalog registration are all genuinely proven; the heavy transform is the gap.
+Resolved. `_transform` now runs `run_csv_transformation`, writes canonical Parquet to `curated/{dataset_id}/version={dataset_version}/part-000.parquet`, registers a typed Parquet Glue table, and records published metadata; the API reads it through Athena. Verified live end to end — see `docs/22-real-analytics-loop.md`.
 
 ### 5.3 API-role IAM for approval callbacks — resolved
 
@@ -187,7 +187,7 @@ Guardrails: the Budgets stack deploys before any data resource, `make aws-teardo
 ## 10. Suggested next steps
 
 1. **Local forecasting** — the one missing product pillar. Cheapest credible path is a precomputed Parquet artifact in the `forecasts/` bucket, served through the `ForecastService` port.
-2. **Real row-level transform in the Lambda** — makes curated output a genuine Parquet fact table instead of a copied CSV. Prerequisite for point 3.
-3. **Athena-backed dashboard reads** — the deployed API currently serves the bundled demo snapshot for catalog and analytics endpoints. Invisible to a judge, so deliberately deferred; see `docs/21-api-deployment.md` section 6.
-4. **Real authentication** if the API outlives the demo: the write guard is a shared secret, and the copilot endpoint is unauthenticated Bedrock spend.
+2. **Real authentication** if the API outlives the demo: the write guard is a shared secret, and the copilot endpoint is unauthenticated Bedrock spend.
+
+Done since this list was written: the real row-level transform in the Lambda and Athena-backed dashboard reads — both live, see `docs/22-real-analytics-loop.md`.
 5. **Before the account is suspended:** run the data export (`scripts/aws_export.py --region us-east-1`). The organizer does not preserve team data.
