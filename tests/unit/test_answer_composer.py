@@ -1,6 +1,7 @@
 """Grounded narrative composition and deterministic safety fallback."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -47,6 +48,11 @@ def test_model_composer_accepts_only_grounded_numbers_and_citations() -> None:
     assert "20%" in result.answer
     assert provider.requests[0].temperature == 0
     assert provider.requests[0].response_schema is not None
+    prompt = json.loads(provider.requests[0].prompt)
+    assert prompt["safe_answer_template"] == _context().fallback_answer
+    assert set(prompt["allowed_number_strings"]) == {"100", "120", "20", "+20"}
+    assert prompt["response_language"] == "the same language as the user's question"
+    assert "Do not calculate differences" in provider.requests[0].system
 
 
 def test_model_composer_requests_taiwan_traditional_chinese() -> None:
@@ -59,6 +65,21 @@ def test_model_composer_requests_taiwan_traditional_chinese() -> None:
 
     assert result.mode == "model"
     assert "Taiwan Traditional Chinese" in provider.requests[0].system
+    assert json.loads(provider.requests[0].prompt)["response_language"] == (
+        "Taiwan Traditional Chinese (zh-TW)"
+    )
+
+
+def test_model_composer_marks_ascii_questions_as_english() -> None:
+    provider = StaticModelProvider(
+        '{"answer":"Banqiao increased from 100 to 120 (20%) [data-1].","citation_ids":["data-1"]}'
+    )
+    context = _context().model_copy(update={"question": "How did the population change?"})
+
+    result = asyncio.run(ModelAnswerComposer(provider).compose(context))
+
+    assert result.mode == "model"
+    assert json.loads(provider.requests[0].prompt)["response_language"] == "English"
 
 
 @pytest.mark.parametrize(

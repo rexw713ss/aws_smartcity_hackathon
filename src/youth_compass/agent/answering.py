@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _NUMBER = re.compile(r"(?<![\w])[-+]?\d+(?:\.\d+)?")
 _CITATION = re.compile(r"\bdata-\d+\b")
+_HAN = re.compile(r"[\u3400-\u9fff]")
 
 
 class AnswerComposer(Protocol):
@@ -52,22 +53,32 @@ class ModelAnswerComposer:
             grounded_facts = json.loads(context.grounded_facts_json)
         except json.JSONDecodeError as exc:
             raise ModelInvocationError("answer context contains invalid grounded JSON") from exc
+        numeric_source = _without_citations(
+            context.grounded_facts_json + " " + context.fallback_answer,
+            context.allowed_citation_ids,
+        )
         response = await self._provider.generate(
             ModelRequest(
                 system=(
-                    "Write a concise answer in the same language as the user's question. "
-                    "For Traditional Chinese input, use Taiwan Traditional Chinese and "
-                    "never convert it to Simplified Chinese. "
+                    "Write a concise answer in RESPONSE_LANGUAGE; that field is authoritative. "
+                    "When it is Taiwan Traditional Chinese, never convert it to Simplified "
+                    "Chinese. "
                     "Use only GROUNDED_FACTS. Do not add facts, entities, numbers, causal "
-                    "claims, or citation IDs. Preserve limitations. Return only JSON matching "
+                    "claims, or citation IDs. Do not calculate differences, percentages, or "
+                    "rounded values. Every number in the answer must be copied character-for-"
+                    "character from ALLOWED_NUMBER_STRINGS. Use SAFE_ANSWER_TEMPLATE as the "
+                    "semantic outline and preserve its limitations. Return only JSON matching "
                     "the provided schema."
                 ),
                 prompt=json.dumps(
                     {
                         "question": context.question,
+                        "response_language": _response_language(context.question),
                         "analysis_type": context.analysis_type,
                         "grounded_facts": grounded_facts,
                         "allowed_citation_ids": context.allowed_citation_ids,
+                        "allowed_number_strings": sorted(set(_NUMBER.findall(numeric_source))),
+                        "safe_answer_template": context.fallback_answer,
                     },
                     ensure_ascii=False,
                     sort_keys=True,
@@ -89,7 +100,7 @@ class ModelAnswerComposer:
         scrubbed_answer = draft.answer
         for citation_id in allowed_citations:
             scrubbed_answer = scrubbed_answer.replace(citation_id, "")
-        allowed_numbers = _numbers(context.grounded_facts_json + " " + context.fallback_answer)
+        allowed_numbers = _numbers(numeric_source)
         invented_numbers = _numbers(scrubbed_answer) - allowed_numbers
         if invented_numbers:
             rendered = ", ".join(sorted(str(item) for item in invented_numbers))
@@ -128,3 +139,17 @@ def _numbers(text: str) -> set[Decimal]:
         except InvalidOperation:
             continue
     return values
+
+
+def _without_citations(text: str, citation_ids: tuple[str, ...]) -> str:
+    for citation_id in citation_ids:
+        text = text.replace(citation_id, "")
+    return text
+
+
+def _response_language(question: str) -> str:
+    if _HAN.search(question):
+        return "Taiwan Traditional Chinese (zh-TW)"
+    if question.isascii():
+        return "English"
+    return "the same language as the user's question"

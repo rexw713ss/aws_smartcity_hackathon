@@ -194,7 +194,7 @@ flowchart LR
   U -->|/api/v1 XHR| HA[API Gateway HTTP API]
   HA --> AL[API Lambda · ARM64 · Mangum]
   AL --> DDB[(DynamoDB job state)]
-  AL --> BR[Bedrock Nova Lite]
+  AL --> BR[Bedrock Claude Sonnet 4.6]
   AL --> SF[Step Functions · SendTaskSuccess]
   U -->|presigned POST| INC[(S3 incoming)]
   INC --> EB[EventBridge] --> SF

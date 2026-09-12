@@ -16,7 +16,7 @@ query:
   workgroup: <PLACEHOLDER_ATHENA_WORKGROUP>
 model:
   provider: bedrock
-  model_id: <PLACEHOLDER_BEDROCK_MODEL_OR_INFERENCE_PROFILE_ID>
+  model_id: us.anthropic.claude-sonnet-4-6
   region: us-east-1
   timeout_seconds: 30
   max_attempts: 3

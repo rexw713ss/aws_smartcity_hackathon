@@ -91,13 +91,18 @@ The full chain was run live, not mocked. Baseline before the run: **zero** Glue 
 
 This closes the PR2 Definition-of-Done item *"approval produces real curated objects and a Glue table"*, which previously was not met: the transform step copied the object to the curated zone but never registered it, so published data was not queryable.
 
-Bedrock was separately verified with a real Converse call: Amazon Nova Lite answered a youth-policy question with token accounting reported.
+Bedrock was separately verified with real Converse calls. The deployed model is
+`us.anthropic.claude-sonnet-4-6`, which also passed the JSON-schema structured-output
+contract used by the answer composer.
 
 ### Two things that will bite you in a demo
 
 **Uploads must go through the presigned API.** Dropping a file into the bucket with `aws s3 cp` or the console **will be rejected**. `verify_upload` requires `job-id` and `submitted-by` object metadata and a key shaped `incoming/job-<hex>/...`. This is intentional defence in depth, and it is working — but it means the console is not a valid upload path.
 
-**`configs/aws.example.yaml` still ships `model_id: <PLACEHOLDER_...>`.** The copilot raises `ConfigurationError` unless it is replaced with a real model id (`amazon.nova-lite-v1:0`). Set it before demoing.
+**Use the verified inference profile.** `configs/aws.example.yaml` and the API stack
+default to `us.anthropic.claude-sonnet-4-6`. If it is overridden, run
+`make bedrock-check` first; a model appearing in the catalogue does not prove that
+the account may invoke it.
 
 ---
 

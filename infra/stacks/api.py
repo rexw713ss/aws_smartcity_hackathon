@@ -71,8 +71,12 @@ _MIN_WRITE_SECRET_LENGTH = 16
 
 _MODEL_ID_CONTEXT_KEY = "modelId"
 _MODEL_ID_ENV_VAR = "YOUTH_COMPASS_MODEL_ID"
-# Verified invokable on the hackathon account; Claude is not available there.
-_DEFAULT_MODEL_ID = "amazon.nova-lite-v1:0"
+# Verified with both Converse and JSON-schema structured output on the
+# hackathon account. Newer Anthropic models must use a cross-region inference
+# profile rather than the plain foundation-model id.
+_DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+
+_INFERENCE_PROFILE_PREFIXES = ("us.", "apac.", "eu.", "global.")
 
 
 def resolve_write_secret(context_value: str | None) -> str:
@@ -97,6 +101,26 @@ def resolve_write_secret(context_value: str | None) -> str:
 def resolve_model_id(context_value: str | None) -> str:
     """Context key, then environment variable, then the verified default."""
     return context_value or os.environ.get(_MODEL_ID_ENV_VAR) or _DEFAULT_MODEL_ID
+
+
+def _bedrock_resources(model_id: str, region: str) -> list[str]:
+    """Return least-privilege ARNs for a foundation model or inference profile.
+
+    Cross-region profiles require permission on both the profile itself and its
+    underlying foundation model. The latter may be invoked in another region,
+    so only the region segment is wildcarded; the provider/model remains exact.
+    """
+
+    if model_id.startswith(_INFERENCE_PROFILE_PREFIXES):
+        foundation_model_id = model_id.split(".", 1)[1]
+        return [
+            (
+                f"arn:{cdk.Aws.PARTITION}:bedrock:{region}:"
+                f"{cdk.Aws.ACCOUNT_ID}:inference-profile/{model_id}"
+            ),
+            (f"arn:{cdk.Aws.PARTITION}:bedrock:*::foundation-model/{foundation_model_id}"),
+        ]
+    return [f"arn:{cdk.Aws.PARTITION}:bedrock:{region}::foundation-model/{model_id}"]
 
 
 # Cold start dominates this function's latency; the analytics endpoints open
@@ -225,15 +249,13 @@ class ApiStack(TaggedStack):
             )
         )
 
-        # The copilot's decomposer calls Bedrock Converse. Scoped to the
-        # foundation model actually configured, not "*".
+        # The answer composer calls Bedrock Converse. Cross-region inference
+        # profiles additionally need the exact underlying foundation model in
+        # every region the profile may route through.
         self.api_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel"],
-                resources=[
-                    f"arn:aws:bedrock:{region}::foundation-model/{model_id}",
-                    f"arn:aws:bedrock:{region}:{cdk.Aws.ACCOUNT_ID}:inference-profile/{model_id}",
-                ],
+                resources=_bedrock_resources(model_id, region),
             )
         )
 

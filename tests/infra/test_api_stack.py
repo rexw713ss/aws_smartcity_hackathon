@@ -21,7 +21,8 @@ from tests.infra.constants import PLACEHOLDER_ACCOUNT, PLACEHOLDER_REGION
 STATE_MACHINE_ARN = (
     f"arn:aws:states:{PLACEHOLDER_REGION}:{PLACEHOLDER_ACCOUNT}:stateMachine:IngestionWorkflow"
 )
-MODEL_ID = "amazon.nova-lite-v1:0"
+MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+FOUNDATION_MODEL_ID = "anthropic.claude-sonnet-4-6"
 WRITE_SECRET = "a-sufficiently-long-secret"
 
 
@@ -138,6 +139,8 @@ class TestApiPermissions:
         assert bedrock, "expected a bedrock statement"
         resources = json.dumps(bedrock[0]["Resource"])
         assert MODEL_ID in resources
+        assert f"foundation-model/{FOUNDATION_MODEL_ID}" in resources
+        assert f"foundation-model/{MODEL_ID}" not in resources
         assert bedrock[0]["Resource"] != "*"
 
     def test_curated_zone_is_read_only(self, template: Template) -> None:
