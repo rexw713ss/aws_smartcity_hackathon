@@ -70,7 +70,12 @@ export type CopilotResponse = {
   warnings: string[]
 }
 
-export type ToolCapability = { tool: string; operation: string; description: string }
+export type ToolCapability = {
+  name: string
+  operation: string
+  description: string
+  requires: string[]
+}
 
 export type AcquisitionStart = {
   candidate: SourceCandidate
@@ -301,11 +306,16 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         headers: { Accept: 'application/json' },
       }))
       return array(raw, 40).map(item => {
-        if (!isObject(item) || !isText(item.tool, 120) || !isText(item.operation, 120) ||
+        if (!isObject(item) || !isText(item.name, 120) || !isText(item.operation, 120) ||
             !isText(item.description, 2000)) {
           throw new ContractError()
         }
-        return { tool: item.tool, operation: item.operation, description: item.description }
+        return {
+          name: item.name,
+          operation: item.operation,
+          description: item.description,
+          requires: textList(item.requires, 20, 120),
+        }
       })
     },
 

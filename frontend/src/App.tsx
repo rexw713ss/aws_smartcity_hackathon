@@ -64,7 +64,11 @@ export default function App() {
     client
       .capabilities(controller.signal)
       .then(setCapabilities)
-      .catch(() => setCapabilities([]))
+      .catch(cause => {
+        setCapabilities([])
+        // Swallowing this hid a real contract mismatch; surface it instead.
+        if (!controller.signal.aborted) console.error('capabilities request failed', cause)
+      })
     return () => controller.abort()
   }, [client])
 
@@ -158,8 +162,8 @@ export default function App() {
                 <summary>Tools ({capabilities.length})</summary>
                 <ul>
                   {capabilities.map(item => (
-                    <li key={`${item.tool}-${item.operation}`}>
-                      <code>{item.tool}</code>
+                    <li key={`${item.name}-${item.operation}`}>
+                      <code>{item.name}</code>
                       <span>{item.description}</span>
                     </li>
                   ))}

@@ -1,8 +1,9 @@
 import type { Page, Route } from '@playwright/test'
 
+// Shape matches ToolCapability in contracts/api/openapi.json: `name`, not `tool`.
 export const capabilities = [
-  { tool: 'query_observations', operation: 'query_observations', description: 'Query published observations' },
-  { tool: 'rank_candidates', operation: 'rank_candidates', description: 'Rank candidates against a decision profile' },
+  { name: 'query_observations', operation: 'query_observations', description: 'Query published observations', requires: [] },
+  { name: 'rank_candidates', operation: 'rank_candidates', description: 'Rank candidates against a decision profile', requires: ['get_features'] },
 ]
 
 export const rankingAnswer = {
