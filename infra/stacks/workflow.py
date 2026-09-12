@@ -90,6 +90,8 @@ class WorkflowStack(TaggedStack):
             "YOUTH_COMPASS_INCOMING_BUCKET": incoming_bucket_name,
             "YOUTH_COMPASS_REGION": region,
             "YOUTH_COMPASS_METADATA_TABLE": metadata_table_name,
+            "YOUTH_COMPASS_CURATED_BUCKET": curated_bucket_name,
+            "YOUTH_COMPASS_QUARANTINED_BUCKET": quarantined_bucket_name,
         }
 
         # --- Transform Lambda (ARM64): profiling + mapping + transform ---
@@ -111,21 +113,70 @@ class WorkflowStack(TaggedStack):
         metadata_table.grant_read_write_data(self.transform_fn)
 
         # --- Step Functions Standard Workflow ---
+        # 1. Profile + map the uploaded file.
         analyze = tasks.LambdaInvoke(
             self,
             "ProfileAndMap",
             lambda_function=self.transform_fn,
             payload=sfn.TaskInput.from_object(
-                {
-                    "action": "analyze",
-                    "source_uri": sfn.JsonPath.string_at("$.source_uri"),
-                }
+                {"action": "analyze", "source_uri": sfn.JsonPath.string_at("$.source_uri")}
             ),
             result_path="$.analysis",
         )
-        quarantine = sfn.Pass(self, "Quarantine", comment="Route failures to quarantine")
-        publish = sfn.Pass(self, "Publish", comment="Publish approved dataset")
-        approval = sfn.Pass(self, "AwaitApproval", comment="Human review (callback token)")
+
+        # Terminal-ish steps.
+        quarantine = tasks.LambdaInvoke(
+            self,
+            "Quarantine",
+            lambda_function=self.transform_fn,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "action": "transform",
+                    "approved": False,
+                    "job_id": sfn.JsonPath.string_at("$.job_id"),
+                    "source_uri": sfn.JsonPath.string_at("$.source_uri"),
+                }
+            ),
+            result_path="$.quarantine",
+        )
+        publish = tasks.LambdaInvoke(
+            self,
+            "Publish",
+            lambda_function=self.transform_fn,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "action": "transform",
+                    "approved": True,
+                    "job_id": sfn.JsonPath.string_at("$.job_id"),
+                    "source_uri": sfn.JsonPath.string_at("$.source_uri"),
+                }
+            ),
+            result_path="$.publish",
+        )
+
+        # 2. Real human-approval pause: waitForTaskToken. The Lambda persists the
+        # token so the API can resume this exact execution later; the state
+        # stays suspended (no per-hour charge) until send_task_success/failure.
+        await_approval = tasks.LambdaInvoke(
+            self,
+            "AwaitApproval",
+            lambda_function=self.transform_fn,
+            integration_pattern=sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "action": "await_approval",
+                    "job_id": sfn.JsonPath.string_at("$.job_id"),
+                    "task_token": sfn.JsonPath.task_token,
+                }
+            ),
+            result_path="$.approval",
+        )
+        # On approval the token returns success -> publish; on rejection the
+        # token returns failure -> caught here -> quarantine.
+        await_approval.add_catch(quarantine, errors=["Rejected"], result_path="$.rejection")
+        await_approval.next(publish)
+
+        # 3. Confidence gate: high confidence auto-publishes; else pause for review.
         gate = (
             sfn.Choice(self, "ConfidenceGate")
             .when(
@@ -134,10 +185,9 @@ class WorkflowStack(TaggedStack):
                 ),
                 publish,
             )
-            .otherwise(approval)
+            .otherwise(await_approval)
         )
         analyze.add_catch(quarantine, errors=["States.ALL"], result_path="$.error")
-        approval.next(publish)
 
         self.state_machine = sfn.StateMachine(
             self,
