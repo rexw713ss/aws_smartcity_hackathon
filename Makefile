@@ -73,3 +73,6 @@ deploy-api:  ## Build and deploy the API + static site stack (creds). Needs YOUT
 
 deploy-site:  ## Upload web/ to the site bucket and invalidate CloudFront (creds)
 	uv run python -m scripts.deploy_site
+
+bedrock-check:  ## Probe which Bedrock models this account can actually invoke (creds)
+	uv run python -m scripts.bedrock_check --region $${YOUTH_COMPASS_REGION:-us-east-1}
