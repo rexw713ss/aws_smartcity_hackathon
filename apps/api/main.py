@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from apps.api.copilot import router as copilot_router
 from apps.api.dependencies import LocalRuntime
 from apps.api.schemas import (
+    MAX_UPLOAD_BYTES,
     CitySummaryResponse,
     DatasetResponse,
     DecisionRequest,
@@ -56,7 +57,6 @@ from youth_compass.ports import ApprovalDecision, JobReference
 
 _LOGGER = logging.getLogger(__name__)
 
-_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _DATA_ROOT_ENV_VAR = "YOUTH_COMPASS_DATA_ROOT"
 
 
@@ -159,8 +159,8 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         submitted_by: Annotated[str, Form()],
         topic_hint: Annotated[str | None, Form()] = None,
     ) -> UploadResponse:
-        content = await file.read(_MAX_UPLOAD_BYTES + 1)
-        if len(content) > _MAX_UPLOAD_BYTES:
+        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        if len(content) > MAX_UPLOAD_BYTES:
             raise WorkflowStateError("upload exceeds the 25 MiB local limit")
         reference = _runtime(request).workflow.submit_bytes(
             file_name=file.filename or "",

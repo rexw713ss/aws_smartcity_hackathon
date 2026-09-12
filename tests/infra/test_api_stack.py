@@ -59,7 +59,7 @@ class TestApiFunction:
             {
                 "Architectures": ["arm64"],
                 "Runtime": "python3.12",
-                "Handler": "apps.api.lambda_handler.handler",
+                "Handler": "run.sh",
             },
         )
 
@@ -214,13 +214,14 @@ class TestApiPermissions:
         assert "s3:DeleteObject" not in actions
 
 
-class TestHttpApi:
-    def test_exposes_an_http_api_with_preflight(self, template: Template) -> None:
+class TestStreamingFunctionUrl:
+    def test_exposes_a_streaming_function_url_with_cors(self, template: Template) -> None:
         template.has_resource_properties(
-            "AWS::ApiGatewayV2::Api",
+            "AWS::Lambda::Url",
             {
-                "ProtocolType": "HTTP",
-                "CorsConfiguration": Match.object_like(
+                "AuthType": "NONE",
+                "InvokeMode": "RESPONSE_STREAM",
+                "Cors": Match.object_like(
                     {"AllowHeaders": ["Content-Type", "X-Youth-Compass-Token"]}
                 ),
             },

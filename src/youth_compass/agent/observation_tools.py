@@ -14,7 +14,7 @@ from youth_compass.agent.contracts import (
 )
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import QueryExecutionError
-from youth_compass.ontology import resolve_district_name
+from youth_compass.ontology import extract_topics, resolve_district_name, resolve_topic_name
 from youth_compass.ports import QueryEngine, QuerySpec
 from youth_compass.ports.query_engine import CellValue, FilterValue
 
@@ -32,6 +32,8 @@ _INSPECTION_DIMENSIONS = [
 ]
 # Added to the projection only when a filter needs them, so an unfiltered
 # query keeps the narrower grain it already scanned.
+# The subject a question is about when it names none.
+_DEFAULT_TOPIC = "population"
 _AGE_DIMENSIONS = ["age_lower", "age_upper"]
 _TOKEN = re.compile(r"[\w]+", re.UNICODE)
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
@@ -50,6 +52,10 @@ class DatasetCatalogReader(Protocol):
 
     def get(self, dataset_id: str) -> DatasetMetadata:
         """Return the visible version for one dataset."""
+        ...
+
+    def list_versions(self, dataset_id: str) -> list[DatasetMetadata]:
+        """Return every stored version of one dataset, oldest first."""
         ...
 
 
@@ -93,6 +99,17 @@ class InspectDatasetTool:
             raise QueryExecutionError(
                 f"dataset {dataset_id!r} is not published at the requested quality"
             )
+        return self._inspect(metadata, decomposition)
+
+    def execute_for_version(
+        self, decomposition: DecomposedQuery, metadata: DatasetMetadata
+    ) -> DatasetInspection:
+        """Inspect one immutable stored version, including a superseded one.
+
+        Used only to describe what a newer version changed. It reads the exact
+        version it is given and never selects or publishes anything.
+        """
+
         return self._inspect(metadata, decomposition)
 
     def _inspect(
@@ -340,14 +357,21 @@ def _select_dataset(
     if len(candidates) == 1:
         return candidates[0]
     terms = set(decomposition.subject_terms) | set(decomposition.metric_terms)
+    spoken = set(extract_topics(decomposition.original_question))
     ranked = sorted(
         (
-            (_relevance(item, terms), item.quality_score, item.dataset_id, item)
+            (_relevance(item, terms, spoken), item.quality_score, item.dataset_id, item)
             for item in candidates
         ),
         key=lambda value: (-value[0], -value[1], value[2]),
     )
     if ranked[0][0] == 0:
+        # A question that names no subject at all ("Compare Shimen and Linkou")
+        # is about youth population, the subject this product exists for. Only
+        # one such dataset may qualify; otherwise the choice is still ambiguous.
+        default = [item for item in candidates if resolve_topic_name(item.topic) == _DEFAULT_TOPIC]
+        if len(default) == 1:
+            return default[0]
         raise QueryExecutionError(
             "multiple published datasets match the scope; specify a metric or topic"
         )
@@ -356,9 +380,13 @@ def _select_dataset(
     return ranked[0][3]
 
 
-def _relevance(metadata: DatasetMetadata, terms: set[str]) -> int:
+def _relevance(metadata: DatasetMetadata, terms: set[str], spoken: set[str]) -> int:
     haystack = set(_tokens(f"{metadata.dataset_id} {metadata.topic}"))
-    return len(haystack & {token for term in terms for token in _tokens(term)})
+    lexical = len(haystack & {token for term in terms for token in _tokens(term)})
+    # A subject named in any supported language ("dân số", "人口") counts as a
+    # strong match, so a non-English question can still select its table.
+    named = 2 if resolve_topic_name(metadata.topic) in spoken else 0
+    return lexical + named
 
 
 def _select_metric(metrics: tuple[str, ...], decomposition: DecomposedQuery) -> str:

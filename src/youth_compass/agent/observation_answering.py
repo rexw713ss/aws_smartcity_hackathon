@@ -11,6 +11,7 @@ owns the join.
 """
 
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from youth_compass.agent.contracts import (
@@ -78,6 +79,7 @@ class ObservationAnswering:
         trace: list[ToolTrace],
         *,
         min_quality_score: float,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
     ) -> CopilotResponse:
         """Answer from published observations, or say why none can be used."""
 
@@ -162,6 +164,7 @@ class ObservationAnswering:
                 trace,
                 inspection,
                 metadata,
+                on_text=on_text,
             )
         if AnalysisOperation.QUERY_OBSERVATIONS not in decomposition.operations:
             fallback_answer = (
@@ -177,6 +180,7 @@ class ObservationAnswering:
                     fallback_answer=fallback_answer,
                 ),
                 trace,
+                on_text=on_text,
             )
             visualizations = self._support.visualizations.inspection(
                 decomposition.original_question, inspection
@@ -270,6 +274,7 @@ class ObservationAnswering:
                 fallback_answer=fallback_answer,
             ),
             trace,
+            on_text=on_text,
         )
         # Doc 30: look at the retrieved rows before deciding what to draw, pick
         # the unit that makes the comparison legible, then let scoring decide
@@ -436,6 +441,8 @@ class ObservationAnswering:
         trace: list[ToolTrace],
         inspection: DatasetInspection,
         metadata: DatasetMetadata,
+        *,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
     ) -> CopilotResponse:
         service = self._forecast
         if service is None:  # Defensive: routed only when a forecast service exists.
@@ -497,6 +504,7 @@ class ObservationAnswering:
                 fallback_answer=fallback_answer,
             ),
             trace,
+            on_text=on_text,
         )
         visualizations = self._support.visualizations.forecast(
             decomposition.original_question,

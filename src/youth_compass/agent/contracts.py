@@ -24,6 +24,7 @@ class AnalysisOperation(StrEnum):
 
     SEARCH_CATALOG = "search_catalog"
     SEARCH_TOOLS = "search_tools"
+    SEARCH_WEB = "search_web"
     DISCOVER_SOURCES = "discover_sources"
     INSPECT_DATASET = "inspect_dataset"
     ACQUIRE_SOURCE = "acquire_source"
@@ -38,6 +39,24 @@ class AnalysisOperation(StrEnum):
     ASSESS_CAPACITY = "assess_capacity"
     RECOMMEND_INVESTMENT = "recommend_investment"
     EXPLAIN_LINEAGE = "explain_lineage"
+
+
+class QuestionFocus(StrEnum):
+    """A data question answered beyond a plain trend or comparison.
+
+    Each value has one deterministic handler. The decomposer sets it from
+    curated cues; nothing here is inferred by the answer composer.
+    """
+
+    LARGEST_DECLINE = "largest_decline"
+    PRIORITY_EXPLANATION = "priority_explanation"
+    COMPLETENESS = "completeness"
+    ESTIMATES = "estimates"
+    POPULATION_SCOPE = "population_scope"
+    VERSION_CHANGES = "version_changes"
+    JOINABILITY = "joinability"
+    EVIDENCE_SUMMARY = "evidence_summary"
+    FORECAST_ACCURACY = "forecast_accuracy"
 
 
 # The canonical gender vocabulary, mirroring youth_compass.mapping.gender. A
@@ -93,6 +112,7 @@ class DecomposedQuery(BaseModel):
     time_expression: str | None = Field(default=None, max_length=120)
     filters: AnalysisFilters = AnalysisFilters()
     operations: tuple[AnalysisOperation, ...] = Field(min_length=1)
+    focus: QuestionFocus | None = None
     needs_clarification: bool = False
     clarification_question: str | None = Field(default=None, max_length=400)
 
@@ -225,6 +245,18 @@ class EvidenceCitation(BaseModel):
     quality_score: float = Field(ge=0.0, le=1.0)
     retrieved_at: AwareDatetime
     excerpt: tuple[EvidenceExcerptRow, ...] = Field(default=(), max_length=100)
+
+
+class WebCitation(BaseModel):
+    """A search result used as web evidence, separate from published datasets."""
+
+    model_config = ConfigDict(frozen=True)
+
+    citation_id: str = Field(pattern=r"^web-\d+$")
+    title: str = Field(min_length=1, max_length=500)
+    url: str = Field(pattern=r"^https://", max_length=2_000)
+    snippet: str = Field(default="", max_length=2_000)
+    published_at: AwareDatetime | None = None
 
 
 class DatasetInspection(BaseModel):
@@ -549,7 +581,10 @@ class AnswerCompositionContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     question: str = Field(min_length=3)
-    analysis_type: Literal["decision", "dataset_inspection", "observation_comparison", "forecast"]
+    analysis_type: Literal[
+        "decision", "dataset_inspection", "observation_comparison", "forecast", "data_question",
+        "web_search"
+    ]
     grounded_facts_json: str = Field(min_length=2)
     allowed_citation_ids: tuple[str, ...] = ()
     fallback_answer: str = Field(min_length=1)
@@ -620,6 +655,7 @@ class CopilotResponse(BaseModel):
     forecast_result: ForecastResult | None = None
     candidates: tuple[CandidateInsight, ...] = ()
     citations: tuple[EvidenceCitation, ...] = ()
+    web_citations: tuple[WebCitation, ...] = ()
     tool_trace: tuple[ToolTrace, ...] = ()
     assumptions: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()

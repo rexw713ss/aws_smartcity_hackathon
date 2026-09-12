@@ -3,8 +3,9 @@
 import json
 import logging
 import re
+from collections.abc import AsyncIterator, Awaitable, Callable
 from decimal import Decimal, InvalidOperation
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import ValidationError
 
@@ -20,13 +21,17 @@ from youth_compass.ports import ModelProvider, ModelRequest
 _LOGGER = logging.getLogger(__name__)
 
 _NUMBER = re.compile(r"(?<![\w])[-+]?\d+(?:\.\d+)?")
-_CITATION = re.compile(r"\bdata-\d+\b")
+_CITATION = re.compile(r"\b(?:data|web)-\d+\b")
 
 
 class AnswerComposer(Protocol):
     """Convert grounded public facts into a user-facing narrative."""
 
-    async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
+    async def compose(
+        self,
+        context: AnswerCompositionContext,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
+    ) -> ComposedAnswer:
         """Return a narrative without changing the structured source of truth."""
         ...
 
@@ -34,7 +39,13 @@ class AnswerComposer(Protocol):
 class DeterministicAnswerComposer:
     """Return the application's verified template when no model is configured."""
 
-    async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
+    async def compose(
+        self,
+        context: AnswerCompositionContext,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
+    ) -> ComposedAnswer:
+        if on_text is not None:
+            await on_text(context.fallback_answer)
         return ComposedAnswer(
             answer=context.fallback_answer,
             citation_ids=context.allowed_citation_ids,
@@ -48,7 +59,13 @@ class ModelAnswerComposer:
     def __init__(self, provider: ModelProvider) -> None:
         self._provider = provider
 
-    async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
+    async def compose(
+        self,
+        context: AnswerCompositionContext,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
+    ) -> ComposedAnswer:
+        if on_text is not None and hasattr(self._provider, "stream"):
+            return await self._compose_stream(context, on_text)
         try:
             grounded_facts = json.loads(context.grounded_facts_json)
         except json.JSONDecodeError as exc:
@@ -126,6 +143,23 @@ class ModelAnswerComposer:
             mode="model",
         )
 
+    async def _compose_stream(
+        self,
+        context: AnswerCompositionContext,
+        on_text: Callable[[str], Awaitable[None]],
+    ) -> ComposedAnswer:
+        """Stream Bedrock prose while retaining the same grounded-output checks."""
+
+        request, numeric_source = _streaming_request(context)
+        stream = cast(AsyncIterator[str], self._provider.stream(request))  # type: ignore[attr-defined]
+        answer = ""
+        async for delta in stream:
+            answer += delta
+            await on_text(answer)
+        citation_ids = tuple(dict.fromkeys(_CITATION.findall(answer)))
+        _validate_grounding(answer, citation_ids, context, numeric_source)
+        return ComposedAnswer(answer=answer, citation_ids=citation_ids, mode="model")
+
 
 class FallbackAnswerComposer:
     """Fall back to a deterministic template on any model-boundary failure."""
@@ -134,16 +168,80 @@ class FallbackAnswerComposer:
         self._primary = primary
         self._fallback = fallback
 
-    async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
+    async def compose(
+        self,
+        context: AnswerCompositionContext,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
+    ) -> ComposedAnswer:
         try:
-            return await self._primary.compose(context)
+            if on_text is None:
+                return await self._primary.compose(context)
+            return await self._primary.compose(context, on_text)
         except ModelInvocationError as exc:
             # A silent fallback is the worst failure mode here: answers stay
             # correct and grounded, so a misconfigured model provider looks
             # exactly like a working one. The response trace still reports
             # mode='deterministic'; this makes it visible in the logs too.
             _LOGGER.warning("answer composer fell back to the deterministic template: %s", exc)
-            return await self._fallback.compose(context)
+            # Replace any provisional model text with the verified template.
+            if on_text is None:
+                return await self._fallback.compose(context)
+            return await self._fallback.compose(context, on_text)
+
+
+def _streaming_request(context: AnswerCompositionContext) -> tuple[ModelRequest, str]:
+    try:
+        grounded_facts = json.loads(context.grounded_facts_json)
+    except json.JSONDecodeError as exc:
+        raise ModelInvocationError("answer context contains invalid grounded JSON") from exc
+    numeric_source = _without_citations(
+        context.grounded_facts_json + " " + context.fallback_answer,
+        context.allowed_citation_ids,
+    )
+    request = ModelRequest(
+        system=(
+            "Write only the final concise answer, with no JSON wrapper, HTML, Markdown heading, "
+            "or table. Write in RESPONSE_LANGUAGE. Use only GROUNDED_FACTS and follow "
+            "SAFE_ANSWER_TEMPLATE. Put an allowed citation ID in square brackets immediately "
+            "after each evidence claim. Never add facts, entities, numbers, causal claims, or "
+            "citations. Every number must be copied character-for-character from "
+            "ALLOWED_NUMBER_STRINGS."
+        ),
+        prompt=json.dumps(
+            {
+                "question": context.question,
+                "response_language": _response_language(context.question),
+                "analysis_type": context.analysis_type,
+                "grounded_facts": grounded_facts,
+                "allowed_citation_ids": context.allowed_citation_ids,
+                "allowed_number_strings": sorted(set(_NUMBER.findall(numeric_source))),
+                "safe_answer_template": context.fallback_answer,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        max_tokens=1500,
+        temperature=0,
+    )
+    return request, numeric_source
+
+
+def _validate_grounding(
+    answer: str,
+    citation_ids: tuple[str, ...],
+    context: AnswerCompositionContext,
+    numeric_source: str,
+) -> None:
+    allowed_citations = set(context.allowed_citation_ids)
+    if not set(citation_ids).issubset(allowed_citations):
+        raise ModelInvocationError("model answer referenced an unknown citation")
+    scrubbed_answer = answer
+    for citation_id in allowed_citations:
+        scrubbed_answer = scrubbed_answer.replace(citation_id, "")
+    invented_numbers = _numbers(scrubbed_answer) - _numbers(numeric_source)
+    if invented_numbers:
+        rendered = ", ".join(sorted(str(item) for item in invented_numbers))
+        raise ModelInvocationError(f"model answer invented numerical values: {rendered}")
 
 
 def _numbers(text: str) -> set[Decimal]:

@@ -17,6 +17,10 @@ from youth_compass.domain.contracts import DatasetMetadata, QualityReport
 from youth_compass.domain.types import FileFormat
 from youth_compass.ports import JobStatus
 
+#: The one reviewer-upload limit, shared by the upload route and the chat that
+#: tells a reviewer about it before they pick a file.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
 
 def _to_camel(value: str) -> str:
     head, *tail = value.split("_")

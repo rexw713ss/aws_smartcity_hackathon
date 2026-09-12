@@ -37,6 +37,7 @@ from youth_compass.agent.contracts import (
     MultiDatasetAnalysis,
     ObservationPoint,
     ObservationSeries,
+    QuestionFocus,
     RegionScheme,
     RoutedToolPlan,
     RoutedToolStep,
@@ -49,6 +50,7 @@ from youth_compass.agent.contracts import (
     VisualizationSpec,
     VisualizationType,
     VisualizationValue,
+    WebCitation,
 )
 from youth_compass.agent.conversation import (
     ConversationContextResolver,
@@ -104,6 +106,7 @@ from youth_compass.agent.planning import (
     register_forecast_capabilities,
     register_impact_capabilities,
     register_observation_capabilities,
+    register_web_search_capabilities,
 )
 from youth_compass.agent.service import GroundedCopilotService
 from youth_compass.agent.visualization import MapReading, VisualizationBuilder
@@ -188,6 +191,7 @@ __all__ = [
     "ObservationToolSuite",
     "QueryDecomposer",
     "QueryObservationsTool",
+    "QuestionFocus",
     "RegionScheme",
     "RejectedVisualization",
     "RejectionReason",
@@ -212,6 +216,7 @@ __all__ = [
     "VisualizationSpec",
     "VisualizationType",
     "VisualizationValue",
+    "WebCitation",
     "apply_measure",
     "choose_measure",
     "context_from_decomposition",
@@ -224,5 +229,6 @@ __all__ = [
     "register_forecast_capabilities",
     "register_impact_capabilities",
     "register_observation_capabilities",
+    "register_web_search_capabilities",
     "select_visualizations",
 ]

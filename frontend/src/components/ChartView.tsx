@@ -29,19 +29,27 @@ function Tip({ active, payload, label, unit }: any) {
   )
 }
 
-/** Ember is functional punctuation: it marks the leader of a ranking and the
- * negative side of a change. Everything else stays achromatic graphite, keeping
- * the page ~95% achromatic as the design system requires. The leader is row 0
- * because the backend already ordered the ranking — nothing is recomputed here. */
+/** Colour is selected by the role of the value. Contributions use the familiar
+ * green/red diverging pair, rankings emphasise only the winner, and ordinary
+ * comparisons use distinct categorical colours. The backend determines order
+ * and values; this function only chooses their visual encoding. */
 function barFill(
   spec: VisualizationSpec,
   row: Record<string, VisualizationValue>,
   field: string,
   index: number,
 ): string {
-  if (Number(row[field]) < 0) return 'var(--chart-negative)'
-  if (spec.type === 'ranking_bar' && index === 0) return 'var(--chart-primary)'
-  return 'var(--chart-positive)'
+  const value = Number(row[field])
+  if (spec.type === 'contribution_bar') {
+    if (value < 0) return 'var(--chart-negative)'
+    if (value > 0) return 'var(--chart-positive)'
+    return 'var(--chart-neutral)'
+  }
+  if (spec.type === 'ranking_bar') {
+    return index === 0 ? 'var(--chart-highlight)' : 'var(--chart-neutral)'
+  }
+  if (value < 0) return 'var(--chart-negative)'
+  return colorFor(index)
 }
 
 /** A spec whose quantitative encoding sits on x renders horizontally; one whose

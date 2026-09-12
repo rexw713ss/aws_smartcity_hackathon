@@ -228,3 +228,48 @@ def test_an_unmatched_gender_filter_names_the_filter_that_emptied_the_result() -
             _observation_inspection(),
             _observation_metadata(),
         )
+
+
+def _catalog_entry(dataset_id: str, topic: str) -> DatasetMetadata:
+    return _observation_metadata().model_copy(update={"dataset_id": dataset_id, "topic": topic})
+
+
+def _selection_query(question: str, **fields: object) -> DecomposedQuery:
+    return DecomposedQuery(
+        original_question=question,
+        objective="compare observations",
+        operations=(AnalysisOperation.QUERY_OBSERVATIONS,),
+        **fields,  # type: ignore[arg-type]
+    )
+
+
+def test_a_question_naming_no_subject_defaults_to_population() -> None:
+    # Publishing a second table made "Compare Shimen and Linkou" ambiguous.
+    from youth_compass.agent.observation_tools import _select_dataset
+
+    catalog = [_catalog_entry("education", "education"), _catalog_entry("population", "population")]
+
+    selected = _select_dataset(
+        catalog, _selection_query("Compare Shimen and Linkou from 2018 to 2025")
+    )
+
+    assert selected.dataset_id == "population"
+
+
+def test_a_subject_named_in_vietnamese_selects_its_table() -> None:
+    from youth_compass.agent.observation_tools import _select_dataset
+
+    catalog = [_catalog_entry("population", "population"), _catalog_entry("education", "education")]
+
+    selected = _select_dataset(catalog, _selection_query("Trình độ học vấn ở Bản Kiều"))
+
+    assert selected.dataset_id == "education"
+
+
+def test_no_default_is_guessed_when_population_is_not_published() -> None:
+    from youth_compass.agent.observation_tools import _select_dataset
+
+    catalog = [_catalog_entry("education", "education"), _catalog_entry("income", "income")]
+
+    with pytest.raises(QueryExecutionError, match="specify a metric or topic"):
+        _select_dataset(catalog, _selection_query("Compare Shimen and Linkou"))

@@ -1,5 +1,6 @@
 """Copilot API executes against an immutable local feature snapshot."""
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -235,6 +236,23 @@ def test_copilot_query_returns_grounded_ranking(tmp_path: Path) -> None:
     assert "source_uri" not in response.text
 
 
+def test_copilot_query_stream_finishes_with_validated_response(tmp_path: Path) -> None:
+    _write_home_features(tmp_path)
+    client = TestClient(create_app(tmp_path))
+
+    with client.stream(
+        "POST",
+        "/api/v1/copilot/query/stream",
+        json={"question": "Tôi nên mua nhà ở đâu?", "entityIds": ["banqiao", "linkou"]},
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert events[0]["type"] in {"delta", "text"}
+    assert events[-1]["type"] == "result"
+    assert events[-1]["response"]["status"] == "answered"
+
+
 def test_copilot_refuses_when_feature_snapshot_is_missing(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
 
@@ -262,7 +280,9 @@ def test_missing_dataset_can_start_approval_gated_acquisition(tmp_path: Path) ->
     assert query.status_code == 200
     assert query.json()["status"] == "acquisition_required"
     assert query.json()["source_candidates"][0]["candidate_id"] == "ntpc-population"
-    assert query.json()["visualizations"][0]["visualization_id"] == "source-candidates-table"
+    # The request for data is asked in the conversation, not drawn as a chart.
+    assert query.json()["visualizations"] == []
+    assert query.json()["data_requirement"] is not None
 
     started = client.post(
         "/api/v1/copilot/acquisitions",
@@ -274,6 +294,28 @@ def test_missing_dataset_can_start_approval_gated_acquisition(tmp_path: Path) ->
     job_id = started.json()["ingestion_job_id"]
     status_response = client.get(f"/api/v1/ingestion-jobs/{job_id}")
     assert status_response.json()["status"] == "awaiting_approval"
+
+
+def test_chat_can_submit_a_reviewer_link_only_to_approved_hosts(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+
+    options = client.get("/api/v1/copilot/intake-options")
+    assert options.status_code == 200
+    assert "data.ntpc.gov.tw" in options.json()["linkHosts"]
+    assert options.json()["maxUploadBytes"] == 25 * 1024 * 1024
+
+    refused = client.post(
+        "/api/v1/copilot/acquisitions/link",
+        json={"url": "https://evil.example.com/data.csv", "submittedBy": "reviewer@example.com"},
+    )
+    assert refused.status_code == 422
+    assert "allowlist" in refused.json()["error"]["message"]
+
+    not_https = client.post(
+        "/api/v1/copilot/acquisitions/link",
+        json={"url": "http://data.ntpc.gov.tw/data.csv", "submittedBy": "reviewer@example.com"},
+    )
+    assert not_https.status_code == 422
 
 
 def test_copilot_capabilities_are_discoverable(tmp_path: Path) -> None:

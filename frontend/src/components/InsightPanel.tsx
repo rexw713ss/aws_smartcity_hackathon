@@ -115,12 +115,13 @@ export default function InsightPanel({
 }) {
   const { language, t } = useI18n()
   const [tab, setTab] = useState<Tab>('charts')
-  const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null)
-  const [overview, setOverview] = useState<DistrictOverviewData | null>(null)
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([])
+  const [overviews, setOverviews] = useState<DistrictOverviewData[]>([])
   // The district, not its name: the label follows the language picker.
-  const [overviewDistrict, setOverviewDistrict] = useState<District | null>(null)
+  const [overviewDistricts, setOverviewDistricts] = useState<District[]>([])
   const [overviewPending, setOverviewPending] = useState(false)
   const [overviewError, setOverviewError] = useState<string | null>(null)
+  const overviewRequest = useRef(0)
   const evidenceRefs = useRef(new Map<string, HTMLLIElement>())
   const highlights = useMemo(() => districtHighlights(response), [response])
   // A choropleth is the map's own spec. Showing it again as a table here would
@@ -133,24 +134,31 @@ export default function InsightPanel({
   // A new answer always returns the reader to the charts it produced.
   useEffect(() => {
     if (response) {
-      setOverview(null)
+      setOverviews([])
+      setOverviewDistricts([])
+      setSelectedDistricts([])
       setOverviewError(null)
       setTab(response.impact_analysis ? 'impact' : 'charts')
     }
   }, [response])
 
-  const exploreDistrict = async (district: District) => {
+  const exploreDistricts = async (districts: District[]) => {
+    if (!districts.length) return
+    const ticket = ++overviewRequest.current
     setTab('charts')
-    setOverview(null)
-    setOverviewDistrict(district)
+    setOverviews([])
+    setOverviewDistricts(districts)
     setOverviewError(null)
     setOverviewPending(true)
     try {
-      setOverview(await onExploreDistrict(district.code))
+      const results = await Promise.all(districts.map(district => onExploreDistrict(district.code)))
+      if (ticket === overviewRequest.current) setOverviews(results)
     } catch (cause) {
-      setOverviewError(cause instanceof Error ? cause.message : t('overviewUnavailable'))
+      if (ticket === overviewRequest.current) {
+        setOverviewError(cause instanceof Error ? cause.message : t('overviewUnavailable'))
+      }
     } finally {
-      setOverviewPending(false)
+      if (ticket === overviewRequest.current) setOverviewPending(false)
     }
   }
 
@@ -168,13 +176,14 @@ export default function InsightPanel({
     return () => window.cancelAnimationFrame(frame)
   }, [tab, citationFocus])
 
-  const overviewName = overviewDistrict ? districtLabel(overviewDistrict, language) : ''
+  const overviewNames = overviewDistricts.map(district => districtLabel(district, language))
+  const overviewName = overviewNames.join(language === 'zh-TW' ? '、' : ', ')
 
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'charts', label: t('charts'), count: overview ? 3 : charts.length },
+    { id: 'charts', label: t('charts'), count: overviews.length ? 3 : charts.length },
     { id: 'map', label: t('map'), count: highlights.byCode.size },
     { id: 'impact', label: t('impact'), count: response?.impact_analysis ? 1 : 0 },
-    { id: 'evidence', label: t('evidence'), count: response?.citations.length ?? 0 },
+    { id: 'evidence', label: t('evidence'), count: (response?.citations.length ?? 0) + (response?.web_citations.length ?? 0) },
     { id: 'trace', label: t('trace'), count: response?.tool_trace.length ?? 0 },
   ]
 
@@ -211,8 +220,10 @@ export default function InsightPanel({
             <div className="panel-loading" aria-live="polite">{t('loadingOverview', { name: overviewName })}</div>
           ) : overviewError ? (
             <Empty title={t('overviewUnavailable')} detail={overviewError} />
-          ) : overview ? (
-            <DistrictOverview overview={overview} displayName={overviewName} />
+          ) : overviews.length ? (
+            <DistrictOverview
+              entries={overviews.map((overview, index) => ({ overview, displayName: overviewNames[index] ?? overview.districtName ?? overview.districtCode }))}
+            />
           ) : charts.length ? (
             <>
               {charts.map(spec => (
@@ -237,9 +248,9 @@ export default function InsightPanel({
           <DistrictMap
             highlights={highlights}
             coverage={response?.limitations?.coverage ?? null}
-            selected={selectedDistrict}
-            onSelect={setSelectedDistrict}
-            onExplore={exploreDistrict}
+            selected={selectedDistricts}
+            onSelect={setSelectedDistricts}
+            onExplore={exploreDistricts}
           />
         ) : null}
 
@@ -250,8 +261,9 @@ export default function InsightPanel({
         ) : null}
 
         {tab === 'evidence' ? (
-          response?.citations.length ? (
-            <ul className="evidence-list">
+          response && (response.citations.length || response.web_citations.length) ? (
+            <>
+            {response.citations.length ? <ul className="evidence-list">
               {response.citations.map((citation, index) => (
                 <li
                   key={citation.citation_id}
@@ -318,7 +330,23 @@ export default function InsightPanel({
                   </div>
                 </li>
               ))}
-            </ul>
+            </ul> : null}
+            {response.web_citations.length ? (
+              <ul className="evidence-list web-evidence-list">
+                {response.web_citations.map((citation, index) => (
+                  <li key={citation.citation_id} data-citation-id={citation.citation_id}>
+                    <code aria-label={`Source ${response.citations.length + index + 1}`}>[{response.citations.length + index + 1}]</code>
+                    <div>
+                      <strong><a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a></strong>
+                      {citation.published_at ? <span className="evidence-meta">{t('published')} {formatTimestamp(citation.published_at, language)}</span> : null}
+                      {citation.snippet ? <p className="web-evidence-snippet">{citation.snippet}</p> : null}
+                      <a className="web-evidence-link" href={citation.url} target="_blank" rel="noreferrer">{t('openWebResult')}</a>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            </>
           ) : (
             !pending && <Empty title={t('noCitations')} detail={t('noCitationsDetail')} />
           )

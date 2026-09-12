@@ -22,6 +22,19 @@ class FakeBedrockClient:
             raise self.response
         return self.response
 
+    def converse_stream(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(kwargs)
+        return {
+            "stream": iter(
+                [
+                    {"messageStart": {"role": "assistant"}},
+                    {"contentBlockDelta": {"delta": {"text": "Xin "}, "contentBlockIndex": 0}},
+                    {"contentBlockDelta": {"delta": {"text": "chào"}, "contentBlockIndex": 0}},
+                    {"messageStop": {"stopReason": "end_turn"}},
+                ]
+            )
+        }
+
 
 def _response(text: str) -> dict[str, object]:
     return {
@@ -94,3 +107,12 @@ def test_bedrock_translates_sdk_failures() -> None:
 
     with pytest.raises(ModelInvocationError, match="Bedrock invocation failed"):
         asyncio.run(provider.generate(ModelRequest(prompt="hello")))
+
+
+def test_bedrock_converse_stream_yields_provider_deltas() -> None:
+    provider = BedrockModelProvider("test-model", client=FakeBedrockClient(_response("unused")))
+
+    async def collect() -> list[str]:
+        return [part async for part in provider.stream(ModelRequest(prompt="hello"))]
+
+    assert asyncio.run(collect()) == ["Xin ", "chào"]

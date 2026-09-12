@@ -41,7 +41,7 @@ from youth_compass.ontology import (
     readable_feature_name,
     resolve_district_name,
 )
-from youth_compass.ports import ForecastResult, SourceCandidate
+from youth_compass.ports import ForecastResult
 
 _MAX_CHART_ROWS = 200
 _MAX_TABLE_ROWS = 200
@@ -515,42 +515,6 @@ class VisualizationBuilder:
         if mapped is not None:
             specs.append(mapped)
         return tuple(specs)
-
-    def sources(
-        self, question: str, candidates: tuple[SourceCandidate, ...]
-    ) -> tuple[VisualizationSpec, ...]:
-        if not candidates:
-            return ()
-        labels = _labels(question)
-        rows: list[dict[str, VisualizationValue]] = [
-            {
-                "candidate_id": item.candidate_id,
-                "title": item.title,
-                "publisher": item.publisher,
-                "source_format": item.source_format.value,
-                "license": item.license,
-                "period_start": item.period_start,
-                "period_end": item.period_end,
-            }
-            for item in candidates
-        ]
-        return (
-            VisualizationSpec(
-                visualization_id="source-candidates-table",
-                type=VisualizationType.DATA_TABLE,
-                title=labels["source_title"],
-                columns=(
-                    _column("candidate_id", labels["source_id"]),
-                    _column("title", labels["source"]),
-                    _column("publisher", labels["publisher"]),
-                    _column("source_format", labels["format"]),
-                    _column("license", labels["license"]),
-                    _column("period_start", labels["period_start"]),
-                    _column("period_end", labels["period_end"]),
-                ),
-                rows=tuple(rows),
-            ),
-        )
 
 
 _MIN_SLOPE_ENTITIES = 3
@@ -1120,12 +1084,10 @@ def _labels(question: str) -> dict[str, str]:
             "entity": "地區",
             "entity_count": "地區數量",
             "feature": "特徵",
-            "format": "格式",
             "forecast_description": "預測值及其不確定性上下界",
             "forecast_suffix": "預測",
             "forecast_table_title": "預測資料表",
             "forecast_value": "預測值",
-            "license": "授權條款",
             "lower": "下界",
             "map_description": "以行政區為單位的分級著色圖。顏色代表後端回傳的數值本身",
             "median": "中位數",
@@ -1136,7 +1098,6 @@ def _labels(question: str) -> dict[str, str]:
             "period_end": "結束期間",
             "period_start": "開始期間",
             "points": "貢獻分數",
-            "publisher": "發布單位",
             "quality": "品質分數",
             "rank": "名次",
             "ranking_map_title": "候選地點排名地圖",
@@ -1144,8 +1105,6 @@ def _labels(question: str) -> dict[str, str]:
             "ranking_title": "候選地點排名",
             "score": "分數",
             "source": "資料來源",
-            "source_id": "來源識別碼",
-            "source_title": "可用的外部資料來源",
             "trend_suffix": "趨勢",
             "trough": "低點",
             "upper": "上界",
@@ -1164,12 +1123,10 @@ def _labels(question: str) -> dict[str, str]:
         "entity": "Entity",
         "entity_count": "Entity count",
         "feature": "Feature",
-        "format": "Format",
         "forecast_description": "Point forecasts with lower and upper uncertainty bounds",
         "forecast_suffix": "forecast",
         "forecast_table_title": "Forecast data",
         "forecast_value": "Forecast value",
-        "license": "License",
         "lower": "Lower bound",
         "map_description": "District choropleth; shading encodes the value the backend returned",
         "median": "Median",
@@ -1180,7 +1137,6 @@ def _labels(question: str) -> dict[str, str]:
         "period_end": "Period end",
         "period_start": "Period start",
         "points": "Contribution points",
-        "publisher": "Publisher",
         "quality": "Quality score",
         "rank": "Rank",
         "ranking_map_title": "Candidate ranking map",
@@ -1188,8 +1144,6 @@ def _labels(question: str) -> dict[str, str]:
         "ranking_title": "Candidate ranking",
         "score": "Score",
         "source": "Source",
-        "source_id": "Source ID",
-        "source_title": "Available external data sources",
         "trend_suffix": "trend",
         "trough": "Trough",
         "upper": "Upper bound",

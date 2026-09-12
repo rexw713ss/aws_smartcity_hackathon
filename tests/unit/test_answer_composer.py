@@ -25,6 +25,13 @@ class StaticModelProvider:
         return ModelResponse(text=self.text, model_id="bedrock-test")
 
 
+class StreamingModelProvider(StaticModelProvider):
+    async def stream(self, request: ModelRequest):
+        self.requests.append(request)
+        for part in ("Banqiao tăng từ ", "100 lên 120 (20%) ", "[data-1]."):
+            yield part
+
+
 def _context() -> AnswerCompositionContext:
     return AnswerCompositionContext(
         question="Dân số thay đổi thế nào?",
@@ -116,3 +123,24 @@ def test_answer_composer_falls_back_to_verified_template() -> None:
 
     assert result.mode == "deterministic"
     assert result.answer == _context().fallback_answer
+
+
+def test_model_composer_forwards_bedrock_stream_snapshots() -> None:
+    snapshots: list[str] = []
+
+    # Use an async callback at the boundary, as the API does.
+    async def collect() -> object:
+        async def receive(text: str) -> None:
+            snapshots.append(text)
+
+        return await ModelAnswerComposer(StreamingModelProvider("unused")).compose(
+            _context(), receive
+        )
+
+    result = asyncio.run(collect())
+    assert snapshots == [
+        "Banqiao tăng từ ",
+        "Banqiao tăng từ 100 lên 120 (20%) ",
+        "Banqiao tăng từ 100 lên 120 (20%) [data-1].",
+    ]
+    assert result.mode == "model"  # type: ignore[attr-defined]

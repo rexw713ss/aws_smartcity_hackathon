@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from youth_compass.domain.errors import ConfigurationError
@@ -113,6 +113,22 @@ class ForecastSettings(BaseModel):
     provider: ForecastProvider = ForecastProvider.LOCAL
 
 
+class WebSearchSettings(BaseModel):
+    """Optional Brave Web Search integration; credentials come from the environment."""
+
+    enabled: bool = False
+    api_key: SecretStr | None = None
+    timeout_seconds: float = Field(default=10.0, gt=0.0, le=30.0)
+    result_limit: int = Field(default=5, ge=1, le=10)
+    country: str | None = Field(default="TW", pattern=r"^[A-Z]{2}$")
+
+    @model_validator(mode="after")
+    def _require_key_when_enabled(self) -> Self:
+        if self.enabled and self.api_key is None:
+            raise ValueError("enabled web search requires an API key")
+        return self
+
+
 class ConversationSettings(BaseModel):
     """Bounds on the structured follow-up session memory.
 
@@ -143,6 +159,9 @@ class AcquisitionSettings(BaseModel):
     enabled: bool = False
     connector_id: str = Field(default="configured_http", pattern=r"^[a-z][a-z0-9_-]*$")
     allowed_hosts: tuple[str, ...] = ()
+    #: Official open-data hosts a reviewer may paste a link to. Empty turns the
+    #: link path off; the configured sources above are unaffected either way.
+    link_allowed_hosts: tuple[str, ...] = ()
     max_download_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     timeout_seconds: float = Field(default=20.0, gt=0.0, le=120.0)
     result_limit: int = Field(default=5, ge=1, le=20)
@@ -247,6 +266,7 @@ class AppSettings(BaseSettings):
     profile: ProfileSettings = ProfileSettings()
     transform: TransformSettings = TransformSettings()
     acquisition: AcquisitionSettings = AcquisitionSettings()
+    web_search: WebSearchSettings = WebSearchSettings()
     api: ApiSettings = ApiSettings()
     # Not a provider-selection key: a non-local environment that omits it keeps
     # the safe process-local default rather than failing to load.

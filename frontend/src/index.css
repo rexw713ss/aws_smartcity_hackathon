@@ -183,26 +183,28 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
   border: 1px solid var(--separator);
   background: var(--surface-raised);
 }
-.answer-text { margin-top: 12px; font-size: var(--text-body); line-height: 1.65; color: var(--ink); }
+.answer-text { font-size: var(--text-body); line-height: 1.65; color: var(--ink); }
 .answer-text p + p,
 .answer-text p + ul,
 .answer-text ul + p { margin-top: 10px; }
 .answer-text > p:first-child { font-weight: 500; }
 .answer-text ul { padding-left: 20px; }
 .answer-text li + li { margin-top: 5px; }
+.streaming-answer .answer-text { white-space: pre-wrap; }
 .inline-citation { margin-left: 2px; vertical-align: super; line-height: 0; }
-.inline-citation button {
+.inline-citation button, .inline-citation a {
   padding: 1px 2px; border: 0; background: transparent; color: var(--accent);
   font-family: ui-monospace, monospace; font-size: 10px; line-height: 1;
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
 }
-.inline-citation button:hover { color: var(--ink); }
-.inline-citation button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.inline-citation button:hover, .inline-citation a:hover { color: var(--ink); }
+.inline-citation button:focus-visible, .inline-citation a:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .status-detail { margin-top: 10px; font-size: var(--text-caption); color: var(--ink-muted); line-height: 1.55; }
 
 /* Tag dialect: 20px radius. Ember means "look here"; achromatic means normal. */
 .status-pill {
-  display: inline-block; padding: 3px 12px; border-radius: var(--radius-tags);
+  display: block; width: fit-content; margin: 14px 0 0 auto;
+  padding: 3px 12px; border-radius: var(--radius-tags);
   font-size: 11px; font-family: ui-monospace, monospace;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
@@ -381,6 +383,39 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 }
 .overview-kpis small { margin-top: 7px; color: var(--ink-secondary); font-size: 11px; }
 .overview-kpis [data-direction="decreasing"] strong { color: var(--chart-negative); }
+.overview-district-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px;
+  background: var(--separator); border-radius: var(--radius-data); overflow: hidden;
+}
+.overview-district-kpis > div { min-width: 0; padding: 15px 16px; background: var(--surface-raised); }
+.overview-district-kpis span, .overview-district-kpis small { display: block; }
+.overview-district-kpis span { color: var(--ink-secondary); font-size: var(--text-small); }
+.overview-district-kpis strong {
+  display: block; margin-top: 7px; color: var(--ink); font-size: var(--text-subheading);
+  font-weight: 400; font-variant-numeric: tabular-nums;
+}
+.overview-district-kpis small { margin-top: 5px; color: var(--ink-muted); font: 10px ui-monospace, monospace; }
+.overview-district-kpis [data-direction="decreasing"] strong { color: var(--chart-negative); }
+.overview-district-kpis [data-direction="increasing"] strong { color: var(--chart-positive); }
+.overview-series-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; }
+.overview-series-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-secondary); font-size: var(--text-caption); }
+.overview-series-legend b {
+  display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: var(--radius-tags); background: var(--surface-muted);
+  color: var(--ink); font: 9px ui-monospace, monospace;
+}
+.overview-series-legend i { width: 12px; height: 3px; }
+.overview-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.overview-chart-head > div:first-child { min-width: 0; }
+.overview-mode {
+  display: inline-flex; flex: none; gap: 2px; padding: 3px;
+  border-radius: var(--radius-pills); background: var(--surface-muted);
+}
+.overview-mode button {
+  padding: 6px 10px; border: 0; border-radius: var(--radius-pills);
+  background: transparent; color: var(--ink-secondary); font-size: var(--text-caption); white-space: nowrap;
+}
+.overview-mode button.is-active { background: var(--canvas); color: var(--ink); }
 .overview-demographics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-section); }
 .donut-layout { display: grid; grid-template-columns: minmax(150px, .9fr) minmax(150px, 1.1fr); align-items: center; gap: 12px; }
 .donut-chart { position: relative; height: 230px; }
@@ -554,6 +589,11 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 
 .tooltip-row { display: flex !important; align-items: center; gap: 8px; }
 .tooltip-swatch { width: 8px; height: 2px; flex: none; }
+.tooltip-rank {
+  display: grid; place-items: center; width: 16px; height: 16px; flex: none;
+  border-radius: 50%; background: var(--surface-muted); color: var(--ink-secondary);
+  font: 9px ui-monospace, monospace;
+}
 .tooltip-row strong { margin-left: auto; display: inline !important; font-size: var(--text-small) !important; }
 .tooltip-unit { margin-top: 6px; font-family: ui-monospace, monospace; font-size: 10px; }
 
@@ -619,6 +659,9 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 .evidence-table td code { display: block; margin-top: 3px; color: var(--ink-muted); font-size: 9px; }
 .evidence-table td.numeric { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
 .evidence-unavailable { margin-top: 9px; color: var(--ink-muted); line-height: 1.5; }
+.web-evidence-list strong a { color: var(--ink); text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.web-evidence-snippet { margin-top: 7px; color: var(--ink-secondary); font-size: var(--text-caption); line-height: 1.55; }
+.web-evidence-link { display: inline-block; margin-top: 8px; color: var(--accent); font-size: var(--text-caption); }
 
 .trace-list { counter-reset: step; }
 .trace-list li { counter-increment: step; position: relative; padding: 14px 16px 14px 42px; background: var(--surface-raised); }
@@ -637,55 +680,85 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 .trace-list li[data-outcome="failed"] .trace-outcome { background: var(--accent-soft); color: var(--accent); }
 .trace-list p { margin-top: 7px; font-size: var(--text-caption); color: var(--ink-secondary); line-height: 1.55; }
 
-/* ---------- acquisition ---------- */
+/* ---------- missing data ---------- */
 
-/* The one ivory block: a featured editorial panel with the signature corner. */
-.acquire {
-  padding: var(--pad-card);
-  border-radius: var(--radius-asymmetric);
-  background: var(--surface-wash);
-}
-.acquire h3 {
+/* The assistant's own turn when it stops for lack of data. It reads top to
+   bottom as a conversation: what is missing, what I suggest, what you can do. */
+.data-request { display: grid; gap: 16px; }
+.data-request > header h4 {
   font-family: var(--font-display); font-weight: 400;
   font-size: var(--text-subheading); letter-spacing: var(--tracking-display); color: var(--ink);
 }
-.acquire > header > p { margin-top: 8px; font-size: var(--text-caption); color: var(--ink-secondary); line-height: 1.6; max-width: 58ch; }
-.candidate-list { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; background: var(--separator); }
-.candidate-list label { display: flex; gap: 12px; padding: 14px 16px; cursor: pointer; background: var(--surface-raised); }
-.candidate-list label:hover { background: var(--fog); }
-.candidate-list input { margin-top: 3px; flex: none; accent-color: var(--accent); }
-.candidate-body { display: grid; gap: 5px; min-width: 0; }
-.candidate-body strong { font-size: var(--text-small); font-weight: 500; }
-.candidate-meta { font-size: var(--text-caption); color: var(--ink-muted); line-height: 1.5; word-break: break-word; }
-.candidate-body code { font-size: 11px; color: var(--brass); font-family: ui-monospace, monospace; }
+.data-request > header p { margin-top: 6px; font-size: var(--text-small); color: var(--ink-secondary); line-height: 1.6; }
 
-.acquire-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 18px; }
-.acquire-field {
-  display: grid; gap: 6px; flex: 1; min-width: 210px;
-  font-size: 10px; font-family: ui-monospace, monospace;
+/* Ember as a rule, as with the caveats: each gap is an edge, not a fill. */
+.gap-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.gap-list li { padding: 2px 0 2px 12px; border-left: 1px solid var(--accent); }
+.gap-list strong { font-size: var(--text-small); font-weight: 500; color: var(--ink); }
+.gap-list p { margin-top: 3px; font-size: var(--text-caption); color: var(--ink-secondary); line-height: 1.55; }
+.gap-metrics { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 5px; }
+.gap-metrics span {
+  padding: 2px 8px; border-radius: var(--radius-tags);
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 11px; line-height: 1.5;
+}
+
+.request-step h5 {
+  font-size: 10px; font-family: ui-monospace, monospace; font-weight: 400;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-muted);
 }
-.acquire-field input {
-  padding: 9px 12px; border-radius: var(--radius-buttons);
-  border: 1px solid var(--separator); background: var(--surface-raised); color: var(--ink);
-  font: inherit; font-family: var(--font-body); font-size: var(--text-small);
-  letter-spacing: 0; text-transform: none;
+.intake-form input[type="url"] {
+  width: 100%; padding: 9px 12px; border-radius: var(--radius-buttons);
+  border: 1px solid var(--separator); background: var(--surface); color: var(--ink);
+  font: inherit; font-size: var(--text-small);
 }
-.acquire-field input:focus { border-color: var(--ink); outline: none; }
-.acquire-done, .acquire-error { margin-top: 14px; font-size: var(--text-caption); line-height: 1.65; max-width: 58ch; }
-.acquire-done { color: var(--ink-secondary); }
-.acquire-done code { color: var(--ink); font-family: ui-monospace, monospace; }
-.acquire-error { color: var(--accent); }
+.intake-form input[type="url"]:focus { border-color: var(--ink); outline: none; }
 
-/* Inside an answer turn the ask is part of the conversation, so it sits in the
-   thread's own column: no card padding of its own, one ivory ground. */
-.turn.answer .acquire { margin-top: 16px; padding: 16px; }
-.turn.answer .acquire .candidate-list { margin-top: 14px; }
-.acquire-ask {
-  font-size: var(--text-body); line-height: 1.6; color: var(--ink);
-  font-weight: 500; max-width: 58ch;
+/* Each step sits on the one ivory ground, with the signature corner. */
+.request-step {
+  display: grid; gap: 10px; padding: 14px 16px;
+  border-radius: var(--radius-asymmetric); background: var(--surface-wash);
 }
-.acquire > header > .acquire-ask + p { margin-top: 6px; }
+.request-lead { font-size: var(--text-body); font-weight: 500; color: var(--ink); line-height: 1.55; }
+.request-note { font-size: var(--text-caption); color: var(--ink-muted); line-height: 1.55; }
+.source-card { display: grid; gap: 4px; padding: 12px 14px; background: var(--surface-raised); }
+.source-card strong { font-size: var(--text-small); font-weight: 500; }
+.candidate-meta { font-size: var(--text-caption); color: var(--ink-muted); line-height: 1.5; word-break: break-word; }
+
+.other-sources summary { cursor: pointer; font-size: var(--text-caption); color: var(--ink-secondary); }
+.other-sources ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.other-sources label { display: flex; align-items: flex-start; gap: 8px; font-size: var(--text-caption); color: var(--ink); cursor: pointer; }
+.other-sources input { margin-top: 2px; accent-color: var(--accent); }
+
+.request-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.own-data-panel {
+  display: grid; gap: 10px; margin-top: 2px; padding-top: 14px;
+  border-top: 1px solid rgba(32, 32, 32, 0.14);
+}
+
+.intake-modes { display: inline-flex; gap: 2px; padding: 3px; justify-self: start; border-radius: var(--radius-pills); background: var(--surface-muted); }
+.intake-modes button {
+  padding: 5px 12px; border: none; border-radius: var(--radius-pills);
+  background: transparent; color: var(--ink-secondary); font-size: var(--text-caption);
+}
+.intake-modes button.is-active { background: var(--canvas); color: var(--ink); }
+
+.intake-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.intake-form input[type="url"] { flex: 1; min-width: 200px; width: auto; }
+.intake-form .request-note { flex-basis: 100%; }
+.file-pick {
+  position: relative; flex: 1; min-width: 200px;
+  padding: 9px 12px; border: 1px dashed var(--steel); border-radius: var(--radius-buttons);
+  background: var(--surface); color: var(--ink-secondary); font-size: var(--text-small);
+  cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-pick:hover { border-color: var(--ink); color: var(--ink); }
+.file-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.file-pick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.intake-done { font-size: var(--text-small); color: var(--ink); line-height: 1.6; padding: 12px 14px; background: var(--surface-wash); border-radius: var(--radius-asymmetric); }
+.request-error { font-size: var(--text-caption); color: var(--accent); line-height: 1.6; }
 
 /* ---------- responsive ---------- */
 
@@ -727,6 +800,8 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
   .donut-layout { grid-template-columns: 1fr; }
   .overview-title { display: grid; }
   .overview-title > p { text-align: left; }
+  .overview-chart-head { display: grid; }
+  .overview-mode { justify-self: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -779,12 +854,15 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 .map-borders { pointer-events: none; }
 .map-borders path { fill: none; stroke: var(--map-border); stroke-width: 0.75; }
 
-/* Emphasis layer, painted last and never overdrawn. Selection is graphite so it
-   never competes with the Ember shading that carries the answer's figures. */
+/* Emphasis layer, painted last and never overdrawn. */
 .map-emphasis { pointer-events: none; fill: none; stroke-linejoin: round; }
 .map-emphasis.is-hovered { stroke: var(--ink-secondary); stroke-width: 1.75; }
-.map-emphasis.is-selected { stroke: var(--ink); stroke-width: 2.5; }
+.map-emphasis.is-selected { stroke: var(--accent); stroke-width: 2.5; }
 .map-district:focus-visible path { fill: color-mix(in srgb, var(--accent) 30%, var(--map-base)); }
+/* Selection is an interaction state, so it deliberately overrides both the
+   neutral map fill and any data-driven choropleth shade. */
+.map-district.is-selected path,
+.map-district.is-selected:focus-visible path { fill: var(--map-selected); }
 
 .map-controls {
   position: absolute; right: 12px; bottom: 12px;
@@ -813,6 +891,21 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 }
 .map-readout-head span { color: var(--ink-secondary); font-size: var(--text-small); }
 .map-readout-head code { margin-left: auto; color: var(--ink-muted); font-family: ui-monospace, monospace; font-size: 10px; }
+.map-selection-summary { display: grid; gap: 9px; padding-bottom: 10px; border-bottom: 1px solid var(--separator); }
+.map-selection { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.map-selection span { color: var(--accent); font: 10px ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.map-selection button { padding: 0; border: 0; background: transparent; color: var(--ink-muted); font-size: var(--text-caption); text-decoration: underline; text-underline-offset: 3px; }
+.map-selected-districts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.map-selected-districts li {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px 4px 10px;
+  border-radius: var(--radius-tags); background: var(--surface-muted);
+  color: var(--ink-secondary); font-size: var(--text-caption);
+}
+.map-selected-districts button {
+  display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); line-height: 1;
+}
+.map-selected-districts button:hover { background: var(--canvas); color: var(--ink); }
 
 .map-reading {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;

@@ -8,11 +8,23 @@ transform:
   batch_size: 10000
   max_rejection_rate: 0.01
   transformation_version: canonical-v1
+web_search:
+  enabled: false
+  timeout_seconds: 10
+  result_limit: 5
+  country: TW
 acquisition:
   enabled: true
   connector_id: configured_http
   allowed_hosts:
     - data.ntpc.gov.tw
+  # A reviewer may paste a link to data on these hosts from the chat. The fetch
+  # uses the same HTTPS, redirect, type, and size limits as the sources below.
+  link_allowed_hosts:
+    - data.ntpc.gov.tw
+    - data.gov.tw
+    - data.moi.gov.tw
+    - www.ris.gov.tw
   max_download_bytes: 26214400
   timeout_seconds: 20
   result_limit: 5

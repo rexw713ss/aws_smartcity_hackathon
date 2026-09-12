@@ -35,9 +35,9 @@ export default function DistrictMap({
   /** The backend's own coverage audit, so a grey area reads as absent evidence
    * rather than as a zero. Null when the answer is not district-shaped. */
   coverage: CoverageGap | null
-  selected: string | null
-  onSelect: (code: string | null) => void
-  onExplore: (district: District) => void
+  selected: string[]
+  onSelect: (codes: string[]) => void
+  onExplore: (districts: District[]) => void
 }) {
   const { language, t } = useI18n()
   const listSeparator = language === 'zh-TW' ? '、' : ', '
@@ -75,16 +75,19 @@ export default function DistrictMap({
     })
   }, [])
 
-  const readoutCode = hovered ?? selected
+  const readoutCode = hovered ?? selected[selected.length - 1] ?? null
   const readout = readoutCode ? highlights.byCode.get(readoutCode) ?? null : null
   const readoutDistrict = readoutCode
     ? areas.find(area => area.district.code === readoutCode)?.district ?? null
     : null
+  const selectedDistricts = selected.flatMap(code =>
+    areas.find(area => area.district.code === code)?.district ?? [],
+  )
 
   // Pointed-at first so a hover reads above a standing selection.
   const emphasis = ([
-    { kind: 'selected' as const, code: selected },
-    { kind: 'hovered' as const, code: hovered === selected ? null : hovered },
+    ...selected.map(code => ({ kind: 'selected' as const, code })),
+    { kind: 'hovered' as const, code: selected.includes(hovered ?? '') ? null : hovered },
   ])
     .flatMap(item => {
       if (!item.code) return []
@@ -180,7 +183,7 @@ export default function DistrictMap({
             {areas.map(area => {
               const code = area.district.code
               const hit = highlights.byCode.get(code)
-              const isSelected = selected === code
+              const isSelected = selected.includes(code)
               return (
                 <g
                   key={code}
@@ -198,13 +201,13 @@ export default function DistrictMap({
                   }
                   data-district={code}
                   className={`map-district${isSelected ? ' is-selected' : ''}${hit ? ' is-cited' : ''}`}
-                  onClick={() => onSelect(isSelected ? null : code)}
+                  onClick={() => onSelect(isSelected ? selected.filter(item => item !== code) : [...selected, code])}
                   onPointerEnter={() => { if (!drag.current?.moved) setHovered(code) }}
                   onPointerLeave={() => setHovered(null)}
                   onKeyDown={event => {
                     if (event.key !== 'Enter' && event.key !== ' ') return
                     event.preventDefault()
-                    onSelect(isSelected ? null : code)
+                    onSelect(isSelected ? selected.filter(item => item !== code) : [...selected, code])
                   }}
                 >
                   <title>{districtLabel(area.district, language)}</title>
@@ -281,6 +284,26 @@ export default function DistrictMap({
       </div>
 
       <div className="map-readout" aria-live="polite">
+        {selected.length ? (
+          <div className="map-selection-summary">
+            <div className="map-selection">
+              <span>{t('districtsSelected', { count: selected.length })}</span>
+              <button type="button" onClick={() => onSelect([])}>{t('clearSelection')}</button>
+            </div>
+            <ul className="map-selected-districts" aria-label={t('selectedDistrictNames')}>
+              {selectedDistricts.map(district => (
+                <li key={district.code}>
+                  <span>{districtLabel(district, language)}</span>
+                  <button
+                    type="button"
+                    aria-label={t('removeDistrict', { name: districtLabel(district, language) })}
+                    onClick={() => onSelect(selected.filter(code => code !== district.code))}
+                  >×</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {readoutDistrict ? (
           <>
             <div className="map-readout-head">
@@ -306,9 +329,13 @@ export default function DistrictMap({
             <button
               type="button"
               className="ghost map-ask"
-              onClick={() => onExplore(readoutDistrict)}
+              onClick={() => onExplore(selectedDistricts.length ? selectedDistricts : [readoutDistrict])}
             >
-              {t('viewOverview', { name: districtLabel(readoutDistrict, language) })}
+              {selected.length > 1
+                ? t('viewSelectedOverview', { count: selected.length })
+                : t('viewOverview', {
+                    name: districtLabel(selectedDistricts[0] ?? readoutDistrict, language),
+                  })}
             </button>
           </>
         ) : (

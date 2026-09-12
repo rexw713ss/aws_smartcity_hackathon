@@ -14,6 +14,7 @@ excerpted, which language a fallback narrative is written in).
 
 import json
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
@@ -199,10 +200,24 @@ class AnswerSupport:
         self._composer = composer
         self._acquisition = acquisition
 
-    async def compose(self, context: AnswerCompositionContext, trace: list[ToolTrace]) -> str:
-        """Narrate grounded facts, recording which composer produced the text."""
+    async def compose(
+        self,
+        context: AnswerCompositionContext,
+        trace: list[ToolTrace],
+        *,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
+    ) -> str:
+        """Narrate grounded facts, recording which composer produced the text.
 
-        result = await self._composer.compose(context)
+        ``on_text`` is forwarded so a streaming transport can emit partial model
+        output. It stays optional because most callers await the whole answer.
+        """
+
+        result = (
+            await self._composer.compose(context)
+            if on_text is None
+            else await self._composer.compose(context, on_text)
+        )
         trace.append(
             ToolTrace(
                 tool="answer_composer",
@@ -327,10 +342,9 @@ class AnswerSupport:
         requirement, source_candidates, discovery_error = self.discover_sources(
             decomposition, trace
         )
-        visualizations = self.visualizations.sources(
-            decomposition.original_question, source_candidates
-        )
-        self.trace_visualizations(trace, visualizations)
+        # Missing data is a question to the reader, asked in the conversation
+        # from data_requirement and source_candidates. It is not a chart.
+        visualizations: tuple[VisualizationSpec, ...] = ()
         return CopilotResponse(
             status=(
                 CopilotStatus.ACQUISITION_REQUIRED

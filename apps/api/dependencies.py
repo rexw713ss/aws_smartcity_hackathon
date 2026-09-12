@@ -5,6 +5,8 @@ from pathlib import Path
 
 from adapters.local import (
     AllowlistedHttpSourceConnector,
+    AllowlistedLinkFetcher,
+    BraveWebSearchProvider,
     DuckDBFeatureProvider,
     DuckDBQueryEngine,
     FileSystemObjectStore,
@@ -29,6 +31,7 @@ from youth_compass.agent import (
     register_forecast_capabilities,
     register_impact_capabilities,
     register_observation_capabilities,
+    register_web_search_capabilities,
 )
 from youth_compass.agent.observation_tools import DatasetCatalogReader, QueryEngineFactory
 from youth_compass.analytics import CuratedAnalyticsService
@@ -102,10 +105,20 @@ class LocalRuntime:
                     timeout_seconds=self.settings.acquisition.timeout_seconds,
                 ),
             )
+        link_fetcher = (
+            AllowlistedLinkFetcher(
+                allowed_hosts=frozenset(self.settings.acquisition.link_allowed_hosts),
+                max_download_bytes=self.settings.acquisition.max_download_bytes,
+                timeout_seconds=self.settings.acquisition.timeout_seconds,
+            )
+            if self.settings.acquisition.link_allowed_hosts
+            else None
+        )
         self.acquisition = DataAcquisitionService(
             connectors,
             self.workflow,
             result_limit=self.settings.acquisition.result_limit,
+            link_fetcher=link_fetcher,
         )
         self._configure_agent_observation_backend()
 
@@ -241,6 +254,13 @@ class LocalRuntime:
         decomposer = None
         answer_composer = None
         forecast_service = None
+        web_search = None
+        if self.settings.web_search.enabled:
+            assert self.settings.web_search.api_key is not None
+            web_search = BraveWebSearchProvider(
+                self.settings.web_search.api_key.get_secret_value(),
+                timeout_seconds=self.settings.web_search.timeout_seconds,
+            )
         if self.settings.forecast and self.settings.forecast.provider is ForecastProvider.LOCAL:
             forecast_service = PrecomputedParquetForecastService(
                 self.data_root / "forecasts" / "current.parquet"
@@ -266,6 +286,8 @@ class LocalRuntime:
                 register_observation_capabilities(capabilities)
                 register_acquisition_capabilities(capabilities)
                 register_impact_capabilities(capabilities)
+                if web_search is not None:
+                    register_web_search_capabilities(capabilities)
                 if forecast_service is not None:
                     register_forecast_capabilities(capabilities)
                 decomposer = FallbackQueryDecomposer(
@@ -290,6 +312,9 @@ class LocalRuntime:
             acquisition=self.acquisition,
             conversation_store=self.conversation_store,
             scenario_service=self.scenarios(),
+            web_search=web_search,
+            web_search_result_limit=self.settings.web_search.result_limit,
+            web_search_country=self.settings.web_search.country,
         )
         return self._copilot_service
 

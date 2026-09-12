@@ -151,21 +151,33 @@ test('submits only a configured candidateId for acquisition', async ({ page }) =
   await showChat(page)
 
   await expect(page.getByText('Source required')).toBeVisible()
-  // The assistant asks for the missing source in the thread, not in the
-  // insight pane, so the reader never has to go looking for the question.
-  await expect(page.locator('.chat-panel .acquire')).toBeVisible()
-  await expect(page.locator('.insight-panel .acquire')).toHaveCount(0)
-  await expect(page.getByText('New Taipei population statistics')).toBeVisible()
-  // The ask shows the host, never a clickable download link.
-  await expect(page.getByText('data.example.gov.tw')).toBeVisible()
-  await expect(page.locator('.acquire a')).toHaveCount(0)
+  // The assistant asks for the missing data in the thread, as its own turn,
+  // and never in the insight pane.
+  const request = page.locator('.chat-panel .data-request')
+  await expect(request).toBeVisible()
+  await expect(page.locator('.insight-panel .data-request')).toHaveCount(0)
+  await expect(request.getByText('Here is what I am missing')).toBeVisible()
+  await expect(request.getByText('New Taipei population statistics')).toBeVisible()
+  // The suggestion shows the host, never a clickable download link.
+  await expect(request.getByText(/data\.example\.gov\.tw/)).toBeVisible()
+  await expect(request.locator('a')).toHaveCount(0)
+  // Bringing your own data starts as a third action in the same card and
+  // expands the file/link controls in place.
+  const provideOwn = request.getByRole('button', { name: 'Provide your own data' })
+  await expect(provideOwn).toBeVisible()
+  await expect(request.locator('.request-step')).toHaveCount(1)
+  await expect(request.getByRole('tab', { name: 'Upload a file' })).toHaveCount(0)
+  await provideOwn.click()
+  await expect(provideOwn).toHaveAttribute('aria-expanded', 'true')
+  await expect(request.getByRole('tab', { name: 'Upload a file' })).toBeVisible()
+  await expect(request.getByRole('tab', { name: 'Paste a link' })).toBeVisible()
 
-  await page.getByLabel('Reviewer identity').fill('reviewer@example.gov.tw')
-  await page.getByRole('button', { name: 'Fetch snapshot and submit for review' }).click()
+  await expect(request.getByLabel('Submitted by')).toHaveCount(0)
+  await request.getByRole('button', { name: 'Accept and process' }).click()
 
   await expect(page.getByText('job-42')).toBeVisible()
   expect(submitted).toEqual([
-    { candidateId: 'ntpc-population', submittedBy: 'reviewer@example.gov.tw' },
+    { candidateId: 'ntpc-population', submittedBy: 'youth-compass-web' },
   ])
 })
 
@@ -206,14 +218,16 @@ test('renders a model-authored answer as text, never as markup', async ({ page }
 test('a stale reply cannot replace the newest answer', async ({ page }) => {
   await page.route('**/api/v1/copilot/capabilities', route => route.fulfill({ json: [] }))
   let call = 0
-  await page.route('**/api/v1/copilot/query', async route => {
+  await page.route('**/api/v1/copilot/query/stream', async route => {
     const index = call++
     // The first question resolves after the second one.
     if (index === 0) await new Promise(resolve => setTimeout(resolve, 1500))
+    const response = index === 0
+      ? { ...rankingAnswer, answer: 'stale answer' }
+      : { ...insufficientAnswer, answer: 'newest answer' }
     return route.fulfill({
-      json: index === 0
-        ? { ...rankingAnswer, answer: 'stale answer' }
-        : { ...insufficientAnswer, answer: 'newest answer' },
+      contentType: 'application/x-ndjson',
+      body: `${JSON.stringify({ type: 'delta', text: response.answer })}\n${JSON.stringify({ type: 'result', response })}\n`,
     })
   })
   await page.goto('/')
@@ -291,6 +305,40 @@ test('opens a district overview without creating another agent turn', async ({ p
   await expect(page.locator('.turn.question')).toHaveCount(1)
   await expect(page.locator('.turn.answer')).toHaveCount(1)
   await expect(page.getByText(districtOverview.total.toLocaleString())).toBeVisible()
+})
+
+test('selects multiple map districts and compares all of them in one overview', async ({ page }) => {
+  await mockCopilot(page, {
+    query: rankingAnswer,
+    districtOverview: code => code === '02'
+      ? {
+          ...districtOverview,
+          districtCode: '02',
+          districtName: '三重區',
+          total: 80120,
+          percentChange: 0.4,
+          trend: districtOverview.trend.map(point => ({ ...point, value: point.value - 12000 })),
+          ageDistribution: districtOverview.ageDistribution.map(item => ({ ...item, value: item.value - 1000 })),
+          genderDistribution: districtOverview.genderDistribution.map(item => ({ ...item, value: item.value - 6000 })),
+        }
+      : districtOverview,
+  })
+  await page.goto('/')
+  await ask(page, 'Where should I buy a home?')
+  await showInsight(page)
+  await page.getByRole('tab', { name: /Map/ }).click()
+
+  await page.locator('.map-district[data-district="01"]').click()
+  await page.locator('.map-district[data-district="02"]').click()
+  await expect(page.locator('.map-district.is-selected')).toHaveCount(2)
+  await expect(page.getByText('2 districts selected')).toBeVisible()
+  await page.getByRole('button', { name: 'View 2 selected districts' }).click()
+
+  await expect(page.getByRole('heading', { name: '2-district comparison' })).toBeVisible()
+  await expect(page.locator('[data-overview-chart]')).toHaveCount(3)
+  await expect(page.locator('[data-overview-chart="trend"] .recharts-line-curve')).toHaveCount(2)
+  await expect(page.locator('.overview-series-legend')).toContainText('Banqiao')
+  await expect(page.locator('.overview-series-legend')).toContainText('Sanchong')
 })
 
 test('a declared choropleth drives the map and does not repeat in the charts tab', async ({ page }) => {

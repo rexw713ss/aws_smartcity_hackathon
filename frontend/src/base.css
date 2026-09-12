@@ -5,8 +5,8 @@
 /* ============================================================================
    Ventriloc — editorial data observatory on warm paper.
    Source: DESIGN.md. Three documented adaptations, each marked ADAPTED below:
-     1. Chart series palette — Ember + Brass give two strokes; a multi-series
-        line chart needs five. Extended inside the warm/achromatic gamut only.
+     1. Data visualisation colours have their own semantic, accessible palette.
+        They are deliberately independent from the product-brand palette.
      2. Density — Ventriloc's 40px card padding and 80px section gaps are built
         for a marketing page. Compressed for a two-pane working tool.
      3. CJK typography — the shell and the data both render Han characters, and
@@ -49,16 +49,29 @@
     --action: var(--graphite);
     --action-ink: var(--canvas-white);
 
-    /* ADAPTED (1): series ramp alternates chromatic warm and achromatic so
-       adjacent lines separate by hue AND lightness. Warm gamut only. */
-    --chart-primary: var(--ember);
-    --chart-secondary: var(--graphite);
-    --chart-tertiary: var(--brass);
-    --chart-warning: var(--slate);
-    --chart-coral: #c2410c;
+    /* ADAPTED (1): charts communicate data, not brand. Categorical colours
+       separate series; semantic colours keep increase/decrease stable across
+       every chart. These hues retain strong contrast on the white plot area. */
+    --chart-blue: #2563eb;
+    --chart-orange: #c2410c;
+    --chart-teal: #0f766e;
+    --chart-purple: #7c3aed;
+    --chart-rose: #be123c;
+    --chart-gold: #a16207;
+    --chart-primary: var(--chart-blue);
+    --chart-secondary: var(--chart-orange);
+    --chart-tertiary: var(--chart-teal);
+    --chart-warning: var(--chart-purple);
+    --chart-coral: var(--chart-rose);
 
-    --chart-positive: var(--graphite);
-    --chart-negative: var(--ember);
+    --chart-positive: #15803d;
+    --chart-negative: #dc2626;
+    --chart-neutral: #64748b;
+    --chart-highlight: var(--chart-blue);
+    --chart-ordered-1: #93c5fd;
+    --chart-ordered-2: #3b82f6;
+    --chart-ordered-3: #1d4ed8;
+    --chart-ordered-4: #172554;
     --chart-grid: rgba(32, 32, 32, 0.08);
     --chart-muted: var(--slate);
     --chart-text: var(--steel);
@@ -69,6 +82,9 @@
        carries Ember at an intensity set by the backend's own figure. */
     --map-base: var(--ash);
     --map-cited: var(--ivory);
+    /* A large solid Ember area looks much heavier than Ember text. Keep the
+       same hue for selection, softened against the neutral map surface. */
+    --map-selected: color-mix(in srgb, var(--accent) 38%, var(--map-base));
     /* Visible enough to separate 29 areas at rest, quiet enough not to
        compete with the Ember shading that carries the answer. */
     --map-border: #b9b6b2;
@@ -142,7 +158,7 @@
   /* ADAPTED (3b): the tight latin tracking is wrong on Han characters, and any
      element carrying backend data may render them. Those opt out. */
   .cjk-safe, .answer-text, .spec-table, .viz-card figcaption h3,
-  .candidate-body, .recharts-wrapper {
+  .source-card, .gap-list, .recharts-wrapper {
     font-family: var(--font-body), var(--font-cjk);
     letter-spacing: 0;
   }

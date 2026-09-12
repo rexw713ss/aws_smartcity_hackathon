@@ -39,3 +39,16 @@ def test_bedrock_model_settings_support_environment_overrides(
     assert settings.model.model_id == "test-inference-profile"
     assert settings.model.region == "us-east-1"
     assert settings.model.timeout_seconds == 45
+
+
+def test_brave_web_search_settings_support_secret_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YOUTH_COMPASS_WEB_SEARCH__ENABLED", "true")
+    monkeypatch.setenv("YOUTH_COMPASS_WEB_SEARCH__API_KEY", "brave-test-key")
+    settings = AppSettings()
+
+    assert settings.web_search.enabled is True
+    assert settings.web_search.api_key is not None
+    assert settings.web_search.api_key.get_secret_value() == "brave-test-key"
+    assert "brave-test-key" not in repr(settings.web_search)

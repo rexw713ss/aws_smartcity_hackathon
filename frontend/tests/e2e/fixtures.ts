@@ -437,7 +437,7 @@ export async function mockCopilot(
     query: unknown | ((index: number) => unknown)
     acquire?: unknown
     whatIf?: unknown
-    districtOverview?: unknown
+    districtOverview?: unknown | ((districtCode: string) => unknown)
     datasets?: unknown
     queryStatus?: number
   },
@@ -450,14 +450,17 @@ export async function mockCopilot(
   await page.route('**/api/v1/datasets', (route: Route) =>
     route.fulfill({ json: options.datasets ?? datasetCatalog }),
   )
-  await page.route('**/api/v1/copilot/query', (route: Route) => {
+  await page.route('**/api/v1/copilot/query/stream', (route: Route) => {
     const body = typeof options.query === 'function'
       ? (options.query as (i: number) => unknown)(index++)
       : options.query
     if (options.queryStatus && options.queryStatus >= 400) {
       return route.fulfill({ status: options.queryStatus, json: { detail: 'nope' } })
     }
-    return route.fulfill({ json: body })
+    return route.fulfill({
+      contentType: 'application/x-ndjson',
+      body: `${JSON.stringify({ type: 'delta', text: (body as { answer?: string }).answer ?? '' })}\n${JSON.stringify({ type: 'result', response: body })}\n`,
+    })
   })
   await page.route('**/api/v1/copilot/acquisitions', (route: Route) =>
     route.fulfill({
@@ -469,12 +472,19 @@ export async function mockCopilot(
       },
     }),
   )
+  await page.route('**/api/v1/copilot/intake-options', (route: Route) =>
+    route.fulfill({ json: { linkHosts: ['data.ntpc.gov.tw'], uploadFormats: ['csv', 'json', 'xlsx'], maxUploadBytes: 26214400 } }),
+  )
   await page.route('**/api/v1/copilot/what-if', (route: Route) =>
     route.fulfill({ json: options.whatIf ?? whatIfAnswer }),
   )
-  await page.route('**/api/v1/districts/*/overview', (route: Route) =>
-    route.fulfill({ json: options.districtOverview ?? districtOverview }),
-  )
+  await page.route('**/api/v1/districts/*/overview', (route: Route) => {
+    const districtCode = new URL(route.request().url()).pathname.match(/\/districts\/(\d{2})\/overview$/)?.[1] ?? ''
+    const body = typeof options.districtOverview === 'function'
+      ? options.districtOverview(districtCode)
+      : options.districtOverview ?? districtOverview
+    return route.fulfill({ json: body })
+  })
 }
 
 export async function ask(page: Page, question: string) {

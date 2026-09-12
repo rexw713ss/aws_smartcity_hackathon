@@ -8,6 +8,7 @@ feature come back ineligible with the reason attached, and a ranking that cannot
 be produced becomes a data-gap response rather than a guess.
 """
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from youth_compass.agent.contracts import (
@@ -75,6 +76,7 @@ class DecisionAnswering:
         routed_plan: RoutedToolPlan,
         trace: list[ToolTrace],
         min_quality_score: float,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
     ) -> CopilotResponse:
         """Score a registered profile's candidates over retrieved feature values.
 
@@ -225,6 +227,7 @@ class DecisionAnswering:
                 fallback_answer=fallback_answer,
             ),
             trace,
+            on_text=on_text,
         )
         visualizations = self._support.visualizations.decision(
             question,
@@ -275,14 +278,10 @@ class DecisionAnswering:
         requirement, source_candidates, discovery_error = self._support.discover_sources(
             decomposition, trace, metric_codes=plan.feature_codes
         )
-        visualizations = (
-            self._support.visualizations.sources(decomposition.original_question, source_candidates)
-            if source_candidates
-            else self._support.visualizations.decision(
-                decomposition.original_question,
-                candidates,
-                tuple(item.citation_id for item in citations),
-            )
+        visualizations = self._support.visualizations.decision(
+            decomposition.original_question,
+            candidates,
+            tuple(item.citation_id for item in citations),
         )
         self._support.trace_visualizations(trace, visualizations)
         return CopilotResponse(

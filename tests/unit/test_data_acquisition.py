@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from adapters.local import AllowlistedHttpSourceConnector
+from adapters.local import AllowlistedHttpSourceConnector, AllowlistedLinkFetcher
+from adapters.local.http_source import LinkSnapshot, _link_file_name, _link_format
 from youth_compass.acquisition import AcquiredSource, DataAcquisitionService
 from youth_compass.domain import FileFormat, SourceAcquisitionError
 from youth_compass.ports import (
@@ -110,3 +111,104 @@ def test_http_connector_rejects_sources_outside_host_allowlist() -> None:
             (_candidate(),),
             allowed_hosts=frozenset({"approved.example.gov.tw"}),
         )
+
+
+class FakeLinkFetcher:
+    allowed_hosts = ("data.ntpc.gov.tw",)
+
+    def __init__(self) -> None:
+        self.requested: list[str] = []
+
+    def fetch_link(self, url: str) -> LinkSnapshot:
+        self.requested.append(url)
+        return LinkSnapshot(
+            url=url,
+            host="data.ntpc.gov.tw",
+            file_name="housing-stock.csv",
+            source_format=FileFormat.CSV,
+            content=b"district,housing_units\nLinkou,100\n",
+            retrieved_at=datetime(2026, 9, 13, tzinfo=UTC),
+        )
+
+
+def test_reviewer_link_enters_the_same_approval_gated_ingestion() -> None:
+    ingestion = FakeIngestion()
+    fetcher = FakeLinkFetcher()
+    service = DataAcquisitionService((), ingestion, link_fetcher=fetcher)
+
+    started = service.start_from_link(
+        "https://data.ntpc.gov.tw/api/datasets/abc/csv/file",
+        submitted_by="reviewer@example.gov.tw",
+        topic_hint="housing",
+    )
+
+    assert fetcher.requested == ["https://data.ntpc.gov.tw/api/datasets/abc/csv/file"]
+    assert started.ingestion_job_id == "job-acquired"
+    assert started.ingestion_status == JobStatus.AWAITING_APPROVAL.value
+    assert started.source_format is FileFormat.CSV
+    assert ingestion.submission == {
+        "file_name": "housing-stock.csv",
+        "content": b"district,housing_units\nLinkou,100\n",
+        "submitted_by": "reviewer@example.gov.tw",
+        "topic_hint": "housing",
+    }
+    assert service.link_hosts == ("data.ntpc.gov.tw",)
+
+
+def test_reviewer_link_is_refused_when_links_are_not_enabled() -> None:
+    service = DataAcquisitionService((), FakeIngestion())
+
+    assert service.link_hosts == ()
+    with pytest.raises(SourceAcquisitionError, match="not enabled"):
+        service.start_from_link("https://data.ntpc.gov.tw/a.csv", submitted_by="reviewer")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://data.ntpc.gov.tw/a.csv",
+        "https://evil.example.com/a.csv",
+        "https://data.ntpc.gov.tw.evil.example.com/a.csv",
+        "https://169.254.169.254/latest/meta-data",
+        "https://user:secret@data.ntpc.gov.tw/a.csv",
+    ],
+)
+def test_link_fetcher_refuses_links_before_any_network_call(url: str) -> None:
+    fetcher = AllowlistedLinkFetcher(allowed_hosts=frozenset({"data.ntpc.gov.tw"}))
+
+    with pytest.raises(SourceAcquisitionError):
+        fetcher.fetch_link(url)
+
+
+@pytest.mark.parametrize(
+    ("url", "content_type", "expected"),
+    [
+        (
+            "https://data.ntpc.gov.tw/files/housing.xlsx",
+            "application/octet-stream",
+            FileFormat.EXCEL,
+        ),
+        ("https://data.ntpc.gov.tw/api/datasets/abc/csv/file", "text/plain", FileFormat.CSV),
+        ("https://data.ntpc.gov.tw/api/datasets/abc/json", "text/plain", FileFormat.JSON),
+        ("https://data.ntpc.gov.tw/download?id=1", "text/csv", FileFormat.CSV),
+    ],
+)
+def test_link_format_trusts_the_path_then_the_declared_type(
+    url: str, content_type: str, expected: FileFormat
+) -> None:
+    assert _link_format(url, content_type) is expected
+
+
+def test_link_format_refuses_to_guess() -> None:
+    with pytest.raises(SourceAcquisitionError, match="upload the file"):
+        _link_format("https://data.ntpc.gov.tw/download?id=1", "application/octet-stream")
+
+
+def test_link_file_name_keeps_a_real_name_and_invents_a_safe_one_otherwise() -> None:
+    assert (
+        _link_file_name("https://data.ntpc.gov.tw/files/housing_2025.csv", FileFormat.CSV)
+        == "housing_2025.csv"
+    )
+    invented = _link_file_name("https://data.ntpc.gov.tw/api/datasets/abc/csv/file", FileFormat.CSV)
+    assert invented.startswith("data-ntpc-gov-tw-")
+    assert invented.endswith(".csv")

@@ -4,7 +4,8 @@ Feature: API deployment (lean MVP).
 
     Browser ──HTTPS──> CloudFront ──> S3 (static frontend, private via OAC)
        │
-       └──/api/v1 XHR──> API Gateway HTTP API ──> API Lambda (ARM64, Mangum)
+       └──/api/v1 XHR──> Lambda Function URL (response stream)
+                         ──> API Lambda (ARM64, Lambda Web Adapter)
                                                     ├── S3 presigned uploads
                                                     ├── Step Functions (resume)
                                                     ├── DynamoDB (job state)
@@ -15,7 +16,7 @@ Design notes:
 - Lambda rather than Fargate or App Runner: this project holds a hard line
   against always-on compute (see docs/aws-workstream-status.md section 7), and a
   request-billed function keeps the idle cost at zero.
-- The frontend is served by CloudFront from a private bucket. The API is called
+- The frontend is served by CloudFront from a private bucket. The Function URL is called
   directly over its own HTTPS endpoint rather than proxied through CloudFront,
   which keeps this stack small; the tradeoff is that CORS must be configured,
   which it is, on both the API and the bucket.
@@ -30,12 +31,6 @@ from typing import Any
 import aws_cdk as cdk
 from aws_cdk import (
     Duration,
-)
-from aws_cdk import (
-    aws_apigatewayv2 as apigw,
-)
-from aws_cdk import (
-    aws_apigatewayv2_integrations as integrations,
 )
 from aws_cdk import (
     aws_cloudfront as cloudfront,
@@ -65,7 +60,9 @@ from infra.stacks.base import TaggedStack
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _API_ASSET = str(_REPO_ROOT / "build" / "api_lambda")
-_API_HANDLER = "apps.api.lambda_handler.handler"
+_API_HANDLER = "run.sh"
+_LWA_LAYER_ACCOUNT = "753240598075"
+_LWA_LAYER_VERSION = 28
 
 _MODEL_ID_ENV_VAR = "YOUTH_COMPASS_MODEL_ID"
 # Verified with both Converse and JSON-schema structured output on the
@@ -103,7 +100,7 @@ def _bedrock_resources(model_id: str, region: str) -> list[str]:
 
 # Cold start dominates this function's latency; the analytics endpoints open
 # DuckDB over a bundled Parquet file, so give it room to breathe.
-_API_TIMEOUT = Duration.seconds(30)
+_API_TIMEOUT = Duration.seconds(90)
 _API_MEMORY_MB = 1024
 #: The copilot route is public and each call can invoke Bedrock twice, so an
 #: unbounded caller would spend real money before the budget alarm ever fires.
@@ -218,6 +215,9 @@ class ApiStack(TaggedStack):
             memory_size=_API_MEMORY_MB,
             reserved_concurrent_executions=_API_RESERVED_CONCURRENCY,
             environment={
+                "AWS_LAMBDA_EXEC_WRAPPER": "/opt/bootstrap",
+                "AWS_LWA_INVOKE_MODE": "response_stream",
+                "AWS_LWA_PORT": "8000",
                 "YOUTH_COMPASS_ENVIRONMENT": "aws",
                 "YOUTH_COMPASS_REGION": region,
                 # /var/task is read-only; the handler seeds this writable copy
@@ -252,6 +252,17 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_CONVERSATION__PROVIDER": "dynamodb",
                 "YOUTH_COMPASS_CONVERSATION__TABLE_NAME": metadata_table_name,
             },
+            layers=[
+                lambda_.LayerVersion.from_layer_version_arn(
+                    self,
+                    "LambdaWebAdapter",
+                    (
+                        f"arn:{cdk.Aws.PARTITION}:lambda:{region}:"
+                        f"{_LWA_LAYER_ACCOUNT}:layer:LambdaAdapterLayerArm64:"
+                        f"{_LWA_LAYER_VERSION}"
+                    ),
+                )
+            ],
         )
 
         self.write_secret.grant_read(self.api_fn)
@@ -333,47 +344,26 @@ class ApiStack(TaggedStack):
         # every region the profile may route through.
         self.api_fn.add_to_role_policy(
             iam.PolicyStatement(
-                actions=["bedrock:InvokeModel"],
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
                 resources=_bedrock_resources(model_id, region),
             )
         )
 
-        # --- HTTP API ---
-        self.http_api = apigw.HttpApi(
-            self,
-            "HttpApi",
-            api_name=f"{env_config.stack_prefix}-api",
-            # The app also sets CORS headers. Configuring them here too means a
-            # preflight is answered at the edge without a Lambda invocation.
-            cors_preflight=apigw.CorsPreflightOptions(
-                allow_origins=[site_origin],
-                allow_methods=[
-                    apigw.CorsHttpMethod.GET,
-                    apigw.CorsHttpMethod.POST,
-                    apigw.CorsHttpMethod.OPTIONS,
-                ],
-                allow_headers=["Content-Type", "X-Youth-Compass-Token"],
+        # Function URLs preserve ASGI response chunks through Lambda Web
+        # Adapter. API Gateway HTTP APIs buffer them and would turn the live
+        # Bedrock response back into a single payload after deployment.
+        self.function_url = self.api_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            invoke_mode=lambda_.InvokeMode.RESPONSE_STREAM,
+            cors=lambda_.FunctionUrlCorsOptions(
+                allowed_origins=[site_origin],
+                allowed_methods=[lambda_.HttpMethod.GET, lambda_.HttpMethod.POST],
+                allowed_headers=["Content-Type", "X-Youth-Compass-Token"],
                 max_age=Duration.minutes(10),
-            ),
-            default_integration=integrations.HttpLambdaIntegration(
-                "ApiIntegration",
-                handler=self.api_fn,
             ),
         )
 
-        # Throttle at the edge so a burst is rejected before it reaches Lambda
-        # (and therefore Bedrock). HttpApi exposes no throttle property on its
-        # default stage, so this is set on the underlying CfnStage.
-        default_stage = self.http_api.default_stage
-        if default_stage is not None:
-            cfn_stage = default_stage.node.default_child
-            if isinstance(cfn_stage, apigw.CfnStage):
-                cfn_stage.default_route_settings = apigw.CfnStage.RouteSettingsProperty(
-                    throttling_rate_limit=_API_THROTTLE_RATE_PER_SECOND,
-                    throttling_burst_limit=_API_THROTTLE_BURST,
-                )
-
-        cdk.CfnOutput(self, "ApiBaseUrl", value=self.http_api.api_endpoint)
+        cdk.CfnOutput(self, "ApiBaseUrl", value=self.function_url.url)
         cdk.CfnOutput(self, "WriteSecretName", value=self.write_secret.secret_name)
         cdk.CfnOutput(self, "SiteUrl", value=site_origin)
         cdk.CfnOutput(self, "SiteBucketName", value=self.site_bucket.bucket_name)

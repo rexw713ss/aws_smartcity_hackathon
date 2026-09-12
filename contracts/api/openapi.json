@@ -769,6 +769,36 @@
         "title": "DataFreshness",
         "type": "object"
       },
+      "DataIntakeOptions": {
+        "description": "How a reviewer may supply missing data from the conversation.",
+        "properties": {
+          "linkHosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Linkhosts",
+            "type": "array"
+          },
+          "maxUploadBytes": {
+            "title": "Maxuploadbytes",
+            "type": "integer"
+          },
+          "uploadFormats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Uploadformats",
+            "type": "array"
+          }
+        },
+        "required": [
+          "linkHosts",
+          "uploadFormats",
+          "maxUploadBytes"
+        ],
+        "title": "DataIntakeOptions",
+        "type": "object"
+      },
       "DataLimitations": {
         "description": "Reader-facing audit of freshness, coverage, and definitional basis.\n\nEvery field is derived from evidence the answer already used. Nothing here\nis estimated, interpolated, or inferred from a topic name.",
         "properties": {
@@ -1248,6 +1278,16 @@
           "filters": {
             "$ref": "#/components/schemas/AnalysisFilters",
             "default": {}
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionFocus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "metric_terms": {
             "default": [],
@@ -2485,6 +2525,86 @@
         "title": "LineageResponse",
         "type": "object"
       },
+      "LinkAcquisitionRequest": {
+        "description": "A reviewer pointing at data the manifest does not list yet.",
+        "properties": {
+          "submittedBy": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Submittedby",
+            "type": "string"
+          },
+          "topicHint": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topichint"
+          },
+          "url": {
+            "maxLength": 2000,
+            "minLength": 12,
+            "pattern": "^https://",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "submittedBy"
+        ],
+        "title": "LinkAcquisitionRequest",
+        "type": "object"
+      },
+      "LinkAcquisitionStart": {
+        "description": "Public handoff after a reviewer-supplied link enters the ingestion workflow.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "ingestion_job_id": {
+            "title": "Ingestion Job Id",
+            "type": "string"
+          },
+          "ingestion_status": {
+            "title": "Ingestion Status",
+            "type": "string"
+          },
+          "source_format": {
+            "$ref": "#/components/schemas/FileFormat"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "host",
+          "file_name",
+          "source_format",
+          "ingestion_job_id",
+          "ingestion_status",
+          "created_at"
+        ],
+        "title": "LinkAcquisitionStart",
+        "type": "object"
+      },
       "MappingAnalysis": {
         "properties": {
           "profile": {
@@ -3006,6 +3126,22 @@
           "rejected"
         ],
         "title": "QualityStatus",
+        "type": "string"
+      },
+      "QuestionFocus": {
+        "description": "A data question answered beyond a plain trend or comparison.\n\nEach value has one deterministic handler. The decomposer sets it from\ncurated cues; nothing here is inferred by the answer composer.",
+        "enum": [
+          "largest_decline",
+          "priority_explanation",
+          "completeness",
+          "estimates",
+          "population_scope",
+          "version_changes",
+          "joinability",
+          "evidence_summary",
+          "forecast_accuracy"
+        ],
+        "title": "QuestionFocus",
         "type": "string"
       },
       "RegionScheme": {
@@ -4319,6 +4455,48 @@
         ]
       }
     },
+    "/api/v1/copilot/acquisitions/link": {
+      "post": {
+        "description": "Snapshot a reviewer link from an approved host into the approval-gated workflow.",
+        "operationId": "acquire_link_api_v1_copilot_acquisitions_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkAcquisitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkAcquisitionStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Acquire Link",
+        "tags": [
+          "copilot"
+        ]
+      }
+    },
     "/api/v1/copilot/capabilities": {
       "get": {
         "description": "List the bounded tools currently discoverable by the smart router.",
@@ -4340,6 +4518,28 @@
           }
         },
         "summary": "List Copilot Capabilities",
+        "tags": [
+          "copilot"
+        ]
+      }
+    },
+    "/api/v1/copilot/intake-options": {
+      "get": {
+        "description": "Tell the chat which hosts a link may use, so it can say so before a reviewer tries.",
+        "operationId": "data_intake_options_api_v1_copilot_intake_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataIntakeOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Data Intake Options",
         "tags": [
           "copilot"
         ]
