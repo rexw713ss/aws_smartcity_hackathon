@@ -1,6 +1,7 @@
 """Query decomposition, capability discovery, and deterministic tool routing."""
 
 import json
+import re
 from typing import Protocol
 
 from pydantic import ValidationError
@@ -88,8 +89,7 @@ class DeterministicQueryDecomposer:
             operations.extend(
                 (AnalysisOperation.INSPECT_DATASET, AnalysisOperation.QUERY_OBSERVATIONS)
             )
-            if compare:
-                operations.append(AnalysisOperation.COMPARE_ENTITIES)
+            operations.append(AnalysisOperation.COMPARE_ENTITIES)
             operations.append(AnalysisOperation.EXPLAIN_LINEAGE)
         elif discover:
             operations.append(AnalysisOperation.INSPECT_DATASET)
@@ -102,7 +102,9 @@ class DeterministicQueryDecomposer:
             original_question=question,
             objective=objective,
             subject_terms=_subject_terms(normalized),
+            metric_terms=_metric_terms(normalized),
             entity_ids=entity_ids,
+            time_expression=_time_expression(normalized),
             operations=tuple(operations),
             needs_clarification=needs_clarification,
             clarification_question=clarification_question,
@@ -230,6 +232,35 @@ def default_decision_capabilities() -> ToolCapabilityRegistry:
     )
 
 
+def register_observation_capabilities(registry: ToolCapabilityRegistry) -> None:
+    """Add the generic curated-observation vertical slice to a runtime registry."""
+
+    registry.register(
+        ToolCapability(
+            name="inspect_dataset",
+            operation=AnalysisOperation.INSPECT_DATASET,
+            description="Resolve schema, metric inventory, geography, and time coverage.",
+            requires=(AnalysisOperation.SEARCH_CATALOG,),
+        )
+    )
+    registry.register(
+        ToolCapability(
+            name="query_observations",
+            operation=AnalysisOperation.QUERY_OBSERVATIONS,
+            description="Run a validated read-only canonical observation query.",
+            requires=(AnalysisOperation.INSPECT_DATASET,),
+        )
+    )
+    registry.register(
+        ToolCapability(
+            name="compare_entities",
+            operation=AnalysisOperation.COMPARE_ENTITIES,
+            description="Calculate compatible entity changes without model arithmetic.",
+            requires=(AnalysisOperation.QUERY_OBSERVATIONS,),
+        )
+    )
+
+
 def _contains(text: str, *terms: str) -> bool:
     return any(term in text for term in terms)
 
@@ -256,3 +287,28 @@ def _subject_terms(text: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(token for token in tokens if len(token) > 1 and token not in stopwords)
     )
+
+
+def _metric_terms(text: str) -> tuple[str, ...]:
+    aliases = {
+        "population_count": ("population", "dân số"),
+        "unemployment_count": ("unemployment", "thất nghiệp"),
+    }
+    return tuple(
+        metric
+        for metric, terms in aliases.items()
+        if any(term in text for term in terms)
+    )
+
+
+def _time_expression(text: str) -> str | None:
+    years = re.findall(r"\b(?:19|20)\d{2}\b", text)
+    relative = re.search(
+        r"(?:last|past|trong)\s+\d+\s+(?:years?|năm)|\b\d+\s+năm\s+(?:qua|gần đây)",
+        text,
+    )
+    if relative:
+        return relative.group(0)
+    if years:
+        return "-".join(years)
+    return None

@@ -123,6 +123,75 @@ class EvidenceCitation(BaseModel):
     retrieved_at: AwareDatetime
 
 
+class DatasetInspection(BaseModel):
+    """Schema and coverage selected from the published catalog."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dataset_id: str
+    dataset_version: str
+    topic: str
+    grain: tuple[str, ...]
+    metric_code: str
+    available_metrics: tuple[str, ...]
+    period_start: str
+    period_end: str
+    entity_count: int = Field(ge=0)
+    quality_score: float = Field(ge=0.0, le=1.0)
+
+
+class ObservationPoint(BaseModel):
+    """One safely aggregated metric value for an entity and period."""
+
+    model_config = ConfigDict(frozen=True)
+
+    entity_id: str
+    entity_name: str | None = None
+    period: str
+    value: float
+    estimated_value: float = Field(ge=0.0)
+
+
+class ObservationSeries(BaseModel):
+    """Validated observation query output used by downstream analysis tools."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dataset_id: str
+    dataset_version: str
+    metric_code: str
+    unit_code: str
+    population_scope: str
+    points: tuple[ObservationPoint, ...]
+
+
+class EntityChange(BaseModel):
+    """Deterministic first-to-last change for one entity."""
+
+    model_config = ConfigDict(frozen=True)
+
+    entity_id: str
+    entity_name: str | None = None
+    first_period: str
+    last_period: str
+    first_value: float
+    last_value: float
+    absolute_change: float
+    percent_change: float | None = None
+    direction: str
+    observation_count: int = Field(ge=1)
+
+
+class EntityComparison(BaseModel):
+    """Comparable changes calculated from one compatible observation series."""
+
+    model_config = ConfigDict(frozen=True)
+
+    metric_code: str
+    unit_code: str
+    changes: tuple[EntityChange, ...]
+
+
 class FeatureContributionInsight(BaseModel):
     """Public explanation of one feature's score contribution."""
 
@@ -159,6 +228,9 @@ class CopilotResponse(BaseModel):
     decomposition: DecomposedQuery | None = None
     routed_plan: RoutedToolPlan | None = None
     plan: DecisionExecutionPlan | None = None
+    dataset_inspection: DatasetInspection | None = None
+    observation_series: ObservationSeries | None = None
+    comparison: EntityComparison | None = None
     candidates: tuple[CandidateInsight, ...] = ()
     citations: tuple[EvidenceCitation, ...] = ()
     tool_trace: tuple[ToolTrace, ...] = ()

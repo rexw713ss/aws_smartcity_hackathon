@@ -11,7 +11,7 @@ from adapters.local import (
     SQLiteCheckpointStore,
     SystemClock,
 )
-from youth_compass.agent import GroundedCopilotService
+from youth_compass.agent import GroundedCopilotService, ObservationToolSuite
 from youth_compass.analytics import CuratedAnalyticsService
 from youth_compass.application import LocalIngestionWorkflow, LocalWorkflowOptions
 from youth_compass.config import AppSettings, load_settings
@@ -21,7 +21,7 @@ from youth_compass.decisioning import (
     DecisionProfileRegistry,
     FeatureRegistry,
 )
-from youth_compass.domain.contracts import DatasetStatus
+from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import AnalyticsNotAvailableError
 from youth_compass.transformation.schema import CANONICAL_FIELDS
 
@@ -56,19 +56,23 @@ class LocalRuntime:
         metadata = self.catalog.get(dataset_id)
         if metadata.status is not DatasetStatus.PUBLISHED:
             raise AnalyticsNotAvailableError(f"dataset {dataset_id!r} has no published version")
+        return CuratedAnalyticsService(self._observation_query_engine(metadata), metadata)
+
+    def _observation_query_engine(self, metadata: DatasetMetadata) -> DuckDBQueryEngine:
+        """Build an allowlisted engine for one immutable canonical dataset version."""
+
         parquet = (
             self.data_root
             / "curated"
-            / dataset_id
+            / metadata.dataset_id
             / f"version={metadata.version}"
             / "part-000.parquet"
         )
-        engine = DuckDBQueryEngine(
-            tables={dataset_id: parquet},
+        return DuckDBQueryEngine(
+            tables={metadata.dataset_id: parquet},
             allowed_metrics={"metric_value"},
             allowed_dimensions=set(CANONICAL_FIELDS) - {"metric_value"},
         )
-        return CuratedAnalyticsService(engine, metadata)
 
     def copilot(self) -> GroundedCopilotService:
         """Build the offline agent over the current immutable feature snapshot."""
@@ -81,4 +85,7 @@ class LocalRuntime:
             feature_provider=provider,
             feature_registry=self.feature_registry,
             profile_registry=self.profile_registry,
+            observation_tools=ObservationToolSuite(
+                self.catalog, self._observation_query_engine
+            ),
         )

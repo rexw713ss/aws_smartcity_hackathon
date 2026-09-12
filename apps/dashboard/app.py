@@ -252,8 +252,9 @@ with explorer_tab:
 with copilot_tab:
     st.markdown("### Ask a grounded location question")
     st.markdown(
-        '<div class="section-note">The copilot may select only a registered decision '
-        "profile. Retrieval, constraints, scoring, and citations remain deterministic.</div>",
+        '<div class="section-note">The copilot routes questions only to registered tools. '
+        "Dataset inspection, queries, comparisons, scoring, and citations remain "
+        "deterministic.</div>",
         unsafe_allow_html=True,
     )
     question = st.text_area(
@@ -335,6 +336,27 @@ with copilot_tab:
                             "Missing": ", ".join(item.get("missing_required_features", [])),
                         }
                         for item in candidates
+                    ]
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+        comparison = (copilot_result.get("comparison") or {}).get("changes", [])
+        if comparison:
+            st.markdown("#### Observation comparison")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Entity": item.get("entity_name") or item.get("entity_id"),
+                            "From": item.get("first_period"),
+                            "To": item.get("last_period"),
+                            "First value": item.get("first_value"),
+                            "Last value": item.get("last_value"),
+                            "Change %": item.get("percent_change"),
+                            "Direction": item.get("direction"),
+                        }
+                        for item in comparison
                     ]
                 ),
                 hide_index=True,

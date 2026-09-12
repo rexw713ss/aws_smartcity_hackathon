@@ -8,24 +8,30 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from youth_compass.agent.contracts import (
+    AnalysisOperation,
     CandidateInsight,
     CopilotIntent,
     CopilotResponse,
     CopilotStatus,
+    DatasetInspection,
     DecisionExecutionPlan,
     DecomposedQuery,
+    EntityComparison,
     EvidenceCitation,
     FeatureContributionInsight,
+    ObservationSeries,
     RoutedToolPlan,
     ToolCapability,
     ToolTrace,
 )
+from youth_compass.agent.observation_tools import ObservationToolSuite
 from youth_compass.agent.planning import (
     DeterministicQueryDecomposer,
     QueryDecomposer,
     SmartToolRouter,
     ToolCapabilityRegistry,
     default_decision_capabilities,
+    register_observation_capabilities,
 )
 from youth_compass.decisioning import (
     CandidateScore,
@@ -36,7 +42,7 @@ from youth_compass.decisioning import (
     FeatureRegistry,
     FeatureValue,
 )
-from youth_compass.domain.errors import ModelInvocationError, QueryExecutionError
+from youth_compass.domain.errors import ModelInvocationError, QueryExecutionError, YouthCompassError
 from youth_compass.ports import ModelProvider, ModelRequest
 
 
@@ -136,13 +142,17 @@ class GroundedCopilotService:
         planner: CopilotPlanner | None = None,
         decomposer: QueryDecomposer | None = None,
         capabilities: ToolCapabilityRegistry | None = None,
+        observation_tools: ObservationToolSuite | None = None,
     ) -> None:
         self._provider = feature_provider
         self._features = feature_registry
         self._profiles = profile_registry
         self._planner = planner or DeterministicCopilotPlanner()
         self._decomposer = decomposer or DeterministicQueryDecomposer()
+        self._observation_tools = observation_tools
         self._capabilities = capabilities or default_decision_capabilities()
+        if capabilities is None and observation_tools is not None:
+            register_observation_capabilities(self._capabilities)
         self._router = SmartToolRouter(self._capabilities)
         self._scorer = DecisionScoringEngine(feature_registry)
 
@@ -191,6 +201,17 @@ class GroundedCopilotService:
                 response_status = CopilotStatus.INSUFFICIENT_DATA
                 response_warnings = (
                     "The router failed closed; no partial conclusion was produced.",
+                )
+            elif (
+                self._observation_tools is not None
+                and AnalysisOperation.INSPECT_DATASET in decomposition.operations
+            ):
+                return self._answer_observations(
+                    now,
+                    decomposition,
+                    routed_plan,
+                    trace,
+                    min_quality_score=min_quality_score,
                 )
             else:
                 answer = "No registered decision profile can safely execute this question."
@@ -356,6 +377,167 @@ class GroundedCopilotService:
             warnings=tuple(warnings),
         )
 
+    def _answer_observations(
+        self,
+        now: datetime,
+        decomposition: DecomposedQuery,
+        routed_plan: RoutedToolPlan,
+        trace: list[ToolTrace],
+        *,
+        min_quality_score: float,
+    ) -> CopilotResponse:
+        tools = self._observation_tools
+        if tools is None:  # Defensive: callers enter only when the suite is configured.
+            raise RuntimeError("observation tools are unavailable")
+        try:
+            inspection = tools.inspect_dataset.execute(
+                decomposition, min_quality_score=min_quality_score
+            )
+            metadata = tools.catalog.get(inspection.dataset_id)
+            if metadata.version != inspection.dataset_version:
+                raise QueryExecutionError("the published dataset version changed during analysis")
+        except YouthCompassError as exc:
+            trace.append(
+                ToolTrace(tool="inspect_dataset", outcome="unavailable", summary=str(exc)[:300])
+            )
+            return self._observation_failure(
+                now, decomposition, routed_plan, trace, warning=str(exc)
+            )
+        trace.extend(
+            (
+                ToolTrace(
+                    tool="search_catalog",
+                    outcome="ok",
+                    summary=f"selected {inspection.dataset_id}@{inspection.dataset_version}",
+                ),
+                ToolTrace(
+                    tool="inspect_dataset",
+                    outcome="ok",
+                    summary=(
+                        f"resolved {inspection.metric_code} across "
+                        f"{inspection.period_start} to {inspection.period_end}"
+                    ),
+                ),
+            )
+        )
+        if AnalysisOperation.QUERY_OBSERVATIONS not in decomposition.operations:
+            return CopilotResponse(
+                status=CopilotStatus.ANSWERED,
+                answer=(
+                    f"{inspection.dataset_id}@{inspection.dataset_version} contains "
+                    f"{inspection.metric_code} from {inspection.period_start} to "
+                    f"{inspection.period_end} across {inspection.entity_count} entities."
+                ),
+                generated_at=now,
+                decomposition=decomposition,
+                routed_plan=routed_plan,
+                dataset_inspection=inspection,
+                tool_trace=tuple(trace),
+            )
+        try:
+            series = tools.query_observations.execute(decomposition, inspection, metadata)
+        except YouthCompassError as exc:
+            trace.append(
+                ToolTrace(
+                    tool="query_observations", outcome="unavailable", summary=str(exc)[:300]
+                )
+            )
+            return self._observation_failure(
+                now,
+                decomposition,
+                routed_plan,
+                trace,
+                warning=str(exc),
+                inspection=inspection,
+            )
+        trace.append(
+            ToolTrace(
+                tool="query_observations",
+                outcome="ok",
+                summary=f"retrieved {len(series.points)} aggregated observations",
+            )
+        )
+        comparison = None
+        if AnalysisOperation.COMPARE_ENTITIES in decomposition.operations:
+            try:
+                comparison = tools.compare_entities.execute(series)
+            except YouthCompassError as exc:
+                trace.append(
+                    ToolTrace(
+                        tool="compare_entities", outcome="unavailable", summary=str(exc)[:300]
+                    )
+                )
+                return self._observation_failure(
+                    now,
+                    decomposition,
+                    routed_plan,
+                    trace,
+                    warning=str(exc),
+                    inspection=inspection,
+                    series=series,
+                )
+            trace.append(
+                ToolTrace(
+                    tool="compare_entities",
+                    outcome="ok",
+                    summary=f"calculated changes for {len(comparison.changes)} entities",
+                )
+            )
+        citation = EvidenceCitation(
+            citation_id="data-1",
+            dataset_id=metadata.dataset_id,
+            dataset_version=metadata.version,
+            quality_score=metadata.quality_score,
+            retrieved_at=metadata.published_at or metadata.created_at,
+        )
+        if AnalysisOperation.EXPLAIN_LINEAGE in decomposition.operations:
+            trace.append(
+                ToolTrace(
+                    tool="explain_lineage",
+                    outcome="ok",
+                    summary="attached 1 dataset-version citation",
+                )
+            )
+        return CopilotResponse(
+            status=CopilotStatus.ANSWERED,
+            answer=_observation_answer(series, comparison),
+            generated_at=now,
+            decomposition=decomposition,
+            routed_plan=routed_plan,
+            dataset_inspection=inspection,
+            observation_series=series,
+            comparison=comparison,
+            citations=(citation,),
+            tool_trace=tuple(trace),
+            assumptions=(
+                "Canonical rows sharing an entity, period, metric, unit, and scope are summed.",
+                "Changes compare the first and last observations in the requested period.",
+            ),
+        )
+
+    @staticmethod
+    def _observation_failure(
+        now: datetime,
+        decomposition: DecomposedQuery,
+        routed_plan: RoutedToolPlan,
+        trace: list[ToolTrace],
+        *,
+        warning: str,
+        inspection: DatasetInspection | None = None,
+        series: ObservationSeries | None = None,
+    ) -> CopilotResponse:
+        return CopilotResponse(
+            status=CopilotStatus.INSUFFICIENT_DATA,
+            answer="There is not enough compatible observation data for this analysis.",
+            generated_at=now,
+            decomposition=decomposition,
+            routed_plan=routed_plan,
+            dataset_inspection=inspection,
+            observation_series=series,
+            tool_trace=tuple(trace),
+            warnings=(warning,),
+        )
+
     @staticmethod
     def _insufficient(
         now: datetime,
@@ -446,3 +628,29 @@ def _candidate_insights(
             )
         )
     return tuple(results)
+
+
+def _observation_answer(
+    series: ObservationSeries, comparison: EntityComparison | None
+) -> str:
+    if comparison is None:
+        return (
+            f"Retrieved {len(series.points)} grounded observations for "
+            f"{series.metric_code}."
+        )
+    summaries = []
+    for change in comparison.changes[:5]:
+        name = change.entity_name or change.entity_id
+        delta = (
+            f"{change.percent_change:+.2f}%"
+            if change.percent_change is not None
+            else f"{change.absolute_change:+g} {series.unit_code}"
+        )
+        summaries.append(
+            f"{name} {change.direction} from {change.first_value:g} to "
+            f"{change.last_value:g} ({delta})"
+        )
+    return (
+        f"For {series.metric_code}, " + "; ".join(summaries) + ". "
+        "Values come from the cited published dataset version."
+    )

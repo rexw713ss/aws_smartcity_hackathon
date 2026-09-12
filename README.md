@@ -57,6 +57,7 @@ make dashboard
 Then open `http://127.0.0.1:8501`. The interface supports the full local demo:
 upload CSV, Excel, JSON, or a text-based PDF table, inspect its proposed mapping,
 approve or reject it, query published district aggregates, and run grounded home-buying
-or EV-charger rankings through the Decision copilot tab. The copilot requires an immutable
-`data/features/current.parquet` snapshot. Scanned PDFs remain a later OCR/Amazon Textract
-integration.
+or EV-charger rankings through the Decision copilot tab. The same copilot can inspect and
+compare trends in published canonical datasets without a new feature mart. Decision rankings
+require an immutable `data/features/current.parquet` snapshot. Scanned PDFs remain a later
+OCR/Amazon Textract integration.

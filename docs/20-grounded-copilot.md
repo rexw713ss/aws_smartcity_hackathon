@@ -19,11 +19,17 @@ The model cannot submit SQL, select an unregistered profile, change profile weig
 or manufacture citations. Local storage URIs are deliberately omitted from the public
 response.
 
-The current runtime advertises `search_catalog`, `get_features`, `rank_candidates`, and
-`explain_lineage` through `GET /api/v1/copilot/capabilities`. Trend, generic comparison,
-forecast, acquisition, and observation-query requests are decomposed now, but the router
-returns their missing operations and refuses to manufacture a partial answer until those
-tools are registered.
+The current runtime advertises `search_catalog`, `inspect_dataset`, `query_observations`,
+`compare_entities`, `get_features`, `rank_candidates`, and `explain_lineage` through
+`GET /api/v1/copilot/capabilities`. It can inspect published canonical datasets and answer
+grounded trend/comparison questions without a use-case-specific feature mart. Forecast and
+source-acquisition requests are decomposed, but the router returns their missing operations
+and refuses to manufacture a partial answer until those tools are registered.
+
+The observation tools execute only typed `QuerySpec` requests against allowlisted canonical
+fields. They enforce dataset quality, entity and time scope, compatible units and population
+scope, query row limits, and at least two periods per compared entity. Percentage changes are
+calculated deterministically rather than by the language model.
 
 ## 2. Implemented scenarios
 
@@ -67,7 +73,7 @@ deterministic application responsibilities.
 
 ## 5. Verification
 
-The suite covers 20 Vietnamese and English intent prompts, both reference decisions,
-hard feasibility constraints, entity filters, minimum evidence quality, missing feature
-snapshots, unsupported questions, citation redaction, API execution, and the model-planner
-allowlist.
+The suite covers Vietnamese and English decomposition prompts, both reference decisions,
+generic observation trends, hard feasibility constraints, entity filters, period filters,
+minimum evidence quality, missing snapshots, unsupported questions, citation redaction,
+API execution, and the model-planner allowlist.

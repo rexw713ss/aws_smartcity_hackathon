@@ -409,6 +409,26 @@
             "title": "Citations",
             "type": "array"
           },
+          "comparison": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityComparison"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dataset_inspection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatasetInspection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "decomposition": {
             "anyOf": [
               {
@@ -423,6 +443,16 @@
             "format": "date-time",
             "title": "Generated At",
             "type": "string"
+          },
+          "observation_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationSeries"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "plan": {
             "anyOf": [
@@ -497,6 +527,74 @@
           "dimensions"
         ],
         "title": "DatasetGrain",
+        "type": "object"
+      },
+      "DatasetInspection": {
+        "description": "Schema and coverage selected from the published catalog.",
+        "properties": {
+          "available_metrics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Metrics",
+            "type": "array"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "entity_count": {
+            "minimum": 0.0,
+            "title": "Entity Count",
+            "type": "integer"
+          },
+          "grain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Grain",
+            "type": "array"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "period_end": {
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "title": "Period Start",
+            "type": "string"
+          },
+          "quality_score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Quality Score",
+            "type": "number"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "dataset_version",
+          "topic",
+          "grain",
+          "metric_code",
+          "available_metrics",
+          "period_start",
+          "period_end",
+          "entity_count",
+          "quality_score"
+        ],
+        "title": "DatasetInspection",
         "type": "object"
       },
       "DatasetProfile": {
@@ -976,6 +1074,105 @@
         "title": "DistrictProfileResponse",
         "type": "object"
       },
+      "EntityChange": {
+        "description": "Deterministic first-to-last change for one entity.",
+        "properties": {
+          "absolute_change": {
+            "title": "Absolute Change",
+            "type": "number"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "first_period": {
+            "title": "First Period",
+            "type": "string"
+          },
+          "first_value": {
+            "title": "First Value",
+            "type": "number"
+          },
+          "last_period": {
+            "title": "Last Period",
+            "type": "string"
+          },
+          "last_value": {
+            "title": "Last Value",
+            "type": "number"
+          },
+          "observation_count": {
+            "minimum": 1.0,
+            "title": "Observation Count",
+            "type": "integer"
+          },
+          "percent_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent Change"
+          }
+        },
+        "required": [
+          "entity_id",
+          "first_period",
+          "last_period",
+          "first_value",
+          "last_value",
+          "absolute_change",
+          "direction",
+          "observation_count"
+        ],
+        "title": "EntityChange",
+        "type": "object"
+      },
+      "EntityComparison": {
+        "description": "Comparable changes calculated from one compatible observation series.",
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/EntityChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "unit_code": {
+            "title": "Unit Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_code",
+          "unit_code",
+          "changes"
+        ],
+        "title": "EntityComparison",
+        "type": "object"
+      },
       "EvidenceCitation": {
         "description": "Public provenance without leaking local storage paths or credentials.",
         "properties": {
@@ -1447,6 +1644,89 @@
           "evidence"
         ],
         "title": "MetricMapping",
+        "type": "object"
+      },
+      "ObservationPoint": {
+        "description": "One safely aggregated metric value for an entity and period.",
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "estimated_value": {
+            "minimum": 0.0,
+            "title": "Estimated Value",
+            "type": "number"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "entity_id",
+          "period",
+          "value",
+          "estimated_value"
+        ],
+        "title": "ObservationPoint",
+        "type": "object"
+      },
+      "ObservationSeries": {
+        "description": "Validated observation query output used by downstream analysis tools.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population_scope": {
+            "title": "Population Scope",
+            "type": "string"
+          },
+          "unit_code": {
+            "title": "Unit Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "dataset_version",
+          "metric_code",
+          "unit_code",
+          "population_scope",
+          "points"
+        ],
+        "title": "ObservationSeries",
         "type": "object"
       },
       "PopulationScope": {
