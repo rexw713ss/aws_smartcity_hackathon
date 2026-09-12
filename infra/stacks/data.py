@@ -94,12 +94,13 @@ class DataStack(TaggedStack):
             self.buckets[zone] = bucket
 
         # --- Glue database ---
+        self.glue_database_name = f"youth_compass_{env_config.name}"
         self.glue_db = glue.CfnDatabase(
             self,
             "GlueDatabase",
             catalog_id=cdk.Aws.ACCOUNT_ID,
             database_input=glue.CfnDatabase.DatabaseInputProperty(
-                name=f"youth_compass_{env_config.name}",
+                name=self.glue_database_name,
             ),
         )
 

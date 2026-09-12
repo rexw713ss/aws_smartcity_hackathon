@@ -74,6 +74,7 @@ class WorkflowStack(TaggedStack):
         curated_bucket_name: str,
         quarantined_bucket_name: str,
         metadata_table_name: str,
+        glue_database_name: str,
         region: str,
         **kwargs: Any,
     ) -> None:
@@ -92,6 +93,7 @@ class WorkflowStack(TaggedStack):
             "YOUTH_COMPASS_METADATA_TABLE": metadata_table_name,
             "YOUTH_COMPASS_CURATED_BUCKET": curated_bucket_name,
             "YOUTH_COMPASS_QUARANTINED_BUCKET": quarantined_bucket_name,
+            "YOUTH_COMPASS_GLUE_DATABASE": glue_database_name,
         }
 
         # --- Transform Lambda (ARM64): profiling + mapping + transform ---
@@ -111,6 +113,18 @@ class WorkflowStack(TaggedStack):
         curated.grant_read_write(self.transform_fn)
         quarantined.grant_read_write(self.transform_fn)
         metadata_table.grant_read_write_data(self.transform_fn)
+        # Registering the curated table on publish. Scoped to this database's
+        # tables: no access to other databases, and no delete.
+        self.transform_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["glue:CreateTable", "glue:UpdateTable", "glue:GetTable"],
+                resources=[
+                    f"arn:aws:glue:{region}:{cdk.Aws.ACCOUNT_ID}:catalog",
+                    f"arn:aws:glue:{region}:{cdk.Aws.ACCOUNT_ID}:database/{glue_database_name}",
+                    f"arn:aws:glue:{region}:{cdk.Aws.ACCOUNT_ID}:table/{glue_database_name}/*",
+                ],
+            )
+        )
 
         # --- Step Functions Standard Workflow ---
         # 1. Profile + map the uploaded file.

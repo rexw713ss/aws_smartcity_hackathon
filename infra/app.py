@@ -60,6 +60,7 @@ def build_app() -> cdk.App:
         curated_bucket_name=data.buckets["curated"].bucket_name,
         quarantined_bucket_name=data.buckets["quarantined"].bucket_name,
         metadata_table_name=data.metadata_table.table_name,
+        glue_database_name=data.glue_database_name,
         region=region,
         env=cdk_env,
     )
