@@ -86,6 +86,19 @@ class ModelSettings(BaseModel):
     timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     max_attempts: int = Field(default=3, ge=1, le=10)
 
+    # Which stages the model is allowed to run. The two carry very different
+    # risk: the answer composer only verbalizes a payload the application has
+    # already grounded, and its output is rejected if it invents a citation or a
+    # number. The query decomposer chooses which tools run, so a plausible but
+    # wrong plan routes the whole answer wrong — and a plan that is merely wrong
+    # rather than invalid never triggers the deterministic fallback.
+    #
+    # Measured on evals/agent-routing.jsonl and against the live API: model
+    # decomposition currently degrades answers, so it is off by default and must
+    # be enabled deliberately.
+    compose_answers: bool = True
+    decompose_queries: bool = False
+
 
 class ForecastSettings(BaseModel):
     provider: ForecastProvider = ForecastProvider.LOCAL
