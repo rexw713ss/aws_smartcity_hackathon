@@ -21,6 +21,11 @@ if str(_REPO_ROOT) not in sys.path:
 import aws_cdk as cdk  # noqa: E402
 
 from infra.environments import resolve_environment, resolve_region  # noqa: E402
+from infra.stacks.api import (  # noqa: E402
+    ApiStack,
+    resolve_model_id,
+    resolve_write_secret,
+)
 from infra.stacks.budget import BudgetStack, resolve_budget_email  # noqa: E402
 from infra.stacks.data import DataStack  # noqa: E402
 from infra.stacks.workflow import WorkflowStack  # noqa: E402
@@ -51,7 +56,7 @@ def build_app() -> cdk.App:
         env=cdk_env,
     )
 
-    WorkflowStack(
+    workflow = WorkflowStack(
         app,
         f"{env_config.stack_prefix}-Workflow",
         env_config=env_config,
@@ -64,6 +69,25 @@ def build_app() -> cdk.App:
         region=region,
         env=cdk_env,
     )
+
+    # The public surface is opt-in: it needs a write secret, and synthesizing it
+    # requires the API Lambda package to have been built. Skip it unless asked,
+    # so `cdk synth` for the data and workflow stacks keeps working on its own.
+    if app.node.try_get_context("withApi"):
+        ApiStack(
+            app,
+            f"{env_config.stack_prefix}-Api",
+            env_config=env_config,
+            incoming_bucket_name=data.buckets["incoming"].bucket_name,
+            curated_bucket_name=data.buckets["curated"].bucket_name,
+            metadata_table_name=data.metadata_table.table_name,
+            glue_database_name=data.glue_database_name,
+            state_machine_arn=workflow.state_machine.state_machine_arn,
+            region=region,
+            model_id=resolve_model_id(app.node.try_get_context("modelId")),
+            write_secret=resolve_write_secret(app.node.try_get_context("writeSecret")),
+            env=cdk_env,
+        )
 
     return app
 

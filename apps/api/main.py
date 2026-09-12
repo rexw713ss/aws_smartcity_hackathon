@@ -1,5 +1,6 @@
 """FastAPI reviewer and dashboard API for the offline reference runtime."""
 
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,11 +51,22 @@ from youth_compass.domain.contracts import MappingAnalysis
 from youth_compass.ports import ApprovalDecision, JobReference
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_DATA_ROOT_ENV_VAR = "YOUTH_COMPASS_DATA_ROOT"
 
 
-def create_app(data_root: Path = Path("data")) -> FastAPI:
+def default_data_root() -> Path:
+    """The data root to use when a caller does not name one.
+
+    Reads the environment so a deployment can relocate the tree without
+    touching code. Lambda in particular must point this at a writable location,
+    because the unpacked package at /var/task is read-only.
+    """
+    return Path(os.environ.get(_DATA_ROOT_ENV_VAR, "data"))
+
+
+def create_app(data_root: Path | None = None) -> FastAPI:
     app = FastAPI(title="New Taipei Youth Compass API", version=__version__)
-    runtime = LocalRuntime(data_root)
+    runtime = LocalRuntime(default_data_root() if data_root is None else data_root)
     app.state.runtime = runtime
     # Exposed separately so request-scoped guards can read settings without
     # reaching through the runtime.
