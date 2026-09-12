@@ -56,9 +56,11 @@ def build_app() -> cdk.App:
         f"{env_config.stack_prefix}-Workflow",
         env_config=env_config,
         incoming_bucket_name=data.buckets["incoming"].bucket_name,
+        standardized_bucket_name=data.buckets["standardized"].bucket_name,
         curated_bucket_name=data.buckets["curated"].bucket_name,
         quarantined_bucket_name=data.buckets["quarantined"].bucket_name,
         metadata_table_name=data.metadata_table.table_name,
+        region=region,
         env=cdk_env,
     )
 

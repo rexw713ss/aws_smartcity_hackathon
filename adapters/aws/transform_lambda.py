@@ -34,10 +34,16 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     action = event.get("action", "")
     bucket = event.get("bucket")
     key = event.get("key")
+    source_uri = event.get("source_uri", "")
     source_path = event.get("source_path", "")
 
+    # Accept an s3:// URI (workflow input) and split it into bucket + key.
+    if source_uri.startswith("s3://") and not (bucket and key):
+        rest = source_uri[len("s3://") :]
+        bucket, _, key = rest.partition("/")
+
     if not source_path and not (bucket and key):
-        return _error("either source_path or (bucket + key) is required")
+        return _error("one of source_path, source_uri, or (bucket + key) is required")
 
     try:
         source = _download_from_s3(bucket, key) if bucket and key else Path(source_path)

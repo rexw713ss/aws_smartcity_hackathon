@@ -53,12 +53,18 @@ def build() -> Path:
     # 2. Copy the project source.
     shutil.copytree(_REPO_ROOT / "src" / "youth_compass", _BUILD_DIR / "youth_compass")
 
-    # 3. Copy the adapter handler (only the handler module, not the whole package).
+    # 3. Copy the adapter modules the two Lambda handlers need.
     adapters_dir = _BUILD_DIR / "adapters" / "aws"
     adapters_dir.mkdir(parents=True)
     (_BUILD_DIR / "adapters" / "__init__.py").write_text("", encoding="utf-8")
-    shutil.copy(_REPO_ROOT / "adapters" / "aws" / "__init__.py", adapters_dir)
-    shutil.copy(_REPO_ROOT / "adapters" / "aws" / "transform_lambda.py", adapters_dir)
+    for module in (
+        "__init__.py",
+        "transform_lambda.py",
+        "upload_event_handler.py",
+        "s3_uploads.py",
+        "step_functions_runner.py",
+    ):
+        shutil.copy(_REPO_ROOT / "adapters" / "aws" / module, adapters_dir)
 
     print(f"built Lambda package at {_BUILD_DIR}")
     return _BUILD_DIR

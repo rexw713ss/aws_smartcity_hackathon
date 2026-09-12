@@ -1,20 +1,25 @@
-"""WorkflowStack: Lambda transform + Step Functions ingestion workflow.
+"""WorkflowStack: AWS orchestration for upload-driven ingestion.
 
-Feature: aws-stage2-adapters, Requirement 7.
+Feature: aws-stage2-adapters (PR1 — AWS Orchestration Infrastructure).
 
-Deploys the ingestion pipeline: an ARM64 Lambda that runs the deterministic
-transforms, a Step Functions state machine that orchestrates
-profile -> map -> validate -> approval pause -> transform -> quality -> publish
-with failures routed to quarantine, and an EventBridge rule that auto-starts the
-workflow when an object lands in the incoming bucket.
+Deploys the entry path the existing code already implements:
 
-The Lambda calls the existing profile_csv and analyze_mapping functions; it does
-not reimplement them.
+    S3 ObjectCreated (incoming/) -> EventBridge rule -> upload-event Lambda
+    -> Step Functions Standard Workflow -> transform Lambda
+
+- upload-event Lambda runs ``adapters.aws.upload_event_handler.handler`` and
+  starts exactly one Step Functions execution per upload (idempotent on the
+  job id, so retries do not double-start).
+- transform Lambda runs ``adapters.aws.transform_lambda.handler``.
+- Standard workflow (not Express) so the human-approval pause can wait.
+- Least-privilege IAM per role.
+- Environment variables the handlers and API require.
 """
 
 from pathlib import Path
 from typing import Any
 
+import aws_cdk as cdk
 from aws_cdk import (
     Duration,
 )
@@ -48,17 +53,15 @@ from infra.environments import EnvironmentConfig
 from infra.stacks.base import TaggedStack
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-
-# Lambda packaging: bundle the project source. The handler is at
-# adapters/aws/transform_lambda.py, so the handler path is
-# "adapters.aws.transform_lambda.handler".
-_HANDLER = "adapters.aws.transform_lambda.handler"
+_LAMBDA_ASSET = str(_REPO_ROOT / "build" / "transform_lambda")
+_TRANSFORM_HANDLER = "adapters.aws.transform_lambda.handler"
+_UPLOAD_EVENT_HANDLER = "adapters.aws.upload_event_handler.handler"
 _LAMBDA_TIMEOUT = Duration.minutes(5)
 _LAMBDA_MEMORY_MB = 1024
 
 
 class WorkflowStack(TaggedStack):
-    """Ingestion workflow: Lambda transform + Step Functions state machine."""
+    """Upload-driven ingestion orchestration."""
 
     def __init__(
         self,
@@ -67,38 +70,46 @@ class WorkflowStack(TaggedStack):
         *,
         env_config: EnvironmentConfig,
         incoming_bucket_name: str,
+        standardized_bucket_name: str,
         curated_bucket_name: str,
         quarantined_bucket_name: str,
         metadata_table_name: str,
+        region: str,
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, tags=env_config.tags, **kwargs)
 
         incoming = s3.Bucket.from_bucket_name(self, "IncomingRef", incoming_bucket_name)
+        standardized = s3.Bucket.from_bucket_name(self, "StandardizedRef", standardized_bucket_name)
         curated = s3.Bucket.from_bucket_name(self, "CuratedRef", curated_bucket_name)
         quarantined = s3.Bucket.from_bucket_name(self, "QuarantinedRef", quarantined_bucket_name)
         metadata_table = dynamodb.Table.from_table_name(self, "MetadataRef", metadata_table_name)
 
-        # --- Transform Lambda (ARM64) ---
-        # The asset directory is pre-built by scripts/build_lambda.py (no Docker
-        # dependency, so it works on any machine). Run that script before deploy.
-        asset_dir = str(_REPO_ROOT / "build" / "transform_lambda")
+        code = lambda_.Code.from_asset(_LAMBDA_ASSET)
+        common_env = {
+            "YOUTH_COMPASS_INCOMING_BUCKET": incoming_bucket_name,
+            "YOUTH_COMPASS_REGION": region,
+        }
+
+        # --- Transform Lambda (ARM64): profiling + mapping + transform ---
         self.transform_fn = lambda_.Function(
             self,
             "TransformFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
             architecture=lambda_.Architecture.ARM_64,
-            handler=_HANDLER,
-            code=lambda_.Code.from_asset(asset_dir),
+            handler=_TRANSFORM_HANDLER,
+            code=code,
             timeout=_LAMBDA_TIMEOUT,
             memory_size=_LAMBDA_MEMORY_MB,
+            environment=common_env,
         )
         incoming.grant_read(self.transform_fn)
+        standardized.grant_read_write(self.transform_fn)
         curated.grant_read_write(self.transform_fn)
         quarantined.grant_read_write(self.transform_fn)
         metadata_table.grant_read_write_data(self.transform_fn)
 
-        # --- Step Functions states ---
+        # --- Step Functions Standard Workflow ---
         analyze = tasks.LambdaInvoke(
             self,
             "ProfileAndMap",
@@ -106,33 +117,15 @@ class WorkflowStack(TaggedStack):
             payload=sfn.TaskInput.from_object(
                 {
                     "action": "analyze",
-                    "bucket": sfn.JsonPath.string_at("$.bucket"),
-                    "key": sfn.JsonPath.string_at("$.key"),
+                    "source_uri": sfn.JsonPath.string_at("$.source_uri"),
                 }
             ),
             result_path="$.analysis",
         )
-
-        quarantine = sfn.Pass(
-            self,
-            "Quarantine",
-            comment="Route failed or rejected ingestions to the quarantined zone",
-        )
-        publish = sfn.Pass(
-            self,
-            "Publish",
-            comment="Publish approved dataset to the curated zone",
-        )
-
-        # Confidence gate: high confidence auto-publishes; otherwise pause for
-        # human approval via the waitForTaskToken pattern.
-        approval = sfn.Pass(
-            self,
-            "AwaitApproval",
-            comment="waitForTaskToken pause for human review (wired in Stage 2 workflow)",
-        )
-
-        confidence_gate = (
+        quarantine = sfn.Pass(self, "Quarantine", comment="Route failures to quarantine")
+        publish = sfn.Pass(self, "Publish", comment="Publish approved dataset")
+        approval = sfn.Pass(self, "AwaitApproval", comment="Human review (callback token)")
+        gate = (
             sfn.Choice(self, "ConfidenceGate")
             .when(
                 sfn.Condition.number_greater_than_equals(
@@ -142,43 +135,59 @@ class WorkflowStack(TaggedStack):
             )
             .otherwise(approval)
         )
-
         analyze.add_catch(quarantine, errors=["States.ALL"], result_path="$.error")
         approval.next(publish)
-
-        definition = analyze.next(confidence_gate)
 
         self.state_machine = sfn.StateMachine(
             self,
             "IngestionWorkflow",
-            definition_body=sfn.DefinitionBody.from_chainable(definition),
+            state_machine_type=sfn.StateMachineType.STANDARD,
+            definition_body=sfn.DefinitionBody.from_chainable(analyze.next(gate)),
             timeout=Duration.hours(24),
         )
         self.transform_fn.grant_invoke(self.state_machine)
 
-        # --- Auto-trigger: S3 ObjectCreated in incoming -> start workflow ---
-        # Requires EventBridge notifications enabled on the bucket (set in DataStack
-        # or via a one-time console/CLI step; documented in the Stage 2 doc).
+        # --- Upload-event Lambda: S3 event -> start Step Functions ---
+        self.upload_event_fn = lambda_.Function(
+            self,
+            "UploadEventFunction",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
+            handler=_UPLOAD_EVENT_HANDLER,
+            code=code,
+            timeout=Duration.seconds(30),
+            memory_size=256,
+            environment={
+                **common_env,
+                "YOUTH_COMPASS_STATE_MACHINE_ARN": self.state_machine.state_machine_arn,
+            },
+        )
+        # Least privilege: HeadObject on incoming + StartExecution on the workflow.
+        self.upload_event_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetObject"],
+                resources=[incoming.arn_for_objects("incoming/*")],
+            )
+        )
+        incoming.grant_read(self.upload_event_fn)  # includes HeadObject
+        self.state_machine.grant_start_execution(self.upload_event_fn)
+
+        # --- EventBridge rule: S3 ObjectCreated under incoming/ -> upload Lambda ---
         rule = events.Rule(
             self,
             "IncomingUploadRule",
             event_pattern=events.EventPattern(
                 source=["aws.s3"],
                 detail_type=["Object Created"],
-                detail={"bucket": {"name": [incoming_bucket_name]}},
+                detail={
+                    "bucket": {"name": [incoming_bucket_name]},
+                    "object": {"key": [{"prefix": "incoming/"}]},
+                },
             ),
         )
-        rule.add_target(
-            targets.SfnStateMachine(
-                self.state_machine,
-                input=events.RuleTargetInput.from_object(
-                    {
-                        "bucket": events.EventField.from_path("$.detail.bucket.name"),
-                        "key": events.EventField.from_path("$.detail.object.key"),
-                    }
-                ),
-            )
-        )
+        rule.add_target(targets.LambdaFunction(self.upload_event_fn))
 
-        # Allow EventBridge to start the state machine.
-        self.state_machine.grant_start_execution(iam.ServicePrincipal("events.amazonaws.com"))
+        # Env vars the API role needs are surfaced as stack outputs so the API
+        # deployment can consume them.
+        cdk.CfnOutput(self, "StateMachineArn", value=self.state_machine.state_machine_arn)
+        cdk.CfnOutput(self, "IncomingBucket", value=incoming_bucket_name)

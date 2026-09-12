@@ -55,6 +55,17 @@ class DataStack(TaggedStack):
 
         prefix = env_config.stack_prefix.lower().replace("-", "")
 
+        # Browser-based multipart POST uploads need CORS on the incoming bucket.
+        _incoming_cors = [
+            s3.CorsRule(
+                allowed_methods=[s3.HttpMethods.POST, s3.HttpMethods.PUT],
+                allowed_origins=["*"],  # tighten to the dashboard origin in production
+                allowed_headers=["*"],
+                exposed_headers=["ETag"],
+                max_age=3000,
+            )
+        ]
+
         # --- S3 buckets per data zone ---
         self.buckets: dict[str, s3.Bucket] = {}
         for zone in _ZONES:
@@ -76,6 +87,9 @@ class DataStack(TaggedStack):
                 removal_policy=RemovalPolicy.DESTROY,
                 auto_delete_objects=True,
                 lifecycle_rules=lifecycle_rules if lifecycle_rules else None,
+                # EventBridge notifications on incoming drive the ingestion trigger.
+                event_bridge_enabled=(zone == "incoming"),
+                cors=_incoming_cors if zone == "incoming" else None,
             )
             self.buckets[zone] = bucket
 
