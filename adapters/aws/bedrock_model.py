@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
+from threading import Thread
 from typing import Protocol, cast
 
 import boto3
@@ -19,6 +21,10 @@ class BedrockRuntimeClient(Protocol):
 
     def converse(self, **kwargs: object) -> dict[str, object]:
         """Invoke Bedrock Converse."""
+        ...
+
+    def converse_stream(self, **kwargs: object) -> dict[str, object]:
+        """Invoke Bedrock ConverseStream."""
         ...
 
 
@@ -95,6 +101,67 @@ class BedrockModelProvider:
             ) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise ModelInvocationError("Bedrock returned an invalid Converse response") from exc
+
+    async def stream(self, request: ModelRequest) -> AsyncIterator[str]:
+        """Yield text deltas directly from Bedrock's ConverseStream event stream."""
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[str | Exception | None] = asyncio.Queue()
+
+        def emit(item: str | Exception | None) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+
+        worker = Thread(target=self._stream_sync, args=(request, emit), daemon=True)
+        worker.start()
+        try:
+            async with asyncio.timeout(self._timeout + 1):
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        break
+                    if isinstance(item, Exception):
+                        raise item
+                    yield item
+        except TimeoutError as exc:
+            raise ModelInvocationError(
+                f"Bedrock streaming invocation timed out after {self._timeout:g}s"
+            ) from exc
+
+    def _stream_sync(
+        self,
+        request: ModelRequest,
+        emit: Callable[[str | Exception | None], None],
+    ) -> None:
+        try:
+            payload: dict[str, object] = {
+                "modelId": self._model_id,
+                "messages": [{"role": "user", "content": [{"text": request.prompt}]}],
+                "inferenceConfig": {
+                    "maxTokens": request.max_tokens,
+                    "temperature": request.temperature,
+                },
+            }
+            if request.system:
+                payload["system"] = [{"text": request.system}]
+            raw = self._client.converse_stream(**payload)
+            events = raw.get("stream")
+            if events is None:
+                raise TypeError("Bedrock streaming response contains no event stream")
+            for event in events:  # type: ignore[union-attr]
+                block = _mapping(event)
+                content_delta = block.get("contentBlockDelta")
+                if content_delta is None:
+                    continue
+                delta = _mapping(_mapping(content_delta).get("delta"))
+                text = delta.get("text")
+                if isinstance(text, str) and text:
+                    emit(text)
+        except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as exc:
+            emit(ModelInvocationError(f"Bedrock streaming invocation failed: {str(exc)[:300]}"))
+        except (KeyError, TypeError, ValueError):
+            emit(ModelInvocationError("Bedrock returned an invalid ConverseStream response"))
+        finally:
+            emit(None)
 
     def _converse_with_schema_fallback(self, request: ModelRequest) -> dict[str, object]:
         """Invoke Converse, adapting to models that reject native structured output.

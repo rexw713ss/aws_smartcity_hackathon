@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ChatPanel, { Turn } from './components/ChatPanel'
+import type { DataIntake } from './components/MissingDataRequest'
 import InsightPanel from './components/InsightPanel'
 import MotionProvider from './components/MotionProvider'
 import {
@@ -7,13 +8,17 @@ import {
   type CopilotResponse,
   type DatasetCatalogItem,
   type DistrictOverview,
+  type IntakeOptions,
   type ToolCapability,
 } from './lib/copilot'
 import useNarrowLayout from './lib/useNarrowLayout'
 import { I18nProvider, translate, type Language } from './lib/i18n'
 
-const apiBase = (import.meta.env.VITE_COPILOT_API_BASE as string | undefined) ?? '/api/v1'
-const requestTimeoutMs = 30_000
+// deploy_site.py injects the Function URL at publish time, so one immutable
+// frontend build can target each environment without rebuilding.
+const apiBase = window.YOUTH_COMPASS_API_BASE ??
+  (import.meta.env.VITE_COPILOT_API_BASE as string | undefined) ?? '/api/v1'
+const requestTimeoutMs = 90_000
 
 // Phrasings the offline DeterministicQueryDecomposer actually routes; see
 // evals/agent-routing.jsonl. With the Bedrock decomposer enabled, paraphrases
@@ -48,7 +53,7 @@ export default function App() {
   const [response, setResponse] = useState<CopilotResponse | null>(null)
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
-  const [acquiring, setAcquiring] = useState(false)
+  const [intakeOptions, setIntakeOptions] = useState<IntakeOptions | null>(null)
   const [capabilities, setCapabilities] = useState<ToolCapability[]>([])
   const [datasets, setDatasets] = useState<DatasetCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -86,6 +91,13 @@ export default function App() {
       return
     }
     const controller = new AbortController()
+    client
+      .intakeOptions(controller.signal)
+      .then(setIntakeOptions)
+      .catch(cause => {
+        // Upload still works without this; only the link hint is lost.
+        if (!controller.signal.aborted) console.error('intake options request failed', cause)
+      })
     client
       .capabilities(controller.signal)
       .then(setCapabilities)
@@ -146,9 +158,10 @@ export default function App() {
       setPending(true)
       setMobileView('chat')
       setCitationFocus(null)
+      const answerId = nextId()
 
       try {
-        const result = await client.query(
+        const result = await client.queryStream(
           {
             question,
             // The public UI should not silently select barely-passing evidence.
@@ -157,11 +170,26 @@ export default function App() {
             sessionId: sessionId.current ?? undefined,
           },
           controller.signal,
+          text => {
+            if (ticket !== latest.current) return
+            setTurns(current => {
+              const exists = current.some(turn => turn.id === answerId)
+              if (!exists) return [...current, { kind: 'streaming', id: answerId, text }]
+              return current.map(turn => turn.id === answerId
+                ? { kind: 'streaming' as const, id: answerId, text }
+                : turn)
+            })
+          },
         )
         if (ticket !== latest.current) return
         sessionId.current = result.session_id
         setResponse(result)
-        setTurns(current => [...current, { kind: 'answer', id: nextId(), response: result }])
+        setTurns(current => {
+          const final = { kind: 'answer' as const, id: answerId, response: result }
+          return current.some(turn => turn.id === answerId)
+            ? current.map(turn => turn.id === answerId ? final : turn)
+            : [...current, final]
+        })
         if (result.visualizations.length) setMobileView('insight')
       } catch (cause) {
         if (ticket !== latest.current) return
@@ -185,20 +213,21 @@ export default function App() {
     [client, language],
   )
 
-  const acquire = useCallback(
-    async (candidateId: string, submittedBy: string): Promise<string> => {
-      if (!client) throw new Error(t('configInvalid'))
-      const controller = new AbortController()
-      setAcquiring(true)
-      try {
-        const started = await client.acquire(candidateId, submittedBy, controller.signal)
-        return started.ingestion_job_id
-      } finally {
-        setAcquiring(false)
-      }
-    },
-    [client, language],
-  )
+  // Accepting a suggestion, uploading a file, and pasting a link all enter the
+  // same approval-gated workflow; none of them publishes anything.
+  const intake = useMemo<DataIntake>(() => {
+    const unavailable = () => Promise.reject(new Error(t('configInvalid')))
+    if (!client) return { acquire: unavailable, acquireLink: unavailable, upload: unavailable, options: null }
+    return {
+      acquire: async (candidateId, submittedBy) =>
+        (await client.acquire(candidateId, submittedBy, new AbortController().signal)).ingestion_job_id,
+      acquireLink: (url, submittedBy, topicHint) =>
+        client.acquireLink(url, submittedBy, topicHint, new AbortController().signal),
+      upload: (file, submittedBy, topicHint) =>
+        client.uploadDataset(file, submittedBy, topicHint, new AbortController().signal),
+      options: intakeOptions,
+    }
+  }, [client, intakeOptions, language])
 
   const cancel = useCallback(() => {
     latest.current += 1
@@ -283,8 +312,7 @@ export default function App() {
               onSubmit={ask}
               onCancel={cancel}
               onCitation={showCitation}
-              onAcquire={acquire}
-              acquiring={acquiring}
+              intake={intake}
             />
           ) : null}
           {!narrow || mobileView === 'insight' ? (

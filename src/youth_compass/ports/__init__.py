@@ -43,6 +43,7 @@ from youth_compass.ports.workflow_runner import (
     JobStatus,
     WorkflowRunner,
 )
+from youth_compass.ports.web_search import WebSearchProvider, WebSearchRequest, WebSearchResult
 
 __all__ = [
     "AcquiredSource",
@@ -76,4 +77,7 @@ __all__ = [
     "TrainingStatus",
     "WorkflowCheckpoint",
     "WorkflowRunner",
+    "WebSearchProvider",
+    "WebSearchRequest",
+    "WebSearchResult",
 ]

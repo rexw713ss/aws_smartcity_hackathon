@@ -100,13 +100,27 @@ export function localizedStatus(language: Language, status: CopilotStatus) {
   return { label: translate(language, labelKey), detail: translate(language, detailKey), tone: tones[status] }
 }
 
-/** Series colours come from the shared token palette, never from the response. */
+/** Qualitative colours identify nominal series. They intentionally live outside
+ * the UI brand palette: a district keeps the same colour across every chart. */
 export const seriesColors = [
   'var(--chart-primary)',
   'var(--chart-secondary)',
   'var(--chart-tertiary)',
   'var(--chart-warning)',
   'var(--chart-coral)',
+  'var(--chart-gold)',
 ] as const
 
 export const colorFor = (index: number): string => seriesColors[index % seriesColors.length]
+
+/** A light-to-dark ramp communicates the natural order of age bands without
+ * implying that each band is an unrelated nominal category. */
+export const orderedColors = [
+  'var(--chart-ordered-1)',
+  'var(--chart-ordered-2)',
+  'var(--chart-ordered-3)',
+  'var(--chart-ordered-4)',
+] as const
+
+export const orderedColorFor = (index: number): string =>
+  orderedColors[index % orderedColors.length]

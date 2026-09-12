@@ -102,6 +102,7 @@ _API_RUNTIME_DEPS = [
     "boto3",
     "fastapi",
     "mangum",
+    "uvicorn",
     "pydantic",
     "pydantic-settings",
     "python-multipart",
@@ -147,6 +148,8 @@ def build_api() -> Path:
 
     # The Streamlit dashboard is not part of the deployed API.
     shutil.rmtree(_API_BUILD_DIR / "apps" / "dashboard", ignore_errors=True)
+    shutil.copy(_REPO_ROOT / "apps" / "api" / "run.sh", _API_BUILD_DIR / "run.sh")
+    (_API_BUILD_DIR / "run.sh").chmod(0o755)
 
     data_source = _REPO_ROOT / "data"
     data_target = _API_BUILD_DIR / "data"

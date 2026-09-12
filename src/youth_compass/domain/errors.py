@@ -75,6 +75,10 @@ class SourceAcquisitionError(YouthCompassError):
     """An external source could not be safely discovered or fetched."""
 
 
+class WebSearchError(YouthCompassError):
+    """The configured web-search provider could not return validated results."""
+
+
 class ConversationPersistenceError(YouthCompassError):
     """Structured conversation context could not be saved or loaded.
 

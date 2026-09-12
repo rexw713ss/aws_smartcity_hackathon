@@ -1,10 +1,12 @@
 """Source discovery, relevance ranking, and ingestion handoff."""
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Protocol
 
-from youth_compass.acquisition.contracts import AcquisitionStart
+from youth_compass.acquisition.contracts import AcquisitionStart, LinkAcquisitionStart
 from youth_compass.domain.errors import SourceAcquisitionError
+from youth_compass.domain.types import FileFormat
 from youth_compass.ports.source_connector import DataRequirement, SourceCandidate, SourceConnector
 from youth_compass.ports.workflow_runner import JobReference
 
@@ -22,6 +24,32 @@ class IngestionSubmitter(Protocol):
     ) -> JobReference: ...
 
 
+class LinkPayload(Protocol):
+    """What a link fetcher hands back: enough to name the file and submit it."""
+
+    @property
+    def url(self) -> str: ...
+    @property
+    def host(self) -> str: ...
+    @property
+    def file_name(self) -> str: ...
+    @property
+    def source_format(self) -> FileFormat: ...
+    @property
+    def content(self) -> bytes: ...
+    @property
+    def retrieved_at(self) -> datetime: ...
+
+
+class LinkFetcher(Protocol):
+    """Guarded download of a reviewer-supplied link from approved hosts only."""
+
+    @property
+    def allowed_hosts(self) -> tuple[str, ...]: ...
+
+    def fetch_link(self, url: str) -> LinkPayload: ...
+
+
 class DataAcquisitionService:
     """Discover only configured sources and submit selected snapshots for review."""
 
@@ -31,12 +59,20 @@ class DataAcquisitionService:
         ingestion: IngestionSubmitter,
         *,
         result_limit: int = 5,
+        link_fetcher: LinkFetcher | None = None,
     ) -> None:
         if result_limit < 1:
             raise ValueError("result_limit must be positive")
         self._connectors = tuple(connectors)
         self._ingestion = ingestion
         self._result_limit = result_limit
+        self._link_fetcher = link_fetcher
+
+    @property
+    def link_hosts(self) -> tuple[str, ...]:
+        """Hosts a reviewer link may point at; empty when links are switched off."""
+
+        return self._link_fetcher.allowed_hosts if self._link_fetcher is not None else ()
 
     def discover(self, requirement: DataRequirement) -> tuple[SourceCandidate, ...]:
         """Return deterministic, deduplicated candidates ordered by semantic overlap."""
@@ -72,6 +108,38 @@ class DataAcquisitionService:
         )
         return AcquisitionStart(
             candidate=candidate,
+            ingestion_job_id=reference.job_id,
+            ingestion_status=reference.status.value,
+            created_at=reference.created_at,
+        )
+
+    def start_from_link(
+        self,
+        url: str,
+        *,
+        submitted_by: str,
+        topic_hint: str | None = None,
+    ) -> LinkAcquisitionStart:
+        """Fetch a reviewer link and enter the same approval-gated workflow.
+
+        Nothing is published from here. The snapshot is mapped, quality-checked,
+        and held for approval exactly like a configured source or an upload.
+        """
+
+        if self._link_fetcher is None:
+            raise SourceAcquisitionError("submitting data by link is not enabled")
+        snapshot = self._link_fetcher.fetch_link(url)
+        reference = self._ingestion.submit_bytes(
+            file_name=snapshot.file_name,
+            content=snapshot.content,
+            submitted_by=submitted_by,
+            topic_hint=topic_hint,
+        )
+        return LinkAcquisitionStart(
+            url=snapshot.url,
+            host=snapshot.host,
+            file_name=snapshot.file_name,
+            source_format=snapshot.source_format,
             ingestion_job_id=reference.job_id,
             ingestion_status=reference.status.value,
             created_at=reference.created_at,

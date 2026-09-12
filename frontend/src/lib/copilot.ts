@@ -73,6 +73,14 @@ export type EvidenceCitation = {
   excerpt: EvidenceExcerptRow[]
 }
 
+export type WebCitation = {
+  citation_id: string
+  title: string
+  url: string
+  snippet: string
+  published_at: string | null
+}
+
 export type EvidenceExcerptRow = {
   entity_id: string
   entity_name: string
@@ -102,6 +110,15 @@ export type SourceCandidate = {
   updated_at: string | null
 }
 
+/** What the backend could not find in the published catalog. */
+export type DataRequirement = {
+  topic_terms: string[]
+  metric_codes: string[]
+  entity_ids: string[]
+  time_expression: string | null
+  accepted_formats: string[]
+}
+
 export type CopilotResponse = {
   status: CopilotStatus
   answer: string
@@ -109,8 +126,10 @@ export type CopilotResponse = {
   session_id: string | null
   visualizations: VisualizationSpec[]
   citations: EvidenceCitation[]
+  web_citations: WebCitation[]
   tool_trace: ToolTrace[]
   source_candidates: SourceCandidate[]
+  data_requirement: DataRequirement | null
   assumptions: string[]
   warnings: string[]
   limitations: DataLimitations | null
@@ -175,6 +194,19 @@ export type AcquisitionStart = {
   ingestion_job_id: string
   ingestion_status: string
   created_at: string
+}
+
+/** A reviewer's own link or file, handed to the same approval-gated workflow. */
+export type IntakeStart = {
+  job_id: string
+  status: string
+  file_name: string | null
+}
+
+export type IntakeOptions = {
+  linkHosts: string[]
+  uploadFormats: string[]
+  maxUploadBytes: number
 }
 
 export const scenarioOperations = [
@@ -440,6 +472,21 @@ function parseCitation(raw: unknown): EvidenceCitation {
   }
 }
 
+function parseWebCitation(raw: unknown): WebCitation {
+  if (!isObject(raw) || !isText(raw.citation_id, 120) || !isText(raw.title, 500) ||
+      !isText(raw.url, 2000) || !raw.url.startsWith('https://') || !optionalText(raw.snippet, 2000) ||
+      !optionalText(raw.published_at, 64)) {
+    throw new ContractError()
+  }
+  return {
+    citation_id: raw.citation_id,
+    title: raw.title,
+    url: raw.url,
+    snippet: (raw.snippet as string | undefined) ?? '',
+    published_at: (raw.published_at as string | undefined) ?? null,
+  }
+}
+
 function parseSourceCandidate(raw: unknown): SourceCandidate {
   if (!isObject(raw) || !isText(raw.candidate_id, 120) || !isText(raw.connector_id, 120) ||
       !isText(raw.title, 400) || !isText(raw.publisher, 200) || !isText(raw.download_url, 2000) ||
@@ -516,6 +563,18 @@ const textList = (value: unknown, limit: number, max = 2000): string[] =>
     return item
   })
 
+function parseDataRequirement(raw: unknown): DataRequirement | null {
+  if (raw === null || raw === undefined) return null
+  if (!isObject(raw) || !optionalText(raw.time_expression, 200)) throw new ContractError()
+  return {
+    topic_terms: textList(raw.topic_terms, 40, 120),
+    metric_codes: textList(raw.metric_codes, 40, 120),
+    entity_ids: textList(raw.entity_ids, 500, 120),
+    time_expression: (raw.time_expression as string | undefined) ?? null,
+    accepted_formats: textList(raw.accepted_formats, 10, 20),
+  }
+}
+
 export function parseCopilotResponse(raw: unknown): CopilotResponse {
   if (!isObject(raw) || !isText(raw.answer, 16000) || !isText(raw.generated_at, 64)) throw new ContractError()
   if (!copilotStatuses.includes(raw.status as CopilotStatus)) throw new ContractError()
@@ -527,6 +586,7 @@ export function parseCopilotResponse(raw: unknown): CopilotResponse {
     session_id: (raw.session_id as string | undefined) ?? null,
     visualizations: array(raw.visualizations, 12).map(parseVisualization),
     citations: array(raw.citations, 200).map(parseCitation),
+    web_citations: array(raw.web_citations, 20).map(parseWebCitation),
     tool_trace: array(raw.tool_trace, 40).map(item => {
       if (!isObject(item) || !isText(item.tool, 120) || !isText(item.outcome, 80) || !isText(item.summary, 2000)) {
         throw new ContractError()
@@ -534,6 +594,7 @@ export function parseCopilotResponse(raw: unknown): CopilotResponse {
       return { tool: item.tool, outcome: item.outcome, summary: item.summary }
     }),
     source_candidates: array(raw.source_candidates, 40).map(parseSourceCandidate),
+    data_requirement: parseDataRequirement(raw.data_requirement),
     assumptions: textList(raw.assumptions, 40),
     warnings: textList(raw.warnings, 40),
     limitations: parseLimitations(raw.limitations),
@@ -684,6 +745,16 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
 
   const read = async (response: Response): Promise<unknown> => {
     if (!response.ok) {
+      // A refused link or file carries the backend's reason in the error
+      // envelope; that reason is what the reviewer needs to fix it.
+      if ([409, 413, 415, 422].includes(response.status)) {
+        const reason = await response.json()
+          .then((body: unknown) => isObject(body) && isObject(body.error) && isText(body.error.message, 400)
+            ? body.error.message
+            : null)
+          .catch(() => null)
+        if (reason) throw new Error(reason)
+      }
       if (response.status === 429) throw new Error('The assistant is busy. Try again shortly.')
       if ([401, 403].includes(response.status)) throw new Error('Access denied. Check the backend sign-in configuration.')
       if (response.status === 404) throw new Error('The backend does not expose this endpoint. Check the API version.')
@@ -729,6 +800,71 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
     /** POST /copilot/query — the one grounded entry point. */
     async query(request: CopilotQuery, signal: AbortSignal): Promise<CopilotResponse> {
       return parseCopilotResponse(await send('/copilot/query', request, signal))
+    },
+
+    /** POST /copilot/query/stream — NDJSON snapshots sourced from Bedrock
+     * ConverseStream followed by the complete validated response. */
+    async queryStream(
+      request: CopilotQuery,
+      signal: AbortSignal,
+      onText: (text: string) => void,
+    ): Promise<CopilotResponse> {
+      const response = await fetcher(root + '/copilot/query/stream', {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal,
+        headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+        body: JSON.stringify(request),
+      })
+      if (!response.ok) {
+        await read(response)
+        throw new Error(`Request failed (${response.status}). Try again.`)
+      }
+      const reader = response.body?.getReader()
+      if (!reader) throw new ContractError('The backend returned an empty stream.')
+      const decoder = new TextDecoder()
+      let buffered = ''
+      let bytes = 0
+      let result: CopilotResponse | null = null
+      let streamedText = ''
+
+      const consume = (line: string) => {
+        if (!line.trim()) return
+        let event: unknown
+        try { event = JSON.parse(line) as unknown }
+        catch { throw new ContractError('The backend returned an invalid stream event.') }
+        if (!isObject(event) || !isText(event.type, 20)) throw new ContractError()
+        if (event.type === 'delta' && isText(event.text, 100_000)) {
+          streamedText += event.text
+          onText(streamedText)
+        }
+        else if (event.type === 'text' && isText(event.text, 100_000)) {
+          streamedText = event.text
+          onText(streamedText)
+        }
+        else if (event.type === 'result') result = parseCopilotResponse(event.response)
+        else if (event.type === 'error' && isText(event.message, 400)) throw new Error(event.message)
+        else if (event.type !== 'text') throw new ContractError('The backend returned an unknown stream event.')
+      }
+
+      try {
+        for (;;) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          bytes += chunk.value.byteLength
+          if (bytes > 2_000_000) throw new ContractError('The backend response was too large.')
+          buffered += decoder.decode(chunk.value, { stream: true })
+          const lines = buffered.split('\n')
+          buffered = lines.pop() ?? ''
+          lines.forEach(consume)
+        }
+        buffered += decoder.decode()
+        if (buffered) consume(buffered)
+      } finally {
+        reader.releaseLock()
+      }
+      if (!result) throw new ContractError('The stream ended before the final response.')
+      return result
     },
 
     /** GET /districts/{code}/overview — dashboard data, never an agent turn. */
@@ -798,6 +934,49 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         ingestion_status: raw.ingestion_status,
         created_at: raw.created_at,
       }
+    },
+
+    /** GET /copilot/intake-options — which hosts a pasted link may use. */
+    async intakeOptions(signal: AbortSignal): Promise<IntakeOptions> {
+      const raw = await read(await fetcher(`${root}/copilot/intake-options`, {
+        credentials: 'same-origin',
+        signal,
+        headers: { Accept: 'application/json' },
+      }))
+      if (!isObject(raw) || !isNumber(raw.maxUploadBytes)) throw new ContractError()
+      return {
+        linkHosts: textList(raw.linkHosts, 40, 253),
+        uploadFormats: textList(raw.uploadFormats, 10, 20),
+        maxUploadBytes: raw.maxUploadBytes,
+      }
+    },
+
+    /** POST /copilot/acquisitions/link — the backend fetches only from approved
+     * hosts; anything else is refused with a reason. */
+    async acquireLink(url: string, submittedBy: string, topicHint: string | null, signal: AbortSignal): Promise<IntakeStart> {
+      const raw = await send('/copilot/acquisitions/link', { url, submittedBy, topicHint }, signal)
+      if (!isObject(raw) || !isText(raw.ingestion_job_id, 200) || !isText(raw.ingestion_status, 80) ||
+          !isText(raw.file_name, 400)) {
+        throw new ContractError()
+      }
+      return { job_id: raw.ingestion_job_id, status: raw.ingestion_status, file_name: raw.file_name }
+    },
+
+    /** POST /datasets/upload — a reviewer's own file, into the same workflow. */
+    async uploadDataset(file: File, submittedBy: string, topicHint: string | null, signal: AbortSignal): Promise<IntakeStart> {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('submitted_by', submittedBy)
+      if (topicHint) form.append('topic_hint', topicHint)
+      const raw = await read(await fetcher(`${root}/datasets/upload`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal,
+        headers: { Accept: 'application/json' },
+        body: form,
+      }))
+      if (!isObject(raw) || !isText(raw.jobId, 200) || !isText(raw.status, 80)) throw new ContractError()
+      return { job_id: raw.jobId, status: raw.status, file_name: file.name }
     },
   }
 }

@@ -3,7 +3,9 @@ import type {
   CopilotResponse,
   DataLimitations,
   DatasetCatalogItem,
+  EvidenceCitation,
   RegistrationBasis,
+  WebCitation,
 } from '../lib/copilot'
 import {
   formatEntityLabel,
@@ -12,7 +14,7 @@ import {
   localizedStatus,
 } from '../lib/format'
 import { useI18n } from '../lib/i18n'
-import SourceCandidates from './SourceCandidates'
+import MissingDataRequest, { requestsData, type DataIntake } from './MissingDataRequest'
 import { useDashboardMotion } from './MotionProvider'
 
 /** Reader-facing name for the population a metric counts. The caveat text
@@ -80,14 +82,27 @@ function CitedAnswer({
   onCitation: (citationId: string) => void
 }) {
   const { t } = useI18n()
-  const citations = new Map(
-    response.citations.map((citation, index) => [citation.citation_id, { citation, number: index + 1 }]),
-  )
+  type CitationTarget =
+    | { kind: 'data'; citation: EvidenceCitation; number: number }
+    | { kind: 'web'; citation: WebCitation; number: number }
+  const citations = new Map<string, CitationTarget>([
+    ...response.citations.map((citation, index) => [citation.citation_id, { kind: 'data' as const, citation, number: index + 1 }] as const),
+    ...response.web_citations.map((citation, index) => [citation.citation_id, { kind: 'web' as const, citation, number: response.citations.length + index + 1 }] as const),
+  ])
   const citedText = (text: string, keyPrefix: string) =>
-    text.split(/(\[data-\d+\])/g).map((part, index) => {
-        const match = /^\[(data-\d+)\]$/.exec(part)
+    text.split(/(\[(?:data|web)-\d+\])/g).map((part, index) => {
+        const match = /^\[((?:data|web)-\d+)\]$/.exec(part)
         const source = match ? citations.get(match[1]) : undefined
         if (!source) return <React.Fragment key={`${keyPrefix}-${index}`}>{part}</React.Fragment>
+        if (source.kind === 'web') {
+          return (
+            <sup className="inline-citation" key={`${keyPrefix}-${source.citation.citation_id}-${index}`}>
+              <a href={source.citation.url} target="_blank" rel="noreferrer"
+                aria-label={t('openWebSource', { number: source.number, name: source.citation.title })}
+                title={source.citation.title}>[{source.number}]</a>
+            </sup>
+          )
+        }
         return (
           <sup className="inline-citation" key={`${keyPrefix}-${source.citation.citation_id}-${index}`}>
             <button
@@ -124,38 +139,9 @@ function CitedAnswer({
 
 export type Turn =
   | { kind: 'question'; id: string; text: string }
+  | { kind: 'streaming'; id: string; text: string }
   | { kind: 'answer'; id: string; response: CopilotResponse }
   | { kind: 'error'; id: string; text: string }
-
-/** Reveal the answer a character at a time, the way the assistant would speak
- * it. Only the newest turn types; re-reading an older one is not a performance,
- * and a reader who asked for reduced motion gets the finished text at once. */
-function useTypedLength(text: string, live: boolean): number {
-  const { reducedMotion } = useDashboardMotion()
-  const animate = live && !reducedMotion
-  const [count, setCount] = useState(() => (animate ? 0 : text.length))
-
-  useEffect(() => {
-    if (!animate) {
-      setCount(text.length)
-      return
-    }
-    setCount(0)
-    let frame = 0
-    let started: number | null = null
-    const step = (now: number) => {
-      if (started === null) started = now
-      // ~55 characters a second: quick enough to follow, slow enough to see.
-      const shown = Math.min(text.length, Math.round((now - started) / 18))
-      setCount(shown)
-      if (shown < text.length) frame = window.requestAnimationFrame(step)
-    }
-    frame = window.requestAnimationFrame(step)
-    return () => window.cancelAnimationFrame(frame)
-  }, [text, animate])
-
-  return count
-}
 
 function Answer({
   response,
@@ -172,8 +158,11 @@ function Answer({
 }) {
   const { language, t } = useI18n()
   const status = localizedStatus(language, response.status)
-  const typed = useTypedLength(response.answer, live)
-  const done = typed >= response.answer.length
+  // The network stream already revealed this answer. Never replay a simulated
+  // typewriter animation after the validated final envelope arrives.
+  void live
+  const typed = response.answer.length
+  const done = true
 
   // The pane follows the text as it appears, and the caveats that land when it
   // finishes are the last thing that moves.
@@ -182,7 +171,6 @@ function Answer({
 
   return (
     <div className="turn answer" data-status={response.status} data-typing={done ? undefined : 'true'}>
-      <span className={`status-pill tone-${status.tone}`}>{status.label}</span>
       {/* Citation tokens become controlled buttons; all other model text remains escaped text. */}
       <CitedAnswer response={response} text={response.answer.slice(0, typed)} onCitation={onCitation} />
       {done ? <p className="status-detail">{status.detail}</p> : null}
@@ -213,9 +201,11 @@ function Answer({
 
       {done && response.limitations ? <Limitations limitations={response.limitations} /> : null}
 
-      {done && response.status === 'answered' && !response.citations.length ? (
+      {done && response.status === 'answered' && !response.citations.length && !response.web_citations.length ? (
         <p className="turn-flag">{t('noCitationWarning')}</p>
       ) : null}
+
+      <span className={`status-pill tone-${status.tone}`}>{status.label}</span>
     </div>
   )
 }
@@ -232,15 +222,13 @@ function AnswerTurn({
   response,
   live,
   onCitation,
-  onAcquire,
-  acquiring,
+  intake,
   onGrow,
 }: {
   response: CopilotResponse
   live: boolean
   onCitation: (citationId: string) => void
-  onAcquire: (candidateId: string, submittedBy: string) => Promise<string>
-  acquiring: boolean
+  intake: DataIntake
   onGrow: () => void
 }) {
   const { t } = useI18n()
@@ -248,7 +236,7 @@ function AnswerTurn({
   const staged = live && !reducedMotion
   const [answered, setAnswered] = useState(!staged)
   const [asked, setAsked] = useState(!staged)
-  const asks = response.source_candidates.length > 0
+  const asks = requestsData(response)
 
   useEffect(() => {
     if (!asks || !answered || asked) return
@@ -274,11 +262,7 @@ function AnswerTurn({
       ) : null}
       {asks && asked ? (
         <div className="turn answer follow-up">
-          <SourceCandidates
-            candidates={response.source_candidates}
-            onAcquire={onAcquire}
-            busy={acquiring}
-          />
+          <MissingDataRequest response={response} intake={intake} />
         </div>
       ) : null}
     </>
@@ -326,8 +310,7 @@ export default function ChatPanel({
   onSubmit,
   onCancel,
   onCitation,
-  onAcquire,
-  acquiring,
+  intake,
 }: {
   turns: Turn[]
   pending: boolean
@@ -339,8 +322,7 @@ export default function ChatPanel({
   onSubmit: (question: string) => void
   onCancel: () => void
   onCitation: (citationId: string) => void
-  onAcquire: (candidateId: string, submittedBy: string) => Promise<string>
-  acquiring: boolean
+  intake: DataIntake
 }) {
   const { language, t } = useI18n()
   const scroller = useRef<HTMLDivElement>(null)
@@ -411,6 +393,10 @@ export default function ChatPanel({
               <div className="turn question" key={turn.id}>
                 <p>{turn.text}</p>
               </div>
+            ) : turn.kind === 'streaming' ? (
+              <div className="turn answer streaming-answer" key={turn.id} aria-live="polite">
+                <div className="answer-text"><p>{turn.text}</p></div>
+              </div>
             ) : turn.kind === 'answer' ? (
               <AnswerTurn
                 key={turn.id}
@@ -418,8 +404,7 @@ export default function ChatPanel({
                 // Only the newest answer performs; the rest are already said.
                 live={turn.id === turns[turns.length - 1]?.id}
                 onCitation={onCitation}
-                onAcquire={onAcquire}
-                acquiring={acquiring}
+                intake={intake}
                 onGrow={stickToBottom}
               />
             ) : (
@@ -430,7 +415,7 @@ export default function ChatPanel({
           )
         )}
 
-        {pending ? <Thinking /> : null}
+        {pending && turns[turns.length - 1]?.kind !== 'streaming' ? <Thinking /> : null}
       </div>
 
       <form

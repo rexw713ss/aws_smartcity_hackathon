@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from youth_compass.agent.contracts import (
     AnalysisOperation,
     DecomposedQuery,
+    QuestionFocus,
     RoutedToolPlan,
     RoutedToolStep,
     ToolCapability,
@@ -95,12 +96,36 @@ class DeterministicQueryDecomposer:
             "搬入",
             "如果",
         ) and bool(re.search(r"\d", normalized))
+        web = _contains(
+            normalized,
+            "search the web",
+            "web search",
+            "search online",
+            "look up online",
+            "google",
+            "tìm trên web",
+            "tìm kiếm web",
+            "tra cứu web",
+            "tin mới",
+            "tin tức mới",
+            "網路搜尋",
+            "搜尋網路",
+            "最新消息",
+        )
 
         operations: list[AnalysisOperation] = [AnalysisOperation.SEARCH_CATALOG]
         objective = "discover relevant evidence"
         needs_clarification = False
         clarification_question = None
-        if scenario:
+        focus = None if scenario or decision else _question_focus(normalized, forecast=forecast)
+        if web:
+            objective = "search the public web for current information"
+            operations = [AnalysisOperation.SEARCH_WEB]
+            focus = None
+        elif focus is not None:
+            objective, focus_operations = _FOCUS_PLANS[focus]
+            operations.extend(focus_operations)
+        elif scenario:
             objective = "simulate a population shock and assess infrastructure capacity"
             operations = [AnalysisOperation.SEARCH_TOOLS, AnalysisOperation.SEARCH_CATALOG]
             operations.extend(
@@ -154,9 +179,171 @@ class DeterministicQueryDecomposer:
             entity_ids=entity_ids,
             time_expression=_time_expression(normalized),
             operations=tuple(operations),
+            focus=focus,
             needs_clarification=needs_clarification,
             clarification_question=clarification_question,
         )
+
+
+_OBSERVATION_AUDIT = (
+    AnalysisOperation.INSPECT_DATASET,
+    AnalysisOperation.QUERY_OBSERVATIONS,
+    AnalysisOperation.EXPLAIN_LINEAGE,
+)
+_RANKED_CHANGE = (
+    AnalysisOperation.INSPECT_DATASET,
+    AnalysisOperation.QUERY_OBSERVATIONS,
+    AnalysisOperation.COMPARE_ENTITIES,
+    AnalysisOperation.EXPLAIN_LINEAGE,
+)
+_CATALOG_AUDIT = (AnalysisOperation.INSPECT_DATASET, AnalysisOperation.EXPLAIN_LINEAGE)
+
+# The objective and tools each focused data question needs. Every step here is
+# an existing registered capability, so the router validates these plans the
+# same way it validates any other.
+_FOCUS_PLANS: dict[QuestionFocus, tuple[str, tuple[AnalysisOperation, ...]]] = {
+    QuestionFocus.LARGEST_DECLINE: (
+        "rank districts by share of youth population lost",
+        _RANKED_CHANGE,
+    ),
+    QuestionFocus.PRIORITY_EXPLANATION: ("explain a district's decline ranking", _RANKED_CHANGE),
+    QuestionFocus.COMPLETENESS: (
+        "check reporting completeness of the latest period",
+        _OBSERVATION_AUDIT,
+    ),
+    QuestionFocus.ESTIMATES: ("identify estimated rather than reported values", _OBSERVATION_AUDIT),
+    QuestionFocus.EVIDENCE_SUMMARY: (
+        "summarize published evidence for districts",
+        _OBSERVATION_AUDIT,
+    ),
+    QuestionFocus.POPULATION_SCOPE: ("state which population a dataset counts", _CATALOG_AUDIT),
+    QuestionFocus.VERSION_CHANGES: ("describe what a new dataset version changed", _CATALOG_AUDIT),
+    QuestionFocus.JOINABILITY: ("assess whether two datasets join directly", _CATALOG_AUDIT),
+    QuestionFocus.FORECAST_ACCURACY: (
+        "report forecast backtest accuracy",
+        (
+            AnalysisOperation.INSPECT_DATASET,
+            AnalysisOperation.FORECAST_METRIC,
+            AnalysisOperation.EXPLAIN_LINEAGE,
+        ),
+    ),
+}
+
+# Ordered: the first matching focus wins, so a more specific question shape is
+# listed before a broader one that shares its words.
+_FOCUS_CUES: tuple[tuple[QuestionFocus, tuple[str, ...]], ...] = (
+    (
+        QuestionFocus.JOINABILITY,
+        (
+            "joined directly",
+            "be joined",
+            "join directly",
+            "joinable",
+            "ghép trực tiếp",
+            "kết hợp trực tiếp",
+            "直接合併",
+            "直接串接",
+            "能否合併",
+            "可以合併",
+        ),
+    ),
+    (
+        QuestionFocus.VERSION_CHANGES,
+        (
+            "what changed",
+            "changed after",
+            "changes after",
+            "since the new",
+            "thay đổi gì",
+            "có gì thay đổi",
+            "改變了什麼",
+            "有何改變",
+            "新版本",
+        ),
+    ),
+    (
+        QuestionFocus.EVIDENCE_SUMMARY,
+        (
+            "evidence summary",
+            "one-page",
+            "one page summary",
+            "tóm tắt bằng chứng",
+            "bản tóm tắt",
+            "證據摘要",
+            "一頁摘要",
+        ),
+    ),
+    (
+        QuestionFocus.PRIORITY_EXPLANATION,
+        (
+            "high priority",
+            "marked priority",
+            "priority district",
+            "ưu tiên cao",
+            "được ưu tiên",
+            "高優先",
+            "列為優先",
+        ),
+    ),
+    (
+        QuestionFocus.LARGEST_DECLINE,
+        (
+            "lost the largest",
+            "largest share",
+            "largest decline",
+            "biggest decline",
+            "declined the most",
+            "fell the most",
+            "lost the most",
+            "giảm nhiều nhất",
+            "mất nhiều nhất",
+            "減少最多",
+            "下降最多",
+            "流失最多",
+        ),
+    ),
+    (
+        QuestionFocus.ESTIMATES,
+        ("estimates", "estimated value", "exact counts", "ước tính", "ước lượng", "估計值", "估算"),
+    ),
+    (
+        QuestionFocus.COMPLETENESS,
+        ("complete", "completeness", "đầy đủ", "完整"),
+    ),
+)
+_ACCURACY_CUES = (
+    "accurate",
+    "accuracy",
+    "backtest",
+    "forecast error",
+    "độ chính xác",
+    "sai số",
+    "準確",
+    "誤差",
+)
+_SCOPE_CUES = (
+    "income of youth",
+    "of youth residents",
+    "youth-specific",
+    "specific to youth",
+    "của thanh niên",
+    "riêng thanh niên",
+    "青年的",
+    "青年專屬",
+)
+
+
+def _question_focus(normalized: str, *, forecast: bool) -> QuestionFocus | None:
+    """Recognize a focused data question from curated cues, or return None."""
+
+    if forecast and _contains(normalized, *_ACCURACY_CUES):
+        return QuestionFocus.FORECAST_ACCURACY
+    if _contains(normalized, *_SCOPE_CUES):
+        return QuestionFocus.POPULATION_SCOPE
+    for focus, cues in _FOCUS_CUES:
+        if _contains(normalized, *cues):
+            return focus
+    return None
 
 
 class ModelQueryDecomposer:
@@ -424,6 +611,20 @@ def register_acquisition_capabilities(registry: ToolCapabilityRegistry) -> None:
             operation=AnalysisOperation.ACQUIRE_SOURCE,
             description="Snapshot one selected source into the approval-gated ingestion workflow.",
             requires=(AnalysisOperation.DISCOVER_SOURCES,),
+        )
+    )
+
+
+def register_web_search_capabilities(registry: ToolCapabilityRegistry) -> None:
+    """Advertise public-web lookup separately from catalog and source discovery."""
+
+    registry.register(
+        ToolCapability(
+            name="web_search",
+            operation=AnalysisOperation.SEARCH_WEB,
+            description=(
+                "Search the public web for current information and return URL-backed snippets."
+            ),
         )
     )
 
