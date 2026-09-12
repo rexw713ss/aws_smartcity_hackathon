@@ -33,12 +33,14 @@ _API_BUILD_DIR = _REPO_ROOT / "build" / "api_lambda"
 # Lambda's hard limit on an unzipped zip-deployed function.
 _UNZIPPED_LIMIT_BYTES = 250 * 1024 * 1024
 
-# The handler's actual runtime import chain (profile_csv + analyze_mapping) uses
-# only the standard library plus pydantic. polars and pyarrow are project
-# dependencies but are not on this code path, so they are deliberately excluded
-# to keep the package under Lambda's 250 MB unzipped limit (verified: the import
-# chain loads pydantic only).
-_RUNTIME_DEPS = ["pydantic"]
+# The transform action now runs the real canonical transform
+# (run_csv_transformation), which needs pyarrow and duckdb to write and verify
+# the Parquet, so both are bundled alongside pydantic. polars is NOT required:
+# the transform reads the CSV with the stdlib csv module and writes with
+# pyarrow.parquet, so it is deliberately left out to stay under the 250 MB
+# limit. openpyxl covers XLSX sources; boto3 is bundled because the runtime's
+# copy lags the SDK.
+_RUNTIME_DEPS = ["pydantic", "pyarrow", "duckdb", "openpyxl", "boto3"]
 
 
 def build() -> Path:

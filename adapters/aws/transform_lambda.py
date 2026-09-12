@@ -42,12 +42,23 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
       transform       -> {job_id, source_uri, approved}; publishes or quarantines
     """
     action = event.get("action", "")
+    job_id = event.get("job_id", "unknown")
+    logger.info("transform_lambda start action=%s job_id=%s", action, job_id)
 
     try:
         if action == "await_approval":
             return _await_approval(event)
         if action == "transform":
-            return _transform(event)
+            result = _transform(event)
+            logger.info(
+                "transform done job_id=%s published=%s dataset=%s version=%s glue=%s",
+                job_id,
+                result.get("published"),
+                result.get("dataset_id"),
+                result.get("dataset_version"),
+                result.get("glue_table"),
+            )
+            return result
 
         source = _resolve_source(event)
         if action == "profile":
@@ -56,8 +67,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             return _analyze(source, topic_hint=event.get("topic_hint"))
         return _error(f"unknown action: {action!r}")
     except YouthCompassError as exc:
+        # Expected, translated failures: quality gate, missing config, bad source.
+        logger.warning("transform_lambda action=%s job_id=%s failed: %s", action, job_id, exc)
         return _error(f"{type(exc).__name__}: {exc}")
     except Exception as exc:
+        # Unexpected: log with a stack trace so CloudWatch has the detail, but
+        # still return a structured error so Step Functions can route it.
+        logger.exception("transform_lambda action=%s job_id=%s crashed", action, job_id)
         return _error(f"unexpected: {type(exc).__name__}: {exc}"[:500])
 
 
@@ -329,9 +345,11 @@ def _register_curated_table(
         glue.create_table(DatabaseName=database, TableInput=table_input)
     except botocore.exceptions.ClientError as exc:
         if exc.response.get("Error", {}).get("Code") != "AlreadyExistsException":
-            raise
+            logger.error("glue registration failed table=%s: %s", table_name, exc)
+            raise YouthCompassError(f"glue table registration failed: {exc}") from exc
         # A new version of an existing dataset repoints the same table.
         glue.update_table(DatabaseName=database, TableInput=table_input)
+    logger.info("glue table registered %s.%s at %s", database, table_name, location)
     return f"{database}.{table_name}"
 
 
