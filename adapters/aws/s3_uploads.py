@@ -29,7 +29,12 @@ _ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 }
 
-_DEFAULT_MAX_BYTES = 50 * 1024 * 1024  # 50 MiB
+# 50 MiB rejected the New Taipei population open-data file by 4 KB — it is
+# 51.9 MiB. Government statistical releases routinely exceed 50 MiB, and the
+# file never touches the API or Lambda: the browser posts it straight to S3,
+# whose presigned-POST ceiling is 5 GiB. The bound stays to keep an unbounded
+# upload from reaching the curated zone, just at a size real sources fit in.
+_DEFAULT_MAX_BYTES = 200 * 1024 * 1024  # 200 MiB
 _DEFAULT_EXPIRY_SECONDS = 900  # 15 minutes
 _MAX_SUBMITTED_BY_LENGTH = 256
 
