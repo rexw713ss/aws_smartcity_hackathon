@@ -26,6 +26,7 @@ from youth_compass.ports import (
     ModelProvider,
     ObjectStore,
     QueryEngine,
+    SourceAdapter,
     WorkflowRunner,
 )
 
@@ -52,11 +53,13 @@ EXPECTED_SURFACE: dict[type, dict[str, tuple[str, ...]]] = {
     },
     WorkflowRunner: {
         "start_ingestion": ("request",),
+        "get_job_reference": ("job_id",),
         "resume_after_approval": ("job_id", "decision"),
     },
     CheckpointStore: {"save": ("workflow_id", "checkpoint"), "load": ("workflow_id",)},
     EventBus: {"publish": ("event",), "subscribe": ("event_type", "handler")},
     Clock: {"now": ()},
+    SourceAdapter: {"normalize": ("file_name", "content")},
 }
 
 EXPECTED_MODULE_NAMES = {
@@ -69,6 +72,7 @@ EXPECTED_MODULE_NAMES = {
     CheckpointStore: "checkpoint_store",
     EventBus: "event_bus",
     Clock: "clock",
+    SourceAdapter: "source_adapter",
 }
 
 # Requirement 1 criterion 11.
@@ -84,6 +88,7 @@ NAMED_PAYLOADS = {
     "IngestionRequest": "workflow_runner",
     "JobReference": "workflow_runner",
     "ApprovalDecision": "workflow_runner",
+    "NormalizedTabularSource": "source_adapter",
 }
 
 PERMITTED_SCALARS = {str, int, float, bool, bytes, type(None), datetime, date}
@@ -284,9 +289,9 @@ def test_model_provider_generate_is_async() -> None:
     assert inspect.iscoroutinefunction(ModelProvider.generate)
 
 
-def test_nine_protocols_across_nine_modules() -> None:
-    assert len(ALL_PORTS) == 9
-    assert len(_port_modules()) == 9
+def test_ten_protocols_across_ten_modules() -> None:
+    assert len(ALL_PORTS) == 10
+    assert len(_port_modules()) == 10
 
 
 def test_object_store_put_metadata_is_parameterized_str_mapping() -> None:

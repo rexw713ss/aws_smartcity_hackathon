@@ -23,9 +23,10 @@ adapters route every call through `moto`.
            yield S3ObjectStore(bucket="contract-test")
    ```
 
-2. **Make the module import.** Import it from
-   `tests/contract/reference/__init__.py` (for a reference adapter) or from an
-   adapter-side conftest, so registration happens before collection.
+2. **Make the module import.** Import it from the matching package under
+   `tests/contract/reference/`, `tests/contract/local/`, or `tests/contract/aws/`,
+   then import that package from `tests/contract/conftest.py` so registration
+   happens before collection.
 
 3. **Run the suite for your adapter:**
 
@@ -48,3 +49,4 @@ The contract class body never changes. N registered factories produce N runs.
 | CheckpointStore | `checkpoint_store` | `test_checkpoint_store_contract.py` |
 | EventBus | `event_bus` | `test_event_bus_contract.py` |
 | Clock | `clock` | `test_clock_contract.py` |
+| SourceAdapter | direct unit conformance | `tests/unit/test_source_adapter.py` |

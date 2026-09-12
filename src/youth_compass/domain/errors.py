@@ -19,8 +19,20 @@ class ObjectNotFoundError(YouthCompassError):
     """No object exists at the requested URI. Raised by ObjectStore.get."""
 
 
+class ObjectStoreOperationError(YouthCompassError):
+    """Object storage failed for a reason other than a missing object."""
+
+
 class DatasetNotFoundError(YouthCompassError):
     """No dataset is registered under the requested identifier."""
+
+
+class CatalogOperationError(YouthCompassError):
+    """The dataset catalog could not complete an operation."""
+
+
+class AnalyticsNotAvailableError(YouthCompassError):
+    """No compatible published observation exists for an analytics request."""
 
 
 class QueryNotPermittedError(YouthCompassError):
@@ -45,6 +57,18 @@ class TrainingRejectedError(YouthCompassError):
 
 class WorkflowStateError(YouthCompassError):
     """The workflow is unknown, or already settled, for the requested action."""
+
+
+class WorkflowNotFoundError(WorkflowStateError):
+    """No durable workflow state exists for the requested identifier."""
+
+
+class WorkflowPersistenceError(YouthCompassError):
+    """Durable workflow state could not be saved or loaded."""
+
+
+class SourceNormalizationError(YouthCompassError):
+    """An uploaded source cannot be converted into a canonical tabular stream."""
 
 
 class ConfigurationError(YouthCompassError):

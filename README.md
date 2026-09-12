@@ -36,7 +36,24 @@ uv sync --python 3.12 --all-groups
 uv run youth-compass profile \
   data/source/01_人口/_全部年度_全區.csv \
   --output /tmp/population-profile.json
+uv run youth-compass-local submit \
+  tests/fixtures/employment_unfamiliar.csv \
+  --submitted-by local-uploader
 uv run pytest
 ```
 
 See [`docs/11-development-guide.md`](./docs/11-development-guide.md) for all development commands.
+
+## Temporary Streamlit dashboard
+
+Run the API and dashboard in two terminals:
+
+```bash
+make local-api
+make dashboard
+```
+
+Then open `http://127.0.0.1:8501`. The interface supports the full local demo:
+upload CSV, Excel, JSON, or a text-based PDF table, inspect its proposed mapping,
+approve or reject it, and query the published district aggregates through FastAPI
+and DuckDB. Scanned PDFs remain a later OCR/Amazon Textract integration.

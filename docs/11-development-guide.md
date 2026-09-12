@@ -119,6 +119,41 @@ The command:
 
 Each version directory contains `part-000.parquet`, `manifest.json`, `mapping-analysis.json`, and, when needed, `rejected-rows.parquet`. Generated runtime data remains ignored by Git.
 
+## Run the durable approval workflow
+
+Submit a new CSV. This stores the original bytes and stops before transformation:
+
+```bash
+uv run youth-compass-local submit \
+  tests/fixtures/employment_unfamiliar.csv \
+  --submitted-by local-uploader
+```
+
+The response contains a `job_id` and the status `awaiting_approval`. Inspect the
+persisted mapping proposal after a process restart:
+
+```bash
+uv run youth-compass-local status <job-id>
+```
+
+Approve and publish, or explicitly reject:
+
+```bash
+uv run youth-compass-local decide <job-id> \
+  --approve \
+  --decided-by local-reviewer
+
+uv run youth-compass-local decide <job-id> \
+  --reject \
+  --decided-by local-reviewer \
+  --notes "Mapping needs correction"
+```
+
+Local state is durable under `data/`: original objects under `incoming/`, SQLite
+metadata and workflow history under `metadata/`, passing Parquet under `curated/`,
+and blocked quality output under `quarantined/`. A rejected or quarantined version
+never advances the published-version pointer.
+
 ## Run the API
 
 ```bash
@@ -131,19 +166,29 @@ Health endpoint:
 GET http://127.0.0.1:8000/health
 ```
 
+Reviewer flow and dashboard analytics are documented in
+[`16-reviewer-dashboard-api.md`](./16-reviewer-dashboard-api.md). The generated
+frontend contract lives at `contracts/api/openapi.json`.
+
+Regenerate it after public API changes:
+
+```bash
+uv run python scripts/export_openapi.py
+```
+
 ## Quality commands
 
 ```bash
 uv run ruff check .
-uv run ruff format --check src apps tests scripts
-uv run mypy src apps scripts
+uv run ruff format --check src adapters apps tests scripts infra
+uv run mypy src adapters/local apps scripts infra
 uv run pytest --cov=youth_compass --cov-report=term-missing
 ```
 
 Format code intentionally with:
 
 ```bash
-uv run ruff format src apps tests scripts
+uv run ruff format src adapters apps tests scripts infra
 uv run ruff check . --fix
 ```
 
@@ -170,15 +215,24 @@ Implemented:
 - atomic versioned Parquet publication and quarantine;
 - quality checks for row rejection, duplicate grain, empty output, and estimation;
 - lineage-rich publication manifest and rejected-row diagnostics;
+- filesystem object storage with arbitrary-key support and atomic writes;
+- SQLite dataset version catalog and publication pointer;
+- durable approval checkpoints and append-only transition history;
+- offline submit/status/approve/reject workflow across process restarts;
+- allowlisted, parameterized DuckDB query adapter;
+- FastAPI upload, mapping review, approval, quality, catalog, and lineage endpoints;
+- city summary and district profile/comparison analytics with evidence metadata;
+- generated OpenAPI contract for dashboard integration;
 - CLI `profile`, `map`, and `transform` commands;
+- CLI `youth-compass-local` commands for durable human-reviewed ingestion;
 - minimal FastAPI health endpoint;
 - generated canonical JSON Schemas;
 - unit and integration test suite.
 
 Not implemented yet:
 
-- persisted approval workflow and reviewer UI;
-- DuckDB catalog/query adapter;
+- reviewer HTTP/UI surface;
+- full-source population mart and cached trend/ranking analytics;
 - forecasting;
 - LangGraph agent;
 - AWS adapters.
