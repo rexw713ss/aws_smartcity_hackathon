@@ -42,6 +42,10 @@ class BedrockModelProvider:
             raise ValueError("Bedrock max_attempts must be between 1 and 10")
         self._model_id = model_id
         self._timeout = timeout_seconds
+        # Whether this model accepts Converse's native structured-output field.
+        # None until an invocation tells us. Amazon Nova accepts it; Anthropic
+        # models reject it outright, so we learn once and stop re-sending it.
+        self._supports_output_config: bool | None = None
         self._client = client or cast(
             BedrockRuntimeClient,
             boto3.client(
@@ -60,7 +64,8 @@ class BedrockModelProvider:
 
         try:
             raw = await asyncio.wait_for(
-                asyncio.to_thread(self._converse, request), timeout=self._timeout + 1
+                asyncio.to_thread(self._converse_with_schema_fallback, request),
+                timeout=self._timeout + 1,
             )
             response = _parse_response(raw, self._model_id)
             if request.response_schema is not None:
@@ -73,7 +78,7 @@ class BedrockModelProvider:
                         "Bedrock hit max_tokens before completing the JSON response; "
                         f"raise ModelRequest.max_tokens above {request.max_tokens}"
                     )
-                payload = json.loads(response.text)
+                payload = json.loads(_json_payload(response.text))
                 jsonschema.validate(instance=payload, schema=request.response_schema)
             return response
         except TimeoutError as exc:
@@ -91,7 +96,40 @@ class BedrockModelProvider:
         except (KeyError, TypeError, ValueError) as exc:
             raise ModelInvocationError("Bedrock returned an invalid Converse response") from exc
 
-    def _converse(self, request: ModelRequest) -> dict[str, object]:
+    def _converse_with_schema_fallback(self, request: ModelRequest) -> dict[str, object]:
+        """Invoke Converse, adapting to models that reject native structured output.
+
+        Converse's ``outputConfig`` field constrains the response to a JSON
+        schema, but only some model families accept it: Amazon Nova does,
+        Anthropic models reject the request outright with a ValidationException.
+        Rather than restricting the project to one family, ask for the schema
+        natively when the model supports it and otherwise instruct the model in
+        the prompt and validate the returned JSON, which ``generate`` does either
+        way. The capability is remembered so the rejected call happens at most
+        once per provider instance.
+        """
+        wants_schema = request.response_schema is not None
+        try:
+            return self._converse(request, use_output_config=wants_schema)
+        except botocore.exceptions.ClientError as exc:
+            if not wants_schema or not _rejects_output_config(exc):
+                raise
+            self._supports_output_config = False
+        return self._converse(request, use_output_config=False)
+
+    def _converse(self, request: ModelRequest, *, use_output_config: bool) -> dict[str, object]:
+        wants_schema = request.response_schema is not None
+        native_schema = (
+            use_output_config and wants_schema and self._supports_output_config is not False
+        )
+
+        system_blocks = [{"text": request.system}] if request.system else []
+        if wants_schema and not native_schema:
+            # The model will not be constrained by the API, so state the contract
+            # in the prompt. generate() still validates, so a model that ignores
+            # this fails loudly rather than silently returning prose.
+            system_blocks.append({"text": _schema_instruction(request.response_schema)})
+
         payload: dict[str, object] = {
             "modelId": self._model_id,
             "messages": [{"role": "user", "content": [{"text": request.prompt}]}],
@@ -100,9 +138,9 @@ class BedrockModelProvider:
                 "temperature": request.temperature,
             },
         }
-        if request.system:
-            payload["system"] = [{"text": request.system}]
-        if request.response_schema is not None:
+        if system_blocks:
+            payload["system"] = system_blocks
+        if native_schema and request.response_schema is not None:
             payload["outputConfig"] = {
                 "textFormat": {
                     "type": "json_schema",
@@ -119,7 +157,50 @@ class BedrockModelProvider:
                     },
                 }
             }
-        return self._client.converse(**payload)
+        raw = self._client.converse(**payload)
+        if native_schema:
+            self._supports_output_config = True
+        return raw
+
+
+def _rejects_output_config(exc: botocore.exceptions.ClientError) -> bool:
+    """Whether this error is the model refusing Converse's outputConfig field."""
+    error = exc.response.get("Error", {})
+    if str(error.get("Code", "")) != "ValidationException":
+        return False
+    return "outputconfig" in str(error.get("Message", "")).lower()
+
+
+def _schema_instruction(schema: dict[str, object] | None) -> str:
+    """A prompt-level substitute for native schema-constrained output."""
+    rendered = json.dumps(schema, ensure_ascii=False, sort_keys=True)
+    return (
+        "Reply with a single JSON value that validates against this JSON Schema. "
+        "Output raw JSON only: no prose, no explanation, and no Markdown code "
+        f"fence.\n\nJSON Schema:\n{rendered}"
+    )
+
+
+def _json_payload(text: str) -> str:
+    """Extract the JSON value from a response that may be fenced or padded.
+
+    Models instructed to emit bare JSON still wrap it in a ```json fence often
+    enough that trusting the raw text would make the fallback path flaky.
+    """
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        # Drop the opening fence (with any language tag) and the closing fence.
+        without_open = candidate.split("\n", 1)[1] if "\n" in candidate else ""
+        candidate = without_open.rsplit("```", 1)[0].strip()
+    if candidate.startswith(("{", "[")):
+        return candidate
+    # Fall back to the outermost brace/bracket span, ignoring surrounding prose.
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = candidate.find(opener)
+        end = candidate.rfind(closer)
+        if start != -1 and end > start:
+            return candidate[start : end + 1]
+    return candidate
 
 
 def _parse_response(raw: dict[str, object], model_id: str) -> ModelResponse:

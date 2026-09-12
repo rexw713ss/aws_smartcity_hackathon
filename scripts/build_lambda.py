@@ -33,12 +33,14 @@ _API_BUILD_DIR = _REPO_ROOT / "build" / "api_lambda"
 # Lambda's hard limit on an unzipped zip-deployed function.
 _UNZIPPED_LIMIT_BYTES = 250 * 1024 * 1024
 
-# The handler's actual runtime import chain (profile_csv + analyze_mapping) uses
-# only the standard library plus pydantic. polars and pyarrow are project
-# dependencies but are not on this code path, so they are deliberately excluded
-# to keep the package under Lambda's 250 MB unzipped limit (verified: the import
-# chain loads pydantic only).
-_RUNTIME_DEPS = ["pydantic"]
+# The transform action now runs the real canonical transform
+# (run_csv_transformation), which needs pyarrow and duckdb to write and verify
+# the Parquet, so both are bundled alongside pydantic. polars is NOT required:
+# the transform reads the CSV with the stdlib csv module and writes with
+# pyarrow.parquet, so it is deliberately left out to stay under the 250 MB
+# limit. openpyxl covers XLSX sources; boto3 is bundled because the runtime's
+# copy lags the SDK.
+_RUNTIME_DEPS = ["pydantic", "pyarrow", "duckdb", "openpyxl", "boto3"]
 
 
 def build() -> Path:
@@ -87,12 +89,17 @@ def build() -> Path:
     return _BUILD_DIR
 
 
-# The API's real import chain. boto3/botocore are omitted because the Lambda
-# runtime already provides them; streamlit is a dashboard-only dependency; and
+# The API's real import chain. streamlit is a dashboard-only dependency, and
 # polars/pyarrow are deliberately excluded because the read-only API defers them
 # (see adapters/local/feature_store.py and application/ingestion_workflow.py).
-# Together those exclusions are what keep this package inside the 250 MB limit.
+# Those exclusions are what keep this package inside the 250 MB limit.
+#
+# boto3 is bundled rather than taken from the runtime: Lambda's built-in copy
+# lags by many months, and Converse's structured-output field is recent enough
+# that the bundled version made Bedrock reject every schema-constrained request
+# with "This model doesn't support the outputConfig field".
 _API_RUNTIME_DEPS = [
+    "boto3",
     "fastapi",
     "mangum",
     "pydantic",

@@ -76,7 +76,11 @@ def test_aws_runtime_wires_glue_catalog_and_athena_factory(tmp_path: Path) -> No
         runtime = LocalRuntime(tmp_path, _settings())
         engine = runtime._agent_query_engine_factory(_metadata())
 
-    assert isinstance(runtime.catalog, SQLiteCatalog)
+    # Under the AWS profile the catalog is Glue for both the dashboard's
+    # analytics()/list_datasets and the agent's observation tools, so both read
+    # the same published catalog. (Before the analytics-loop merge the main
+    # catalog stayed SQLite; the dashboard then read an empty local store.)
+    assert isinstance(runtime.catalog, GlueCatalog)
     assert isinstance(runtime._agent_catalog, GlueCatalog)
     assert isinstance(engine, AthenaQueryEngine)
 

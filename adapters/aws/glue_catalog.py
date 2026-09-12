@@ -103,16 +103,7 @@ class GlueCatalog:
     def list_datasets(self) -> list[DatasetMetadata]:
         """Return only the immutable versions selected by published pointers."""
 
-        items: list[dict[str, object]] = []
-        start_key: dict[str, object] | None = None
-        while True:
-            kwargs = {"ExclusiveStartKey": start_key} if start_key else {}
-            response = self._ddb.scan(**kwargs)
-            items.extend(response.get("Items", []))
-            start_key = response.get("LastEvaluatedKey")
-            if not start_key:
-                break
-
+        items = self._scan_items()
         pointers = {
             str(item["dataset_id"]): str(item["published_version"])
             for item in items
@@ -129,3 +120,26 @@ class GlueCatalog:
             if metadata.status is DatasetStatus.PUBLISHED:
                 published[dataset_id] = metadata
         return [published[key] for key in sorted(published)]
+
+    def list_versions(self, dataset_id: str) -> list[DatasetMetadata]:
+        """Return every stored version of ``dataset_id``, oldest first."""
+        versions = [
+            DatasetMetadata.model_validate_json(str(item["metadata_json"]))
+            for item in self._scan_items()
+            if str(item.get("dataset_id", "")) == dataset_id
+            and item.get("version") != "__published__"
+            and isinstance(item.get("metadata_json"), str)
+        ]
+        return sorted(versions, key=lambda record: record.created_at)
+
+    def _scan_items(self) -> list[dict[str, object]]:
+        """Paginated scan of the metadata table."""
+        items: list[dict[str, object]] = []
+        start_key: dict[str, object] | None = None
+        while True:
+            kwargs = {"ExclusiveStartKey": start_key} if start_key else {}
+            response = self._ddb.scan(**kwargs)
+            items.extend(response.get("Items", []))
+            start_key = response.get("LastEvaluatedKey")
+            if not start_key:
+                return items

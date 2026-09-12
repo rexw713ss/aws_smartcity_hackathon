@@ -83,6 +83,7 @@ def build_app() -> cdk.App:
             metadata_bucket_name=data.buckets["metadata"].bucket_name,
             metadata_table_name=data.metadata_table.table_name,
             glue_database_name=data.glue_database_name,
+            athena_workgroup_name=data.athena_workgroup_name,
             state_machine_arn=workflow.state_machine.state_machine_arn,
             region=region,
             model_id=resolve_model_id(app.node.try_get_context("modelId")),

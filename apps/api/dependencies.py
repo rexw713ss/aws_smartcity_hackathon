@@ -47,6 +47,8 @@ from youth_compass.domain.canonical import CANONICAL_FIELDS
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import AnalyticsNotAvailableError, ConfigurationError
 from youth_compass.ports import SourceConnector
+from youth_compass.ports.catalog import DataCatalog
+from youth_compass.ports.query_engine import QueryEngine
 
 
 class LocalRuntime:
@@ -56,7 +58,11 @@ class LocalRuntime:
         self.data_root = data_root.resolve()
         self.settings = settings or load_settings()
         metadata_database = self.data_root / "metadata" / "youth-compass.sqlite3"
-        self.catalog = SQLiteCatalog(metadata_database)
+        # The catalog is provider-selected: Glue+DynamoDB when the AWS profile is
+        # active, SQLite offline. This backs both the dashboard's analytics() and
+        # the agent's observation tools, so /datasets and the copilot read the
+        # same published catalog.
+        self.catalog = self._build_catalog(metadata_database)
         self._agent_catalog: DatasetCatalogReader = self.catalog
         self._agent_query_engine_factory: QueryEngineFactory = self._local_observation_query_engine
         self.checkpoints = SQLiteCheckpointStore(metadata_database)
@@ -99,7 +105,35 @@ class LocalRuntime:
         metadata = self.catalog.get(dataset_id)
         if metadata.status is not DatasetStatus.PUBLISHED:
             raise AnalyticsNotAvailableError(f"dataset {dataset_id!r} has no published version")
-        return CuratedAnalyticsService(self._local_observation_query_engine(metadata), metadata)
+        return CuratedAnalyticsService(self._observation_query_engine(metadata), metadata)
+
+    def _build_catalog(self, metadata_database: Path) -> DataCatalog:
+        """Select the catalog by configuration: Glue on AWS, SQLite offline."""
+        catalog = self.settings.catalog
+        if catalog is not None and catalog.provider is CatalogProvider.GLUE:
+            from adapters.aws.glue_catalog import GlueCatalog
+
+            if not catalog.database or not catalog.table_name:
+                raise ConfigurationError(
+                    "the glue catalog needs catalog.database and catalog.table_name"
+                )
+            return GlueCatalog(
+                database=catalog.database,
+                table_name=catalog.table_name,
+                region=self.settings.region,
+            )
+        return SQLiteCatalog(metadata_database)
+
+    def _observation_query_engine(self, metadata: DatasetMetadata) -> QueryEngine:
+        """The dashboard's query engine: Athena when configured, else DuckDB.
+
+        Mirrors the agent's observation backend so /city/summary and /districts
+        read the same published data the copilot does.
+        """
+        query = self.settings.query
+        if query is not None and query.provider is QueryProvider.ATHENA:
+            return self._agent_query_engine_factory(metadata)
+        return self._local_observation_query_engine(metadata)
 
     def _local_observation_query_engine(self, metadata: DatasetMetadata) -> DuckDBQueryEngine:
         """Build an allowlisted engine for one immutable canonical dataset version."""

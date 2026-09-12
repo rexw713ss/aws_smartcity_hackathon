@@ -34,3 +34,11 @@ class DataCatalog(Protocol):
     def search_compatible(self, profile: DatasetProfile) -> list[DatasetMetadata]:
         """Return registered datasets whose grain is compatible with ``profile``."""
         ...
+
+    def list_datasets(self) -> list[DatasetMetadata]:
+        """Return one visible record per dataset, preferring its published version."""
+        ...
+
+    def list_versions(self, dataset_id: str) -> list[DatasetMetadata]:
+        """Return every registered version of ``dataset_id``, oldest first."""
+        ...

@@ -45,6 +45,7 @@ def template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Template:
         metadata_bucket_name="metadata-bucket",
         metadata_table_name="metadata-table",
         glue_database_name="youth_compass_hackathon",
+        athena_workgroup_name="youthcompass-analytics",
         state_machine_arn=STATE_MACHINE_ARN,
         region=PLACEHOLDER_REGION,
         model_id=MODEL_ID,
@@ -157,15 +158,39 @@ class TestApiPermissions:
         ]
         assert curated_writes == []
 
-    def test_agent_can_query_only_its_athena_workgroup(self, template: Template) -> None:
+    def test_can_query_athena_but_not_mutate_the_catalog(self, template: Template) -> None:
+        actions = {
+            action
+            for statement in self._statements(template)
+            for action in _as_list(statement.get("Action"))
+        }
+        # The acceptance test requires the API role to run queries...
+        assert "athena:StartQueryExecution" in actions
+        assert "glue:GetTable" in actions
+        # ...but never to create, drop, or alter tables.
+        for forbidden in ("glue:CreateTable", "glue:UpdateTable", "glue:DeleteTable"):
+            assert forbidden not in actions
+
+    def test_glue_read_is_scoped_to_the_one_database(self, template: Template) -> None:
+        glue_reads = [
+            statement
+            for statement in self._statements(template)
+            if any(a.startswith("glue:Get") for a in _as_list(statement.get("Action")))
+        ]
+        assert glue_reads, "expected a Glue read statement"
+        resources = json.dumps(glue_reads[0]["Resource"])
+        assert "youth_compass_hackathon" in resources
+        assert '"*"' not in resources
+
+    def test_athena_query_scoped_to_a_single_workgroup(self, template: Template) -> None:
         athena_statements = [
             statement
             for statement in self._statements(template)
             if "athena:StartQueryExecution" in _as_list(statement.get("Action"))
         ]
         assert len(athena_statements) == 1
-        assert "workgroup/youth-compass-hackathon" in json.dumps(athena_statements[0]["Resource"])
         assert athena_statements[0]["Resource"] != "*"
+        assert "workgroup/" in json.dumps(athena_statements[0]["Resource"])
 
     def test_athena_results_permissions_do_not_allow_delete(self, template: Template) -> None:
         metadata_statements = [
@@ -201,20 +226,9 @@ class TestHttpApi:
 
 
 class TestAthenaRuntime:
-    def test_provisions_a_cost_capped_workgroup(self, template: Template) -> None:
-        template.has_resource_properties(
-            "AWS::Athena::WorkGroup",
-            {
-                "Name": "youth-compass-hackathon",
-                "WorkGroupConfiguration": Match.object_like(
-                    {
-                        "BytesScannedCutoffPerQuery": 100 * 1024 * 1024,
-                        "EnforceWorkGroupConfiguration": True,
-                    }
-                ),
-            },
-        )
-
+    # The workgroup itself is owned by the DataStack (see test_data_stack.py);
+    # the ApiStack consumes it by name. This asserts the API Lambda is handed
+    # the AWS analytics configuration.
     def test_lambda_receives_aws_observation_configuration(self, template: Template) -> None:
         template.has_resource_properties(
             "AWS::Lambda::Function",
@@ -226,7 +240,7 @@ class TestAthenaRuntime:
                             "YOUTH_COMPASS_CATALOG__DATABASE": "youth_compass_hackathon",
                             "YOUTH_COMPASS_CATALOG__TABLE_NAME": "metadata-table",
                             "YOUTH_COMPASS_QUERY__PROVIDER": "athena",
-                            "YOUTH_COMPASS_QUERY__WORKGROUP": "youth-compass-hackathon",
+                            "YOUTH_COMPASS_QUERY__WORKGROUP": "youthcompass-analytics",
                             "YOUTH_COMPASS_QUERY__OUTPUT_BUCKET": "metadata-bucket",
                         }
                     )
