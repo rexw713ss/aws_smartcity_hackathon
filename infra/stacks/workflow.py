@@ -89,6 +89,7 @@ class WorkflowStack(TaggedStack):
         common_env = {
             "YOUTH_COMPASS_INCOMING_BUCKET": incoming_bucket_name,
             "YOUTH_COMPASS_REGION": region,
+            "YOUTH_COMPASS_METADATA_TABLE": metadata_table_name,
         }
 
         # --- Transform Lambda (ARM64): profiling + mapping + transform ---

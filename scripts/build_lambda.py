@@ -63,6 +63,8 @@ def build() -> Path:
         "upload_event_handler.py",
         "s3_uploads.py",
         "step_functions_runner.py",
+        "workflow_token_store.py",
+        "dynamodb_checkpoint.py",
     ):
         shutil.copy(_REPO_ROOT / "adapters" / "aws" / module, adapters_dir)
 
