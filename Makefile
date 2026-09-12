@@ -6,7 +6,7 @@ DEST ?= ./exports/aws
 
 .DEFAULT_GOAL := help
 
-.PHONY: help local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
+.PHONY: help demo-features local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
         aws-export aws-teardown test lint typecheck format
 
 help:  ## Show this help
@@ -18,6 +18,9 @@ local-api:  ## Run the offline FastAPI service on port 8000
 
 dashboard:  ## Run the temporary Streamlit dashboard on port 8501
 	uv run streamlit run apps/dashboard/app.py --server.port 8501
+
+demo-features:  ## Materialize an offline feature snapshot for the copilot demo
+	uv run python -m scripts.materialize_demo_features
 
 hackathon-bootstrap:  ## Empty account to verified stack (creds). ASSUME_YES=1 to skip prompt
 	uv run python -m scripts.aws_bootstrap $(if $(ASSUME_YES),--assume-yes,)

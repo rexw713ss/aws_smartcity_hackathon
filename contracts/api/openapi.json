@@ -1,6 +1,23 @@
 {
   "components": {
     "schemas": {
+      "AnalysisOperation": {
+        "description": "Generic operations that may be routed to registered tools.",
+        "enum": [
+          "search_catalog",
+          "inspect_dataset",
+          "acquire_source",
+          "query_observations",
+          "get_features",
+          "compose_features",
+          "compare_entities",
+          "rank_candidates",
+          "forecast_metric",
+          "explain_lineage"
+        ],
+        "title": "AnalysisOperation",
+        "type": "string"
+      },
       "Body_upload_dataset_api_v1_datasets_upload_post": {
         "properties": {
           "file": {
@@ -29,6 +46,85 @@
           "submitted_by"
         ],
         "title": "Body_upload_dataset_api_v1_datasets_upload_post",
+        "type": "object"
+      },
+      "CandidateInsight": {
+        "description": "Ranked candidate projection safe for an API response.",
+        "properties": {
+          "contributions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FeatureContributionInsight"
+            },
+            "title": "Contributions",
+            "type": "array"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "failed_constraints": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed Constraints",
+            "type": "array"
+          },
+          "missing_required_features": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Required Features",
+            "type": "array"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "required": [
+          "entity_id",
+          "eligible"
+        ],
+        "title": "CandidateInsight",
         "type": "object"
       },
       "CitySummaryResponse": {
@@ -250,6 +346,172 @@
         "title": "CompleteUploadRequest",
         "type": "object"
       },
+      "CopilotQueryRequest": {
+        "description": "Natural-language question plus optional candidate and quality scope.",
+        "properties": {
+          "entityIds": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Entityids",
+            "type": "array"
+          },
+          "minQualityScore": {
+            "default": 0.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Minqualityscore",
+            "type": "number"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "CopilotQueryRequest",
+        "type": "object"
+      },
+      "CopilotResponse": {
+        "description": "Grounded answer with plan, trace, ranking, evidence, and limitations.",
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "assumptions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "candidates": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CandidateInsight"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EvidenceCitation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityComparison"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dataset_inspection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatasetInspection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decomposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecomposedQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "observation_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationSeries"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionExecutionPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "routed_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutedToolPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CopilotStatus"
+          },
+          "tool_trace": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ToolTrace"
+            },
+            "title": "Tool Trace",
+            "type": "array"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "answer",
+          "generated_at"
+        ],
+        "title": "CopilotResponse",
+        "type": "object"
+      },
+      "CopilotStatus": {
+        "description": "Whether the available evidence supports an answer.",
+        "enum": [
+          "answered",
+          "insufficient_data",
+          "unsupported_question"
+        ],
+        "title": "CopilotStatus",
+        "type": "string"
+      },
       "DatasetGrain": {
         "properties": {
           "dimensions": {
@@ -265,6 +527,74 @@
           "dimensions"
         ],
         "title": "DatasetGrain",
+        "type": "object"
+      },
+      "DatasetInspection": {
+        "description": "Schema and coverage selected from the published catalog.",
+        "properties": {
+          "available_metrics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Metrics",
+            "type": "array"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "entity_count": {
+            "minimum": 0.0,
+            "title": "Entity Count",
+            "type": "integer"
+          },
+          "grain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Grain",
+            "type": "array"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "period_end": {
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "title": "Period Start",
+            "type": "string"
+          },
+          "quality_score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Quality Score",
+            "type": "number"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "dataset_version",
+          "topic",
+          "grain",
+          "metric_code",
+          "available_metrics",
+          "period_start",
+          "period_end",
+          "entity_count",
+          "quality_score"
+        ],
+        "title": "DatasetInspection",
         "type": "object"
       },
       "DatasetProfile": {
@@ -462,6 +792,48 @@
         "title": "DatasetRole",
         "type": "string"
       },
+      "DecisionExecutionPlan": {
+        "description": "Deterministic plan executed after intent validation.",
+        "properties": {
+          "entity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
+          "feature_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Feature Codes",
+            "type": "array"
+          },
+          "min_quality_score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Quality Score",
+            "type": "number"
+          },
+          "profile_code": {
+            "title": "Profile Code",
+            "type": "string"
+          },
+          "profile_version": {
+            "title": "Profile Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_code",
+          "profile_version",
+          "feature_codes",
+          "min_quality_score"
+        ],
+        "title": "DecisionExecutionPlan",
+        "type": "object"
+      },
       "DecisionRequest": {
         "properties": {
           "comment": {
@@ -494,6 +866,87 @@
           "decidedBy"
         ],
         "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DecomposedQuery": {
+        "description": "Structured question decomposition proposed before tool selection.",
+        "properties": {
+          "clarification_question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification Question"
+          },
+          "entity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Entity Ids",
+            "type": "array"
+          },
+          "metric_terms": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Terms",
+            "type": "array"
+          },
+          "needs_clarification": {
+            "default": false,
+            "title": "Needs Clarification",
+            "type": "boolean"
+          },
+          "objective": {
+            "minLength": 1,
+            "title": "Objective",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisOperation"
+            },
+            "minItems": 1,
+            "title": "Operations",
+            "type": "array"
+          },
+          "original_question": {
+            "minLength": 3,
+            "title": "Original Question",
+            "type": "string"
+          },
+          "subject_terms": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Subject Terms",
+            "type": "array"
+          },
+          "time_expression": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Expression"
+          }
+        },
+        "required": [
+          "original_question",
+          "objective",
+          "operations"
+        ],
+        "title": "DecomposedQuery",
         "type": "object"
       },
       "DistrictCompareRequest": {
@@ -619,6 +1072,179 @@
           "districts"
         ],
         "title": "DistrictProfileResponse",
+        "type": "object"
+      },
+      "EntityChange": {
+        "description": "Deterministic first-to-last change for one entity.",
+        "properties": {
+          "absolute_change": {
+            "title": "Absolute Change",
+            "type": "number"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "first_period": {
+            "title": "First Period",
+            "type": "string"
+          },
+          "first_value": {
+            "title": "First Value",
+            "type": "number"
+          },
+          "last_period": {
+            "title": "Last Period",
+            "type": "string"
+          },
+          "last_value": {
+            "title": "Last Value",
+            "type": "number"
+          },
+          "observation_count": {
+            "minimum": 1.0,
+            "title": "Observation Count",
+            "type": "integer"
+          },
+          "percent_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent Change"
+          }
+        },
+        "required": [
+          "entity_id",
+          "first_period",
+          "last_period",
+          "first_value",
+          "last_value",
+          "absolute_change",
+          "direction",
+          "observation_count"
+        ],
+        "title": "EntityChange",
+        "type": "object"
+      },
+      "EntityComparison": {
+        "description": "Comparable changes calculated from one compatible observation series.",
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/EntityChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "unit_code": {
+            "title": "Unit Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_code",
+          "unit_code",
+          "changes"
+        ],
+        "title": "EntityComparison",
+        "type": "object"
+      },
+      "EvidenceCitation": {
+        "description": "Public provenance without leaking local storage paths or credentials.",
+        "properties": {
+          "citation_id": {
+            "title": "Citation Id",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "quality_score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Quality Score",
+            "type": "number"
+          },
+          "retrieved_at": {
+            "format": "date-time",
+            "title": "Retrieved At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "citation_id",
+          "dataset_id",
+          "dataset_version",
+          "quality_score",
+          "retrieved_at"
+        ],
+        "title": "EvidenceCitation",
+        "type": "object"
+      },
+      "FeatureContributionInsight": {
+        "description": "Public explanation of one feature's score contribution.",
+        "properties": {
+          "citations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "effective_weight": {
+            "title": "Effective Weight",
+            "type": "number"
+          },
+          "feature_code": {
+            "title": "Feature Code",
+            "type": "string"
+          },
+          "points": {
+            "title": "Points",
+            "type": "number"
+          },
+          "raw_value": {
+            "title": "Raw Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "feature_code",
+          "raw_value",
+          "effective_weight",
+          "points",
+          "citations"
+        ],
+        "title": "FeatureContributionInsight",
         "type": "object"
       },
       "FileFormat": {
@@ -1020,6 +1646,89 @@
         "title": "MetricMapping",
         "type": "object"
       },
+      "ObservationPoint": {
+        "description": "One safely aggregated metric value for an entity and period.",
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "estimated_value": {
+            "minimum": 0.0,
+            "title": "Estimated Value",
+            "type": "number"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "entity_id",
+          "period",
+          "value",
+          "estimated_value"
+        ],
+        "title": "ObservationPoint",
+        "type": "object"
+      },
+      "ObservationSeries": {
+        "description": "Validated observation query output used by downstream analysis tools.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population_scope": {
+            "title": "Population Scope",
+            "type": "string"
+          },
+          "unit_code": {
+            "title": "Unit Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "dataset_version",
+          "metric_code",
+          "unit_code",
+          "population_scope",
+          "points"
+        ],
+        "title": "ObservationSeries",
+        "type": "object"
+      },
       "PopulationScope": {
         "enum": [
           "youth_specific",
@@ -1211,6 +1920,62 @@
         "title": "QualityStatus",
         "type": "string"
       },
+      "RoutedToolPlan": {
+        "description": "Router result including explicit gaps for unavailable capabilities.",
+        "properties": {
+          "missing_operations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AnalysisOperation"
+            },
+            "title": "Missing Operations",
+            "type": "array"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RoutedToolStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "title": "RoutedToolPlan",
+        "type": "object"
+      },
+      "RoutedToolStep": {
+        "description": "One tool chosen deterministically for a decomposed operation.",
+        "properties": {
+          "depends_on": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On",
+            "type": "array"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/AnalysisOperation"
+          },
+          "step_id": {
+            "pattern": "^step_[0-9]+$",
+            "title": "Step Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_id",
+          "operation",
+          "tool_name"
+        ],
+        "title": "RoutedToolStep",
+        "type": "object"
+      },
       "SemanticRole": {
         "enum": [
           "year",
@@ -1314,6 +2079,64 @@
           }
         },
         "title": "TimeCoverage",
+        "type": "object"
+      },
+      "ToolCapability": {
+        "description": "Discoverable metadata for a bounded executable tool.",
+        "properties": {
+          "description": {
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/AnalysisOperation"
+          },
+          "requires": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AnalysisOperation"
+            },
+            "title": "Requires",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "operation",
+          "description"
+        ],
+        "title": "ToolCapability",
+        "type": "object"
+      },
+      "ToolTrace": {
+        "description": "Auditable record of a bounded tool invocation.",
+        "properties": {
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tool": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "outcome",
+          "summary"
+        ],
+        "title": "ToolTrace",
         "type": "object"
       },
       "UploadRequest": {
@@ -1558,6 +2381,74 @@
         "summary": "City Summary",
         "tags": [
           "dashboard"
+        ]
+      }
+    },
+    "/api/v1/copilot/capabilities": {
+      "get": {
+        "description": "List the bounded tools currently discoverable by the smart router.",
+        "operationId": "list_copilot_capabilities_api_v1_copilot_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ToolCapability"
+                  },
+                  "title": "Response List Copilot Capabilities Api V1 Copilot Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Copilot Capabilities",
+        "tags": [
+          "copilot"
+        ]
+      }
+    },
+    "/api/v1/copilot/query": {
+      "post": {
+        "description": "Execute an allowlisted decision plan and return grounded evidence.",
+        "operationId": "query_copilot_api_v1_copilot_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Query Copilot",
+        "tags": [
+          "copilot"
         ]
       }
     },

@@ -119,6 +119,28 @@ class YouthCompassApi:
             self._request("GET", f"/api/v1/ingestion-jobs/{job_id}/quality-report"),
         )
 
+    def copilot(
+        self,
+        question: str,
+        *,
+        entity_ids: list[str] | None = None,
+        min_quality_score: float = 0.0,
+    ) -> dict[str, Any]:
+        """Ask the grounded copilot to execute an allowlisted decision plan."""
+
+        return cast(
+            dict[str, Any],
+            self._request(
+                "POST",
+                "/api/v1/copilot/query",
+                json_body={
+                    "question": question,
+                    "entityIds": entity_ids or [],
+                    "minQualityScore": min_quality_score,
+                },
+            ),
+        )
+
     def _request(
         self,
         method: str,

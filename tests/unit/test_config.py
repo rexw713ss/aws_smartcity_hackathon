@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from youth_compass.config import AppSettings
+import pytest
+
+from youth_compass.config import AppSettings, ModelProviderName
 
 
 def test_load_settings_from_yaml(tmp_path: Path) -> None:
@@ -21,3 +23,19 @@ def test_missing_yaml_uses_defaults(tmp_path: Path) -> None:
     assert settings.environment == "local"
     assert settings.data_root == Path("data")
     assert settings.transform.batch_size == 10_000
+
+
+def test_bedrock_model_settings_support_environment_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YOUTH_COMPASS_MODEL__PROVIDER", "bedrock")
+    monkeypatch.setenv("YOUTH_COMPASS_MODEL__MODEL_ID", "test-inference-profile")
+    monkeypatch.setenv("YOUTH_COMPASS_MODEL__REGION", "us-east-1")
+    monkeypatch.setenv("YOUTH_COMPASS_MODEL__TIMEOUT_SECONDS", "45")
+    settings = AppSettings()
+
+    assert settings.model is not None
+    assert settings.model.provider is ModelProviderName.BEDROCK
+    assert settings.model.model_id == "test-inference-profile"
+    assert settings.model.region == "us-east-1"
+    assert settings.model.timeout_seconds == 45
