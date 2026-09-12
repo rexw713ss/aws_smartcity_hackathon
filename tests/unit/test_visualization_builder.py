@@ -6,7 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from youth_compass.agent import (
+    AnalysisOperation,
+    AnnotationKind,
     CandidateInsight,
+    DecomposedQuery,
     EntityChange,
     EntityComparison,
     FeatureContributionInsight,
@@ -16,6 +19,8 @@ from youth_compass.agent import (
     VisualizationBuilder,
     VisualizationSpec,
     VisualizationType,
+    choose_measure,
+    profile_series,
 )
 from youth_compass.ports import ForecastPoint, ForecastResult
 
@@ -416,11 +421,15 @@ def test_line_chart_limits_series_without_a_duplicate_observation_table() -> Non
             ObservationPoint(
                 entity_id=f"district-{entity}",
                 period=str(period),
-                value=float(entity * 10 + period),
+                # Each district has to actually move, or selection rejects the
+                # line as a picture of nothing before series limiting is reached.
+                value=float((entity + 1) * 100 * (1.0 + 0.1 * (period - 2023))),
                 estimated_value=0,
             )
             for entity in range(10)
-            for period in (2024, 2025)
+            # Three periods keep this a line: two would make it a slope, which
+            # has its own test.
+            for period in (2023, 2024, 2025)
         ),
     )
 
@@ -468,3 +477,398 @@ def test_monthly_line_marks_a_missing_period_and_preserves_key_points_when_sampl
     assert any(row["period"] == "2021-06" and row["value"] == 30_000 for row in line.rows)
     assert line.rows[0]["period"] == "2018-01"
     assert line.rows[-1]["period"] == "2023-12"
+
+
+def _observation_series(values: dict[str, dict[str, float]]) -> ObservationSeries:
+    return ObservationSeries(
+        dataset_id="population",
+        dataset_version="v1",
+        metric_code="population_count",
+        unit_code="persons",
+        population_scope="youth_specific",
+        points=tuple(
+            ObservationPoint(
+                entity_id=entity,
+                entity_name=entity.title(),
+                period=period,
+                value=value,
+                estimated_value=0,
+            )
+            for entity, points in values.items()
+            for period, value in points.items()
+        ),
+    )
+
+
+def _decomposition(*entity_ids: str) -> DecomposedQuery:
+    return DecomposedQuery(
+        original_question="how did the youth population change by district",
+        objective="describe the change",
+        entity_ids=entity_ids,
+        operations=(AnalysisOperation.QUERY_OBSERVATIONS,),
+    )
+
+
+def test_one_named_district_never_earns_a_map_even_when_the_word_district_appears() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 1000.0, "2023": 800.0},
+            "xindian": {"2022": 900.0, "2023": 880.0},
+        }
+    )
+
+    candidates = VisualizationBuilder().observation_candidates(
+        "How did the youth population of Banqiao district change?",
+        series,
+        None,
+        ("data-1",),
+        decomposition=_decomposition("banqiao"),
+    )
+
+    assert all(
+        candidate.intent_fit == 0.0
+        for candidate in candidates
+        if candidate.spec.type is VisualizationType.CHOROPLETH
+    )
+
+
+def test_an_explicitly_spatial_question_gives_the_map_full_intent_fit() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 1000.0, "2023": 800.0},
+            "xindian": {"2022": 900.0, "2023": 880.0},
+        }
+    )
+
+    candidates = VisualizationBuilder().observation_candidates(
+        "Where did the youth population fall the most?",
+        series,
+        None,
+        ("data-1",),
+        decomposition=_decomposition(),
+    )
+    mapped = [
+        candidate for candidate in candidates if candidate.spec.type is VisualizationType.CHOROPLETH
+    ]
+
+    assert mapped and mapped[0].intent_fit == 1.0
+
+
+def test_a_city_wide_question_without_spatial_wording_keeps_the_map_as_a_weaker_option() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 1000.0, "2023": 800.0},
+            "xindian": {"2022": 900.0, "2023": 880.0},
+        }
+    )
+
+    candidates = VisualizationBuilder().observation_candidates(
+        "How has the youth population changed?",
+        series,
+        None,
+        ("data-1",),
+        decomposition=_decomposition(),
+    )
+    mapped = [
+        candidate for candidate in candidates if candidate.spec.type is VisualizationType.CHOROPLETH
+    ]
+
+    # The question covers every district, so a map is defensible, but nothing in
+    # it asks for one: it only wins if no stronger view competes for the slot.
+    assert mapped and mapped[0].intent_fit == 0.5
+
+
+def test_an_index_measure_rescales_the_line_and_states_why_on_the_chart() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 50000.0, "2023": 49000.0},
+            "pinglin": {"2022": 500.0, "2023": 400.0},
+        }
+    )
+    profile = profile_series(series)
+    measure = choose_measure(profile, _decomposition())
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?",
+        series,
+        None,
+        ("data-1",),
+        decomposition=_decomposition(),
+        measure=measure,
+        profile=profile,
+    )
+    line = next(item for item in specs if item.type is VisualizationType.LINE)
+    values = {(row["entity_name"], row["period"]): row["value"] for row in line.rows}
+
+    assert line.y is not None and line.y.unit == "index_100"
+    assert values[("Banqiao", "2022")] == 100.0
+    assert values[("Pinglin", "2023")] == 80.0
+    # Every plotted point still carries the published figure it was derived from.
+    assert all("source_value" in row for row in line.rows)
+    assert line.description is not None and "starting value" in line.description
+
+
+def test_a_percentage_measure_moves_the_comparison_bar_off_absolute_change() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 50000.0, "2023": 49000.0},
+            "pinglin": {"2022": 500.0, "2023": 250.0},
+        }
+    )
+    comparison = EntityComparison(
+        metric_code="population_count",
+        unit_code="persons",
+        changes=(
+            EntityChange(
+                entity_id="banqiao",
+                entity_name="Banqiao",
+                first_period="2022",
+                last_period="2023",
+                first_value=50000,
+                last_value=49000,
+                absolute_change=-1000,
+                percent_change=-2.0,
+                direction="decreased",
+                observation_count=2,
+            ),
+            EntityChange(
+                entity_id="pinglin",
+                entity_name="Pinglin",
+                first_period="2022",
+                last_period="2023",
+                first_value=500,
+                last_value=250,
+                absolute_change=-250,
+                percent_change=-50.0,
+                direction="decreased",
+                observation_count=2,
+            ),
+        ),
+    )
+    profile = profile_series(series)
+    measure = choose_measure(
+        profile,
+        DecomposedQuery(
+            original_question="which district fell fastest",
+            objective="compare the fall",
+            operations=(
+                AnalysisOperation.QUERY_OBSERVATIONS,
+                AnalysisOperation.COMPARE_ENTITIES,
+            ),
+        ),
+    )
+
+    specs = VisualizationBuilder().observations(
+        "Which district fell fastest?",
+        series,
+        comparison,
+        ("data-1",),
+        measure=measure,
+        profile=profile,
+    )
+    bar = next(item for item in specs if item.type is VisualizationType.COMPARISON_BAR)
+
+    assert bar.y is not None and bar.y.field == "percent_change"
+    assert bar.y.unit == "percent"
+    # Absolute change would have ranked the large district first purely on size.
+    assert bar.rows[0]["entity_name"] == "Pinglin"
+
+
+def test_a_conflicting_observation_result_produces_no_chart_at_all() -> None:
+    series = ObservationSeries(
+        dataset_id="population",
+        dataset_version="v1",
+        metric_code="population_count",
+        unit_code="persons",
+        population_scope="youth_specific",
+        points=(
+            ObservationPoint(entity_id="banqiao", period="2022", value=1000.0, estimated_value=0),
+            ObservationPoint(entity_id="banqiao", period="2023", value=800.0, estimated_value=0),
+            ObservationPoint(entity_id="banqiao", period="2023", value=900.0, estimated_value=0),
+        ),
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?",
+        series,
+        None,
+        ("data-1",),
+        profile=profile_series(series),
+    )
+
+    assert specs == ()
+
+
+def test_a_forecast_line_carries_the_interval_it_was_published_with() -> None:
+    result = ForecastResult(
+        metric_code="population_count",
+        model_version="baseline-v1",
+        generated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        points=(
+            ForecastPoint(
+                district_code="65000010",
+                year_gregorian=2026,
+                value=1000.0,
+                lower=900.0,
+                upper=1100.0,
+            ),
+            ForecastPoint(
+                district_code="65000010", year_gregorian=2027, value=800.0, lower=650.0, upper=950.0
+            ),
+        ),
+    )
+
+    specs = VisualizationBuilder().forecast("Project the youth population", result, ("data-1",))
+    line = next(item for item in specs if item.type is VisualizationType.LINE)
+
+    assert line.band_lower_field == "lower"
+    assert line.band_upper_field == "upper"
+    assert {row["lower"] for row in line.rows} == {900.0, 650.0}
+
+
+def test_two_periods_across_several_districts_become_a_slope_not_a_line() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 1000.0, "2023": 800.0},
+            "xindian": {"2022": 900.0, "2023": 1100.0},
+            "sanchong": {"2022": 700.0, "2023": 500.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?", series, None, ("data-1",)
+    )
+
+    assert any(item.type is VisualizationType.SLOPE for item in specs)
+    assert all(item.type is not VisualizationType.LINE for item in specs)
+
+
+def test_two_periods_across_two_districts_stay_a_line() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2022": 1000.0, "2023": 800.0},
+            "xindian": {"2022": 900.0, "2023": 1100.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?", series, None, ("data-1",)
+    )
+
+    assert any(item.type is VisualizationType.LINE for item in specs)
+
+
+def test_a_band_may_not_be_declared_with_only_one_edge() -> None:
+    with pytest.raises(ValidationError):
+        VisualizationSpec(
+            visualization_id="half-band",
+            type=VisualizationType.LINE,
+            title="Forecast",
+            x={"field": "period", "label": "Period", "data_type": "temporal"},
+            y={"field": "value", "label": "Value", "data_type": "quantitative"},
+            band_lower_field="lower",
+            rows=({"period": "2026", "value": 1.0, "lower": 0.5},),
+        )
+
+
+def test_only_a_line_may_carry_a_band() -> None:
+    with pytest.raises(ValidationError):
+        VisualizationSpec(
+            visualization_id="banded-bar",
+            type=VisualizationType.COMPARISON_BAR,
+            title="Change",
+            x={"field": "entity_name", "label": "Entity", "data_type": "nominal"},
+            y={"field": "value", "label": "Value", "data_type": "quantitative"},
+            band_lower_field="lower",
+            band_upper_field="upper",
+            rows=({"entity_name": "A", "value": 1.0, "lower": 0.5, "upper": 1.5},),
+        )
+
+
+def test_a_trend_chart_states_its_finding_and_marks_the_place_that_moved() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2020": 1000.0, "2021": 1005.0, "2022": 1002.0},
+            "pinglin": {"2020": 500.0, "2021": 700.0, "2022": 300.0},
+            "xindian": {"2020": 800.0, "2021": 805.0, "2022": 810.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?", series, None, ("data-1",)
+    )
+    line = next(item for item in specs if item.type is VisualizationType.LINE)
+
+    assert line.headline is not None
+    assert "Pinglin" in line.headline and "fell" in line.headline and "40.0%" in line.headline
+    assert line.focus_entities == ("Pinglin",)
+    # The interior high point is not an endpoint, so naming it tells the reader
+    # something the axis does not.
+    peak = next(item for item in line.annotations if item.kind is AnnotationKind.PEAK)
+    assert peak.period == "2021" and peak.value == 700.0
+
+
+def test_endpoints_are_never_annotated_as_a_peak_or_trough() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2020": 1000.0, "2021": 900.0, "2022": 800.0},
+            "xindian": {"2020": 500.0, "2021": 490.0, "2022": 480.0},
+            "sanchong": {"2020": 700.0, "2021": 690.0, "2022": 680.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?", series, None, ("data-1",)
+    )
+    line = next(item for item in specs if item.type is VisualizationType.LINE)
+
+    assert line.annotations == ()
+
+
+def test_three_or_more_places_get_a_median_line_to_read_against() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2020": 1000.0, "2021": 800.0},
+            "xindian": {"2020": 500.0, "2021": 400.0},
+            "sanchong": {"2020": 700.0, "2021": 600.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?", series, None, ("data-1",)
+    )
+    chart = next(item for item in specs if item.reference_lines)
+
+    assert chart.reference_lines[0].value == 600.0
+    assert "2021" in chart.reference_lines[0].label
+
+
+def test_two_places_are_not_enough_to_describe_a_middle() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2020": 1000.0, "2021": 800.0},
+            "xindian": {"2020": 500.0, "2021": 400.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "How did the youth population change?", series, None, ("data-1",)
+    )
+
+    assert all(item.reference_lines == () for item in specs)
+
+
+def test_the_headline_is_written_in_the_language_of_the_question() -> None:
+    series = _observation_series(
+        {
+            "banqiao": {"2020": 1000.0, "2021": 600.0},
+            "xindian": {"2020": 500.0, "2021": 495.0},
+        }
+    )
+
+    specs = VisualizationBuilder().observations(
+        "Dân số thanh niên thay đổi thế nào?", series, None, ("data-1",)
+    )
+    line = next(item for item in specs if item.type is VisualizationType.LINE)
+
+    assert line.headline is not None and "giảm" in line.headline

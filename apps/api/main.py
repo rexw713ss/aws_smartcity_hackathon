@@ -1,6 +1,8 @@
 """FastAPI reviewer and dashboard API for the offline reference runtime."""
 
+import logging
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,6 +54,8 @@ from youth_compass.domain import (
 from youth_compass.domain.contracts import MappingAnalysis
 from youth_compass.ports import ApprovalDecision, JobReference
 
+_LOGGER = logging.getLogger(__name__)
+
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _DATA_ROOT_ENV_VAR = "YOUTH_COMPASS_DATA_ROOT"
 
@@ -95,15 +99,21 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     @app.exception_handler(YouthCompassError)
     async def domain_error_handler(request: Request, exc: YouthCompassError) -> JSONResponse:
         del request
+        status_code = _status_for_error(exc)
+        trace_id = f"trc_{uuid.uuid4().hex}"
+        if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+            # The client sees only a generic message, so the detail has to live
+            # somewhere an operator can find it by trace ID.
+            _LOGGER.exception("%s failed: %s", trace_id, exc)
         envelope = ErrorEnvelope(
             error=ErrorBody(
                 code=_error_code(exc),
-                message=str(exc),
-                trace_id=f"trc_{uuid.uuid4().hex}",
+                message=_client_message(exc, status_code),
+                trace_id=trace_id,
             )
         )
         return JSONResponse(
-            status_code=_status_for_error(exc),
+            status_code=status_code,
             content=envelope.model_dump(mode="json", by_alias=True),
         )
 
@@ -417,6 +427,30 @@ def _status_for_error(exc: YouthCompassError) -> int:
     if isinstance(exc, SourceNormalizationError | SourceAcquisitionError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT
     return status.HTTP_500_INTERNAL_SERVER_ERROR
+
+
+#: Server-side detail that must not travel to a client: absolute filesystem
+#: paths, S3 URIs, and ARNs all appear verbatim inside adapter error text.
+_INTERNAL_DETAIL = re.compile(
+    r"arn:[a-z0-9-]*:[^\s,;'\"]+"
+    r"|s3://[^\s,;'\"]+"
+    r"|(?<![\w.])/(?:[\w.+-]+/)+[\w.+-]*"
+)
+
+
+def _client_message(exc: YouthCompassError, status_code: int) -> str:
+    """Describe a failure without handing the caller internal topology.
+
+    A 4xx tells the caller what they must change, so its text is kept and only
+    redacted. A 5xx is our fault, and its text carries adapter detail (paths,
+    ARNs, AWS access-denied specifics) the caller can neither act on nor is
+    entitled to, so it collapses to a fixed message; the trace ID and the server
+    logs remain the way to correlate it.
+    """
+
+    if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+        return "the request could not be completed"
+    return _INTERNAL_DETAIL.sub("[redacted]", str(exc))
 
 
 def _error_code(exc: YouthCompassError) -> str:

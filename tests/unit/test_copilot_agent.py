@@ -2,9 +2,11 @@
 
 import asyncio
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 
+from youth_compass.acquisition import DataAcquisitionService
 from youth_compass.agent import (
     AnswerCompositionContext,
     ComposedAnswer,
@@ -24,7 +26,7 @@ from youth_compass.decisioning import (
     FeatureSet,
     FeatureValue,
 )
-from youth_compass.domain.errors import ConversationPersistenceError
+from youth_compass.domain.errors import ConversationPersistenceError, SourceAcquisitionError
 from youth_compass.ports import ModelRequest, ModelResponse
 
 
@@ -424,3 +426,33 @@ def test_a_scope_that_found_no_evidence_is_not_remembered() -> None:
 
     assert response.status is not CopilotStatus.ANSWERED
     assert store.stored == []
+
+
+class FailingAcquisitionService:
+    """Discovery that cannot reach its connectors."""
+
+    def discover(self, requirement: object) -> tuple[object, ...]:
+        raise SourceAcquisitionError("source registry is unreachable")
+
+
+def test_a_failed_source_search_is_reported_as_an_outage_not_as_no_sources() -> None:
+    # An empty candidate list alone cannot distinguish "searched, found none"
+    # from "could not search", and only the first justifies telling the user
+    # that no suitable source exists.
+    provider = StaticFeatureProvider(())
+    service = GroundedCopilotService(
+        feature_provider=provider,
+        feature_registry=FeatureRegistry(DEFAULT_FEATURES),
+        profile_registry=DecisionProfileRegistry(DEFAULT_DECISION_PROFILES),
+        acquisition=cast("DataAcquisitionService", FailingAcquisitionService()),
+    )
+
+    response = asyncio.run(service.answer("Where should I buy a home?"))
+
+    assert response.status is CopilotStatus.INSUFFICIENT_DATA
+    assert response.source_candidates == ()
+    assert any("Source discovery was unavailable" in warning for warning in response.warnings)
+    assert "could not run" in response.answer
+    assert any(
+        item.tool == "discover_sources" and item.outcome == "failed" for item in response.tool_trace
+    )

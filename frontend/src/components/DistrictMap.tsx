@@ -3,13 +3,20 @@ import atlas from '../data/district-map.json'
 import type { CoverageGap } from '../lib/copilot'
 import type { HighlightSet } from '../lib/districtHighlights'
 import { resolveDistrict, type District } from '../lib/districts'
-import { districtLabel, formatNumber, formatUnit } from '../lib/format'
+import { compactFor, districtLabel, formatNumber, formatUnit } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 
 type Camera = { x: number; y: number; scale: number }
 const home: Camera = { x: 0, y: 0, scale: 1 }
 const minScale = 1
 const maxScale = 3.5
+
+/** The one place the choropleth ramp is defined, so the fills on the map and
+ * the legend beside it can never drift apart. */
+const shadeFloor = 18
+const shadeCeiling = 88
+const shade = (share: number): string =>
+  `color-mix(in srgb, var(--accent) ${shadeFloor + share * (shadeCeiling - shadeFloor)}%, var(--map-base))`
 
 /** Atlas areas joined to the canonical dictionary by name. The atlas `number`
  * field is alphabetical by English name and is deliberately never read. */
@@ -94,8 +101,28 @@ export default function DistrictMap({
     // observed range so a wholly negative metric still reads. Nothing is
     // recomputed: the ratio is an opacity, never a number shown to the reader.
     const share = Math.max(0, Math.min(1, (hit.value - highlights.minimum) / span))
-    return `color-mix(in srgb, var(--accent) ${18 + share * 70}%, var(--map-base))`
+    return shade(share)
   }
+
+  // A shaded map cannot be read without the scale that produced it. Both ends of
+  // the ramp are figures the backend already returned for this answer; the ramp
+  // is only labelled, never recalculated, and it is withheld when the answer
+  // carries no comparable quantity to grade.
+  const legend = (() => {
+    if (!highlights.byCode.size) return null
+    const span = highlights.maximum - highlights.minimum
+    if (span <= 0) return null
+    const reading = highlights.byCode.values().next().value ?? null
+    const compact = compactFor(language)
+    return {
+      label: reading?.valueLabel ?? t('value'),
+      unit: reading?.unit ?? null,
+      // Top of the ramp first, so the column reads high to low like the fill.
+      stops: [1, 0.5, 0].map(share => compact.format(highlights.minimum + share * span)),
+      low: formatNumber(highlights.minimum, language),
+      high: formatNumber(highlights.maximum, language),
+    }
+  })()
 
   return (
     <section className="district-map" aria-label={t('mapLabel')}>
@@ -214,6 +241,35 @@ export default function DistrictMap({
           </svg>
         </div>
 
+        {legend ? (
+          <div
+            className="map-legend"
+            role="img"
+            aria-label={t('mapScaleAria', {
+              label: legend.label,
+              low: legend.low,
+              high: legend.high,
+            })}
+          >
+            <span className="map-legend-title">
+              {legend.label}
+              {legend.unit ? <i>{formatUnit(legend.unit, language)}</i> : null}
+            </span>
+            <div className="map-legend-body">
+              <span className="map-legend-ramp" aria-hidden="true" />
+              <ol className="map-legend-stops" aria-hidden="true">
+                {legend.stops.map((text, index) => (
+                  <li key={index}>{text}</li>
+                ))}
+              </ol>
+            </div>
+            <span className="map-legend-empty">
+              <i aria-hidden="true" />
+              {t('mapNoData')}
+            </span>
+          </div>
+        ) : null}
+
         <div className="map-controls" role="group" aria-label={t('mapZoom')}>
           <button type="button" aria-label={t('zoomOut')} disabled={camera.scale <= minScale}
             onClick={() => move({ ...camera, scale: camera.scale - 0.5 })}>−</button>
@@ -279,8 +335,6 @@ export default function DistrictMap({
           {t('mapUnplaceable', { names: highlights.unplaceable.join(listSeparator) })}
         </p>
       ) : null}
-
-      <p className="map-attribution">{t('mapAttribution', { edition: atlas.edition })}</p>
     </section>
   )
 }

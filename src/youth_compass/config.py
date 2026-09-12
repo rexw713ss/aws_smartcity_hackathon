@@ -167,7 +167,7 @@ class AcquisitionSettings(BaseModel):
 class ApiSettings(BaseModel):
     """HTTP surface settings that only matter once the API is deployed.
 
-    Both fields default to "closed": no cross-origin caller is allowed and no
+    Every field defaults to "closed": no cross-origin caller is allowed and no
     write token is configured. The deployment stack supplies real values.
     """
 
@@ -182,7 +182,14 @@ class ApiSettings(BaseModel):
     cors_allowed_origins: str = ""
     # Shared secret required by the mutating endpoints. When unset the guard is
     # inactive, which keeps local development and the test suite unchanged.
+    #
+    # A deployment supplies ``write_secret_arn`` instead: the literal value of a
+    # plain environment variable is visible in the Lambda configuration and in
+    # the CloudFormation template, so the deployed secret lives in Secrets
+    # Manager and is fetched at runtime. A literal ``write_secret`` still wins
+    # when both are set, which is what local development and tests use.
     write_secret: str | None = None
+    write_secret_arn: str | None = None
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

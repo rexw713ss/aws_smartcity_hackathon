@@ -46,23 +46,43 @@ _ENGLISH_CUES = frozenset(
         "what",
     }
 )
+# Follow-up turns are short, so the cue has to be in the question itself: "Còn
+# Linkou thì sao?" carries no topic word and would otherwise fall through to the
+# English default and answer a Vietnamese question in English. Almost every
+# entry is diacritic-bearing, which is what keeps it from colliding with an
+# English word; "so" and "sao" are kept because neither is English either.
 _VIETNAMESE_CUES = frozenset(
     {
         "cho",
+        "chỉ",
+        "còn",
         "dân",
+        "giới",
         "đến",
+        "hướng",
         "khu",
+        "lấy",
         "nào",
+        "nghiệp",
+        "ngoái",
+        "nhóm",
+        "nữ",
+        "năm",
         "quận",
+        "sao",
         "sánh",
         "so",
         "số",
+        "thất",
+        "thì",
         "thế",
+        "tuổi",
         "tôi",
         "từ",
+        "và",
+        "với",
         "xem",
         "xu",
-        "hướng",
         "ở",
     }
 )

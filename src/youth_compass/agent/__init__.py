@@ -9,6 +9,7 @@ from youth_compass.agent.answering import (
 from youth_compass.agent.contracts import (
     AnalysisFilters,
     AnalysisOperation,
+    AnnotationKind,
     AnswerCompositionContext,
     AnswerDraft,
     CandidateInsight,
@@ -41,8 +42,10 @@ from youth_compass.agent.contracts import (
     RoutedToolStep,
     ToolCapability,
     ToolTrace,
+    VisualizationAnnotation,
     VisualizationColumn,
     VisualizationEncoding,
+    VisualizationReferenceLine,
     VisualizationSpec,
     VisualizationType,
     VisualizationValue,
@@ -54,6 +57,15 @@ from youth_compass.agent.conversation import (
     context_from_decomposition,
     new_session_id,
 )
+from youth_compass.agent.data_shape import (
+    DataIssue,
+    Direction,
+    EntitySignal,
+    Granularity,
+    IssueCode,
+    SeriesProfile,
+    profile_series,
+)
 from youth_compass.agent.evals import (
     AgentEvalCase,
     AgentEvalHarness,
@@ -62,11 +74,23 @@ from youth_compass.agent.evals import (
     load_eval_cases,
 )
 from youth_compass.agent.limitations import DataLimitationsBuilder
+from youth_compass.agent.measures import (
+    Measure,
+    MeasuredPoint,
+    Transform,
+    apply_measure,
+    choose_measure,
+)
 from youth_compass.agent.observation_tools import (
     CompareEntitiesTool,
     InspectDatasetTool,
     ObservationToolSuite,
     QueryObservationsTool,
+)
+from youth_compass.agent.planner import (
+    CopilotPlanner,
+    DeterministicCopilotPlanner,
+    ModelCopilotPlanner,
 )
 from youth_compass.agent.planning import (
     DeterministicQueryDecomposer,
@@ -81,13 +105,23 @@ from youth_compass.agent.planning import (
     register_impact_capabilities,
     register_observation_capabilities,
 )
-from youth_compass.agent.service import (
-    CopilotPlanner,
-    DeterministicCopilotPlanner,
-    GroundedCopilotService,
-    ModelCopilotPlanner,
-)
+from youth_compass.agent.service import GroundedCopilotService
 from youth_compass.agent.visualization import MapReading, VisualizationBuilder
+from youth_compass.agent.viz_evals import (
+    DimensionScore,
+    RubricDimension,
+    VisualizationEvalCase,
+    VisualizationEvalResult,
+    grade_visualizations,
+)
+from youth_compass.agent.viz_selection import (
+    CandidateRole,
+    RejectedVisualization,
+    RejectionReason,
+    SelectionResult,
+    VisualizationCandidate,
+    select_visualizations,
+)
 
 __all__ = [
     "AgentEvalCase",
@@ -96,10 +130,12 @@ __all__ = [
     "AgentEvalResult",
     "AnalysisFilters",
     "AnalysisOperation",
+    "AnnotationKind",
     "AnswerComposer",
     "AnswerCompositionContext",
     "AnswerDraft",
     "CandidateInsight",
+    "CandidateRole",
     "CompareEntitiesTool",
     "ComposedAnswer",
     "ConversationContext",
@@ -111,6 +147,7 @@ __all__ = [
     "CopilotStatus",
     "CoverageGap",
     "DataFreshness",
+    "DataIssue",
     "DataLimitations",
     "DataLimitationsBuilder",
     "DatasetInspection",
@@ -119,13 +156,17 @@ __all__ = [
     "DeterministicAnswerComposer",
     "DeterministicCopilotPlanner",
     "DeterministicQueryDecomposer",
+    "DimensionScore",
+    "Direction",
     "EntityChange",
     "EntityComparison",
+    "EntitySignal",
     "EvidenceCitation",
     "EvidenceExcerptRow",
     "FallbackAnswerComposer",
     "FallbackQueryDecomposer",
     "FeatureContributionInsight",
+    "Granularity",
     "GroundedCopilotService",
     "ImpactAnalysis",
     "ImpactDataGap",
@@ -133,8 +174,11 @@ __all__ = [
     "InMemoryConversationContextStore",
     "InspectDatasetTool",
     "InvestmentRecommendation",
+    "IssueCode",
     "JoinedObservationRow",
     "MapReading",
+    "Measure",
+    "MeasuredPoint",
     "ModelAnswerComposer",
     "ModelCopilotPlanner",
     "ModelQueryDecomposer",
@@ -145,24 +189,40 @@ __all__ = [
     "QueryDecomposer",
     "QueryObservationsTool",
     "RegionScheme",
+    "RejectedVisualization",
+    "RejectionReason",
     "RoutedToolPlan",
     "RoutedToolStep",
+    "RubricDimension",
+    "SelectionResult",
+    "SeriesProfile",
     "SmartToolRouter",
     "ToolCapability",
     "ToolCapabilityRegistry",
     "ToolTrace",
+    "Transform",
+    "VisualizationAnnotation",
     "VisualizationBuilder",
+    "VisualizationCandidate",
     "VisualizationColumn",
     "VisualizationEncoding",
+    "VisualizationEvalCase",
+    "VisualizationEvalResult",
+    "VisualizationReferenceLine",
     "VisualizationSpec",
     "VisualizationType",
     "VisualizationValue",
+    "apply_measure",
+    "choose_measure",
     "context_from_decomposition",
     "default_decision_capabilities",
+    "grade_visualizations",
     "load_eval_cases",
     "new_session_id",
+    "profile_series",
     "register_acquisition_capabilities",
     "register_forecast_capabilities",
     "register_impact_capabilities",
     "register_observation_capabilities",
+    "select_visualizations",
 ]

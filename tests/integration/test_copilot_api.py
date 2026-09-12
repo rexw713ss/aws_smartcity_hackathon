@@ -337,11 +337,17 @@ def test_copilot_compares_generic_observation_trends(tmp_path: Path) -> None:
         "explain_lineage",
         "answer_composer",
         "visualization_builder",
+        "visualization_selector",
         "audit_limitations",
     ]
     # A comparison question gets the one chart that answers it directly,
     # rather than a redundant line, table, and map of the same observations.
     assert [item["type"] for item in body["visualizations"]] == ["comparison_bar"]
+    # Every district moved in one direction throughout, so a line would only
+    # redraw the endpoints the bar already reports. The cut is recorded rather
+    # than left as a silent absence.
+    selector = next(item for item in body["tool_trace"] if item["tool"] == "visualization_selector")
+    assert "observation-trend cut (weak_intent_fit)" in selector["summary"]
     assert body["citations"][0]["dataset_version"] == "v1"
     assert body["citations"][0]["excerpt"]
     assert {row["period"] for row in body["citations"][0]["excerpt"]} == {

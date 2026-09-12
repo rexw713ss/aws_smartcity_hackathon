@@ -146,6 +146,8 @@ That local tree is ephemeral by design. Nothing durable depends on it: job state
 
 New `ApiSettings` group in `youth_compass.config`, plus `apps/api/security.py`. Both default to closed: no origin is allowed and, when no secret is configured, the guard is inactive so local development and the offline suite behave exactly as before.
 
+A deployment sets `write_secret_arn` rather than `write_secret`, and the guard reads the value from Secrets Manager on first use (cached for five minutes). A literal `write_secret` still takes precedence, which is what tests and local runs use. If the secret cannot be read the guard fails closed with a 503 — an unreachable secret store must never become an unguarded write path.
+
 ---
 
 ## 4. Deploying
@@ -155,14 +157,17 @@ New `ApiSettings` group in `youth_compass.config`, plus `apps/api/security.py`. 
 ```bash
 export AWS_ACCOUNT_ID=765996595659
 export YOUTH_COMPASS_REGION=us-east-1
-export YOUTH_COMPASS_WRITE_SECRET="$(cat .api-write-secret)"
 ```
 
-Generate a secret if you do not have one (minimum 16 characters; synthesis refuses without it):
+The API write secret is no longer supplied at deploy time. The stack creates it in Secrets Manager with a generated value, so it appears in neither the CloudFormation template nor the function's environment. Read it back when you need to call a write endpoint:
 
 ```bash
-python -c 'import secrets; print(secrets.token_urlsafe(32))' > .api-write-secret
+aws secretsmanager get-secret-value \
+  --secret-id YouthCompass-hackathon-api-write-secret \
+  --query SecretString --output text
 ```
+
+The secret's name is also published as the `WriteSecretName` stack output. Rotating it is a `put-secret-value` away: the function caches the value for five minutes and then picks up the new one without a redeploy.
 
 ### 4.2 API and infrastructure
 

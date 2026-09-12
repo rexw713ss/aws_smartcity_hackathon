@@ -61,14 +61,13 @@ format:  ## Reformat and autofix
 build-api-lambda:  ## Build the API Lambda deployment package
 	uv run python scripts/build_lambda.py api
 
-deploy-api:  ## Build and deploy the API + static site stack (creds). Needs YOUTH_COMPASS_WRITE_SECRET
+deploy-api:  ## Build and deploy the API + static site stack (creds)
 	uv run python scripts/build_lambda.py api
 	cd infra && npx --yes aws-cdk@2 deploy \
 		"YouthCompass-$(ENV)-Workflow" "YouthCompass-$(ENV)-Api" \
 		-c env=$(ENV) -c region=$${YOUTH_COMPASS_REGION:-us-east-1} \
 		-c account=$${AWS_ACCOUNT_ID} -c withApi=1 \
 		-c budgetEmail=$${YOUTH_COMPASS_BUDGET_EMAIL:-alerts@example.invalid} \
-		-c writeSecret=$${YOUTH_COMPASS_WRITE_SECRET} \
 		--require-approval never
 
 deploy-site:  ## Upload web/ to the site bucket and invalidate CloudFront (creds)

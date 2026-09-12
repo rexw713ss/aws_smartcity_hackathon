@@ -31,13 +31,22 @@ labels, stable field encodings, inline grounded rows, and citation IDs.
 | Type | Backend use | Suggested frontend component |
 |---|---|---|
 | `line` | Observation trends by entity and period | Multi-series line chart |
+| `slope` | Exactly two periods across three or more entities | Slope chart, labelled at both ends |
+| `scatter` | Two joined datasets in their latest common period | Scatter, one point per district |
 | `comparison_bar` | Absolute change across entities | Vertical bar chart |
 | `ranking_bar` | Eligible decision candidates by score | Horizontal ranking chart |
 | `contribution_bar` | Feature contribution for the top candidate | Horizontal contribution chart |
 | `choropleth` | One district-keyed figure per area | Shaded administrative map |
 | `data_table` | Universal fallback and exact values | Sortable accessible table |
 
-The backend selects the smallest useful set rather than returning every possible view:
+Since doc 30 a spec may also carry a `headline` (the finding, not the subject), `annotations`
+(interior peaks and troughs), `reference_lines` (the median across places), `focus_entities`
+(drawn forward while the rest recede), and `band_lower_field`/`band_upper_field` (a forecast's
+uncertainty interval, valid on a line only).
+
+The backend selects the smallest useful set rather than returning every possible view. Doc 30
+replaced the fixed rules below with scoring; they remain accurate as a description of what that
+scoring produces:
 
 - a ranking bar requires at least two eligible candidates with different scores;
 - a contribution bar requires at least two non-zero contributions;

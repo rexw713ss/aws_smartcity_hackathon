@@ -96,6 +96,17 @@
         "title": "AnalysisOperation",
         "type": "string"
       },
+      "AnnotationKind": {
+        "description": "Points on a chart worth naming, because the eye does not find them alone.",
+        "enum": [
+          "peak",
+          "trough",
+          "turning_point",
+          "latest"
+        ],
+        "title": "AnnotationKind",
+        "type": "string"
+      },
       "Body_upload_dataset_api_v1_datasets_upload_post": {
         "properties": {
           "file": {
@@ -3574,6 +3585,58 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VisualizationAnnotation": {
+        "description": "One labelled point, keyed the same way the rows are.",
+        "properties": {
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AnnotationKind"
+          },
+          "label": {
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "VisualizationAnnotation",
+        "type": "object"
+      },
       "VisualizationColumn": {
         "description": "One localized column in a table fallback.",
         "properties": {
@@ -3649,9 +3712,71 @@
         "title": "VisualizationEncoding",
         "type": "object"
       },
+      "VisualizationReferenceLine": {
+        "description": "A comparison mark, such as the city-wide median, drawn across the plot.",
+        "properties": {
+          "axis": {
+            "default": "y",
+            "enum": [
+              "x",
+              "y"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "VisualizationReferenceLine",
+        "type": "object"
+      },
       "VisualizationSpec": {
         "description": "Declarative, allowlisted visualization with grounded inline rows.",
         "properties": {
+          "annotations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VisualizationAnnotation"
+            },
+            "maxItems": 12,
+            "title": "Annotations",
+            "type": "array"
+          },
+          "band_lower_field": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band Lower Field"
+          },
+          "band_upper_field": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band Upper Field"
+          },
           "citation_ids": {
             "default": [],
             "items": {
@@ -3678,6 +3803,35 @@
               }
             ],
             "title": "Description"
+          },
+          "focus_entities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Focus Entities",
+            "type": "array"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "reference_lines": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VisualizationReferenceLine"
+            },
+            "maxItems": 4,
+            "title": "Reference Lines",
+            "type": "array"
           },
           "region_field": {
             "anyOf": [
@@ -3782,6 +3936,8 @@
         "description": "Frontend-agnostic visualization templates supported by the API.",
         "enum": [
           "line",
+          "slope",
+          "scatter",
           "comparison_bar",
           "ranking_bar",
           "contribution_bar",

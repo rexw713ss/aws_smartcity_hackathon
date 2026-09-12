@@ -7,6 +7,7 @@ crosses the port boundary. Enforces metric/dimension allowlists, max_rows,
 query timeout, and a scanned-bytes cap.
 """
 
+import logging
 import math
 import re
 import time
@@ -18,6 +19,8 @@ import botocore.exceptions
 
 from youth_compass.domain.errors import QueryExecutionError, QueryNotPermittedError
 from youth_compass.ports.query_engine import CellValue, QueryResult, QuerySpec
+
+_LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_S = 60
 _DEFAULT_SCAN_LIMIT = 100 * 1024 * 1024  # 100 MiB
@@ -67,7 +70,11 @@ class AthenaQueryEngine:
         try:
             return self._submit_and_poll(sql, query.max_rows)
         except botocore.exceptions.ClientError as exc:
-            raise QueryExecutionError(str(exc)[:200]) from exc
+            # The raw message names ARNs and IAM specifics that reach the API
+            # client verbatim. Log it for the operator, raise only the code.
+            _LOGGER.warning("athena query failed: %s", exc)
+            code = exc.response.get("Error", {}).get("Code", "Unknown")
+            raise QueryExecutionError(f"the analytics engine rejected the query ({code})") from exc
 
     def _check_allowlist(self, query: QuerySpec) -> None:
         if query.table not in self._allowed_tables:

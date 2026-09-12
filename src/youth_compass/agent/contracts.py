@@ -376,11 +376,44 @@ class VisualizationType(StrEnum):
     """Frontend-agnostic visualization templates supported by the API."""
 
     LINE = "line"
+    SLOPE = "slope"
+    SCATTER = "scatter"
     COMPARISON_BAR = "comparison_bar"
     RANKING_BAR = "ranking_bar"
     CONTRIBUTION_BAR = "contribution_bar"
     CHOROPLETH = "choropleth"
     DATA_TABLE = "data_table"
+
+
+class AnnotationKind(StrEnum):
+    """Points on a chart worth naming, because the eye does not find them alone."""
+
+    PEAK = "peak"
+    TROUGH = "trough"
+    TURNING_POINT = "turning_point"
+    LATEST = "latest"
+
+
+class VisualizationAnnotation(BaseModel):
+    """One labelled point, keyed the same way the rows are."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: AnnotationKind
+    label: str = Field(min_length=1)
+    entity_name: str | None = None
+    period: str | None = None
+    value: float | None = None
+
+
+class VisualizationReferenceLine(BaseModel):
+    """A comparison mark, such as the city-wide median, drawn across the plot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str = Field(min_length=1)
+    value: float
+    axis: Literal["x", "y"] = "y"
 
 
 class RegionScheme(StrEnum):
@@ -431,11 +464,24 @@ class VisualizationSpec(BaseModel):
     x: VisualizationEncoding | None = None
     y: VisualizationEncoding | None = None
     series_field: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
+    # Set only on a line: the row fields carrying an uncertainty interval around
+    # y. A forecast that ships a point estimate without its bounds invites the
+    # reader to treat a projection as a measurement.
+    band_lower_field: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
+    band_upper_field: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
     # Set only on a choropleth: which row field carries the region key, and
     # which boundary set that key belongs to.
     region_field: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
     region_scheme: RegionScheme | None = None
     columns: tuple[VisualizationColumn, ...] = ()
+    # What the chart is for the reader to take away. A title names the subject;
+    # a headline states the finding, so an answer skimmed at a glance still
+    # carries the point rather than only the axes.
+    headline: str | None = Field(default=None, max_length=300)
+    annotations: tuple[VisualizationAnnotation, ...] = Field(default=(), max_length=12)
+    reference_lines: tuple[VisualizationReferenceLine, ...] = Field(default=(), max_length=4)
+    # Rows naming these entities are drawn forward; the rest become context.
+    focus_entities: tuple[str, ...] = ()
     rows: tuple[dict[str, VisualizationValue], ...] = Field(default=(), max_length=500)
     citation_ids: tuple[str, ...] = ()
     truncated: bool = False
@@ -447,6 +493,11 @@ class VisualizationSpec(BaseModel):
             raise ValueError("a choropleth must name its region field and boundary scheme")
         if not mapped and (self.region_field is not None or self.region_scheme is not None):
             raise ValueError("only a choropleth may carry region fields")
+        band = (self.band_lower_field, self.band_upper_field)
+        if any(band) and not all(band):
+            raise ValueError("an uncertainty band needs both a lower and an upper field")
+        if any(band) and self.type is not VisualizationType.LINE:
+            raise ValueError("only a line may carry an uncertainty band")
 
 
 class DataFreshness(BaseModel):

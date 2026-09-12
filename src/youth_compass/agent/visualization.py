@@ -1,21 +1,35 @@
 """Deterministic visualization specs built from grounded agent results."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
+from statistics import median
 
 from youth_compass.agent.contracts import (
+    AnalysisOperation,
+    AnnotationKind,
     CandidateInsight,
     DatasetInspection,
+    DecomposedQuery,
     EntityComparison,
+    ObservationPoint,
     ObservationSeries,
     RegionScheme,
+    VisualizationAnnotation,
     VisualizationColumn,
     VisualizationEncoding,
+    VisualizationReferenceLine,
     VisualizationSpec,
     VisualizationType,
     VisualizationValue,
+)
+from youth_compass.agent.data_shape import SeriesProfile
+from youth_compass.agent.measures import Measure, Transform, apply_measure
+from youth_compass.agent.viz_selection import (
+    CandidateRole,
+    VisualizationCandidate,
+    select_visualizations,
 )
 from youth_compass.ontology import (
     NameLanguage,
@@ -178,90 +192,74 @@ class VisualizationBuilder:
         series: ObservationSeries,
         comparison: EntityComparison | None,
         citation_ids: tuple[str, ...],
+        *,
+        decomposition: DecomposedQuery | None = None,
+        measure: Measure | None = None,
+        denominators: Mapping[str, float] | None = None,
+        profile: SeriesProfile | None = None,
     ) -> tuple[VisualizationSpec, ...]:
+        """Return the views worth showing; see `observation_candidates` for the rest."""
+
+        candidates = self.observation_candidates(
+            question,
+            series,
+            comparison,
+            citation_ids,
+            decomposition=decomposition,
+            measure=measure,
+            denominators=denominators,
+        )
+        return select_visualizations(candidates, profile=profile).selected
+
+    def observation_candidates(
+        self,
+        question: str,
+        series: ObservationSeries,
+        comparison: EntityComparison | None,
+        citation_ids: tuple[str, ...],
+        *,
+        decomposition: DecomposedQuery | None = None,
+        measure: Measure | None = None,
+        denominators: Mapping[str, float] | None = None,
+    ) -> tuple[VisualizationCandidate, ...]:
+        """Build every defensible view of one observation result, scored by fit.
+
+        The trend and the comparison are both offered rather than chosen by an
+        `elif` here: which one survives is a scoring decision, made once, in
+        `viz_selection`, from the signal actually present in the rows.
+        """
+
         labels = _labels(question)
         language = _language(question)
-        rows: list[dict[str, VisualizationValue]] = [
-            {
-                "period": point.period,
-                "entity_id": point.entity_id,
-                "entity_name": readable_entity_name(point.entity_id, point.entity_name, language),
-                "value": point.value,
-                "estimated_value": point.estimated_value,
-            }
-            for point in series.points
-        ]
         metric_title = f"{humanize_code(series.metric_code)} {labels['trend_suffix']}"
-        chart_rows, excluded_rows = _complete_series_rows(rows)
-        chart_rows = _insert_monthly_gaps(chart_rows)
-        chart_rows, sampled_rows = _select_informative_line_rows(chart_rows)
-        excluded_rows = excluded_rows or sampled_rows
-        specs: list[VisualizationSpec] = []
-        comparison_rows: list[dict[str, VisualizationValue]] = []
-        if comparison is not None:
-            comparison_rows = [
-                {
-                    "entity_id": change.entity_id,
-                    "entity_name": readable_entity_name(
-                        change.entity_id, change.entity_name, language
-                    ),
-                    "absolute_change": change.absolute_change,
-                    "percent_change": change.percent_change,
-                    "direction": change.direction,
-                }
-                for change in comparison.changes
-                if change.observation_count >= _MIN_LINE_PERIODS
-            ]
-        comparison_is_useful = len(comparison_rows) >= _MIN_BAR_CATEGORIES
-        comparison_rows.sort(
-            key=lambda row: (
-                -abs(float(row["absolute_change"] or 0)),
-                str(row["entity_name"]),
-            )
+        candidates: list[VisualizationCandidate] = []
+
+        trend = self._trend_candidate(
+            series,
+            citation_ids,
+            labels=labels,
+            language=language,
+            title=metric_title,
+            measure=measure,
+            denominators=denominators,
+            intent_fit=_trend_fit(series, decomposition),
         )
-        # A comparison question is answered most directly by one comparison
-        # chart. A trend question gets a line. Avoid returning both by default.
-        if comparison_is_useful:
-            specs.append(
-                VisualizationSpec(
-                    visualization_id="entity-change-comparison",
-                    type=VisualizationType.COMPARISON_BAR,
-                    title=labels["comparison_title"],
-                    x=_encoding("entity_name", labels["entity"], "nominal"),
-                    y=_encoding(
-                        "absolute_change",
-                        labels["absolute_change"],
-                        "quantitative",
-                        series.unit_code,
-                    ),
-                    rows=tuple(comparison_rows[:_MAX_BAR_CATEGORIES]),
-                    citation_ids=citation_ids,
-                    truncated=len(comparison_rows) > _MAX_BAR_CATEGORIES,
-                )
-            )
-        elif chart_rows:
-            has_gaps = any(row.get("value") is None for row in chart_rows)
-            specs.append(
-                VisualizationSpec(
-                    visualization_id="observation-trend",
-                    type=VisualizationType.LINE,
-                    title=metric_title,
-                    description=_trend_description(language, sampled_rows, has_gaps),
-                    x=_encoding("period", labels["period"], "temporal"),
-                    y=_encoding("value", labels["value"], "quantitative", series.unit_code),
-                    series_field="entity_name",
-                    rows=tuple(chart_rows[:_MAX_CHART_ROWS]),
-                    citation_ids=citation_ids,
-                    truncated=excluded_rows or len(chart_rows) > _MAX_CHART_ROWS,
-                )
-            )
-        # Observation rows are already available through the cited evidence.
-        # Do not duplicate them as a long table; no chart is better than a weak
-        # chart when the series is too sparse to visualize honestly.
-        # A map is useful only for an explicitly spatial question. Use the
-        # newest period shared by every mapped district, never a sparse global
-        # maximum that silently drops lagging districts.
-        period = _latest_common_period(series) if _wants_map(question) else None
+        if trend is not None:
+            candidates.append(trend)
+
+        change = self._comparison_candidate(
+            comparison,
+            citation_ids,
+            labels=labels,
+            language=language,
+            series=series,
+            measure=measure,
+        )
+        if change is not None:
+            candidates.append(change)
+
+        spatial_fit = _spatial_fit(question, decomposition)
+        period = _latest_common_period(series)
         mapped = _choropleth(
             visualization_id="observation-map",
             title=f"{metric_title} · {period}" if period else metric_title,
@@ -282,9 +280,122 @@ class VisualizationBuilder:
             citation_ids=citation_ids,
             description=labels["map_description"],
         )
-        if mapped is not None and comparison is None:
-            specs.append(mapped)
-        return tuple(specs)
+        if mapped is not None:
+            candidates.append(
+                VisualizationCandidate(
+                    spec=mapped, role=CandidateRole.CROSS_ENTITY, intent_fit=spatial_fit
+                )
+            )
+        return tuple(candidates)
+
+    def _trend_candidate(
+        self,
+        series: ObservationSeries,
+        citation_ids: tuple[str, ...],
+        *,
+        labels: dict[str, str],
+        language: NameLanguage,
+        title: str,
+        measure: Measure | None,
+        denominators: Mapping[str, float] | None,
+        intent_fit: float = 1.0,
+    ) -> VisualizationCandidate | None:
+        """A line over time, in the measure the caller chose for this result."""
+
+        plotted = _measured_rows(series, measure, denominators, language)
+        if plotted is None:
+            return None
+        rows, unit, value_label, rationale = plotted
+        chart_rows, excluded_rows = _complete_series_rows(rows)
+        chart_rows = _insert_monthly_gaps(chart_rows)
+        chart_rows, sampled_rows = _select_informative_line_rows(chart_rows)
+        if not chart_rows:
+            return None
+        has_gaps = any(row.get("value") is None for row in chart_rows)
+        caveat = _trend_description(language, sampled_rows, has_gaps)
+        description = " ".join(part for part in (rationale, caveat) if part) or None
+        # Two periods draw a straight segment per entity. Stacked on one axis
+        # that is unreadable past a handful of places; as a slope it is exactly
+        # the "who moved, and which way" picture the reader is after.
+        slope = _is_slope_shaped(chart_rows)
+        narrative = _trend_narrative(chart_rows, labels, language, unit)
+        return VisualizationCandidate(
+            spec=VisualizationSpec(
+                visualization_id="observation-slope" if slope else "observation-trend",
+                type=VisualizationType.SLOPE if slope else VisualizationType.LINE,
+                title=title,
+                description=description,
+                headline=narrative.headline,
+                annotations=narrative.annotations,
+                reference_lines=narrative.reference_lines,
+                focus_entities=narrative.focus_entities,
+                x=_encoding("period", labels["period"], "temporal"),
+                y=_encoding("value", value_label or labels["value"], "quantitative", unit),
+                series_field="entity_name",
+                rows=tuple(chart_rows[:_MAX_CHART_ROWS]),
+                citation_ids=citation_ids,
+                truncated=excluded_rows or sampled_rows or len(chart_rows) > _MAX_CHART_ROWS,
+            ),
+            role=CandidateRole.TREND,
+            intent_fit=intent_fit,
+        )
+
+    def _comparison_candidate(
+        self,
+        comparison: EntityComparison | None,
+        citation_ids: tuple[str, ...],
+        *,
+        labels: dict[str, str],
+        language: NameLanguage,
+        series: ObservationSeries,
+        measure: Measure | None,
+    ) -> VisualizationCandidate | None:
+        """First-to-last change per entity, in absolute terms or as a percentage."""
+
+        if comparison is None:
+            return None
+        relative = measure is not None and measure.transform is Transform.PCT_CHANGE
+        field = "percent_change" if relative else "absolute_change"
+        rows: list[dict[str, VisualizationValue]] = [
+            {
+                "entity_id": change.entity_id,
+                "entity_name": readable_entity_name(change.entity_id, change.entity_name, language),
+                "absolute_change": change.absolute_change,
+                "percent_change": change.percent_change,
+                "direction": change.direction,
+            }
+            for change in comparison.changes
+            if change.observation_count >= _MIN_LINE_PERIODS
+            and (not relative or change.percent_change is not None)
+        ]
+        if len(rows) < _MIN_BAR_CATEGORIES:
+            return None
+        rows.sort(key=lambda row: (-abs(float(row[field] or 0)), str(row["entity_name"])))
+        unit = measure.unit_code if relative and measure is not None else series.unit_code
+        narrative = _comparison_narrative(rows, field, labels, language, unit)
+        return VisualizationCandidate(
+            spec=VisualizationSpec(
+                visualization_id="entity-change-comparison",
+                type=VisualizationType.COMPARISON_BAR,
+                title=labels["comparison_title"],
+                description=measure.rationale if relative and measure is not None else None,
+                headline=narrative.headline,
+                focus_entities=narrative.focus_entities,
+                x=_encoding("entity_name", labels["entity"], "nominal"),
+                y=_encoding(
+                    field,
+                    measure.label
+                    if relative and measure is not None
+                    else labels["absolute_change"],
+                    "quantitative",
+                    unit,
+                ),
+                rows=tuple(rows[:_MAX_BAR_CATEGORIES]),
+                citation_ids=citation_ids,
+                truncated=len(rows) > _MAX_BAR_CATEGORIES,
+            ),
+            role=CandidateRole.CROSS_ENTITY,
+        )
 
     def inspection(
         self, question: str, inspection: DatasetInspection
@@ -375,6 +486,8 @@ class VisualizationBuilder:
                     x=_encoding("period", labels["period"], "temporal"),
                     y=_encoding("value", labels["forecast_value"], "quantitative"),
                     series_field="entity_name",
+                    band_lower_field="lower",
+                    band_upper_field="upper",
                     rows=tuple(chart_rows[:_MAX_CHART_ROWS]),
                     citation_ids=citation_ids,
                     truncated=excluded_rows or len(chart_rows) > _MAX_CHART_ROWS,
@@ -438,6 +551,288 @@ class VisualizationBuilder:
                 rows=tuple(rows),
             ),
         )
+
+
+_MIN_SLOPE_ENTITIES = 3
+
+
+@dataclass(frozen=True, slots=True)
+class ChartNarrative:
+    """What a chart says, on the chart, in the language it was asked in."""
+
+    headline: str | None = None
+    annotations: tuple[VisualizationAnnotation, ...] = ()
+    reference_lines: tuple[VisualizationReferenceLine, ...] = ()
+    focus_entities: tuple[str, ...] = ()
+
+
+def _trend_narrative(
+    rows: Sequence[dict[str, VisualizationValue]],
+    labels: dict[str, str],
+    language: NameLanguage,
+    unit: str | None,
+) -> ChartNarrative:
+    """Name the entity that actually moved, and the points that shaped its path.
+
+    The headline states one finding taken from the plotted rows. Peaks and
+    troughs are labelled only when they are not the endpoints, because an
+    annotation on the first or last point tells the reader what the axis already
+    does.
+    """
+
+    by_entity: dict[str, list[tuple[str, float]]] = {}
+    for row in rows:
+        name = str(row.get("entity_name") or "")
+        period = row.get("period")
+        value = row.get("value")
+        if name and isinstance(period, str) and isinstance(value, int | float):
+            by_entity.setdefault(name, []).append((period, float(value)))
+    ranked: list[tuple[float, str, list[tuple[str, float]]]] = []
+    for name, points in by_entity.items():
+        ordered = sorted(points)
+        if len(ordered) < _MIN_LINE_PERIODS or not ordered[0][1]:
+            continue
+        ratio = abs(ordered[-1][1] - ordered[0][1]) / abs(ordered[0][1])
+        ranked.append((ratio, name, ordered))
+    if not ranked:
+        return ChartNarrative()
+    ratio, name, ordered = max(ranked, key=lambda item: (item[0], item[1]))
+    first_period, first_value = ordered[0]
+    last_period, last_value = ordered[-1]
+    headline = _movement_headline(
+        language, name, first_period, first_value, last_period, last_value, ratio, unit
+    )
+    annotations: list[VisualizationAnnotation] = []
+    interior = ordered[1:-1]
+    if interior:
+        peak = max(interior, key=lambda point: point[1])
+        trough = min(interior, key=lambda point: point[1])
+        if peak[1] > max(first_value, last_value):
+            annotations.append(
+                VisualizationAnnotation(
+                    kind=AnnotationKind.PEAK,
+                    label=labels["peak"],
+                    entity_name=name,
+                    period=peak[0],
+                    value=peak[1],
+                )
+            )
+        if trough[1] < min(first_value, last_value):
+            annotations.append(
+                VisualizationAnnotation(
+                    kind=AnnotationKind.TROUGH,
+                    label=labels["trough"],
+                    entity_name=name,
+                    period=trough[0],
+                    value=trough[1],
+                )
+            )
+    return ChartNarrative(
+        headline=headline,
+        annotations=tuple(annotations),
+        reference_lines=_median_reference(by_entity, labels),
+        focus_entities=(name,) if len(by_entity) > 1 else (),
+    )
+
+
+def _median_reference(
+    by_entity: Mapping[str, Sequence[tuple[str, float]]], labels: dict[str, str]
+) -> tuple[VisualizationReferenceLine, ...]:
+    """The median across places in the newest shared period, as a place to stand.
+
+    A single figure means little without one. The median is drawn only when
+    enough places share a period for it to describe a middle at all.
+    """
+
+    if len(by_entity) < _MIN_MEDIAN_ENTITIES:
+        return ()
+    periods = [{period for period, _ in points} for points in by_entity.values()]
+    common = set.intersection(*(set(item) for item in periods))
+    if not common:
+        return ()
+    latest = max(common)
+    values = [
+        value for points in by_entity.values() for period, value in points if period == latest
+    ]
+    return (
+        VisualizationReferenceLine(label=f"{labels['median']} · {latest}", value=median(values)),
+    )
+
+
+def _comparison_narrative(
+    rows: Sequence[dict[str, VisualizationValue]],
+    field: str,
+    labels: dict[str, str],
+    language: NameLanguage,
+    unit: str | None,
+) -> ChartNarrative:
+    """Lead with the entity at the top of the bar chart the caller just built."""
+
+    leader = next(
+        (row for row in rows if isinstance(row.get(field), int | float) and row.get("entity_name")),
+        None,
+    )
+    if leader is None:
+        return ChartNarrative()
+    name = str(leader["entity_name"])
+    value = float(leader[field] or 0)
+    return ChartNarrative(
+        headline=_change_headline(language, name, value, unit),
+        focus_entities=(name,),
+    )
+
+
+def _movement_headline(
+    language: NameLanguage,
+    name: str,
+    first_period: str,
+    first_value: float,
+    last_period: str,
+    last_value: float,
+    ratio: float,
+    unit: str | None,
+) -> str:
+    percent = ratio * 100
+    rising = last_value >= first_value
+    figures = f"{first_value:,.0f} → {last_value:,.0f}"
+    if unit == "index_100":
+        figures = f"{figures} ({_INDEX_NOTE[_text_key(language)]})"
+    if language is NameLanguage.ZH_HANT:
+        movement = "上升" if rising else "下降"
+        return (
+            f"{name}在{first_period}至{last_period}間"
+            f"{movement}{percent:.1f}%（{figures}）"  # noqa: RUF001
+        )
+    if language is NameLanguage.VIETNAMESE:
+        movement = "tăng" if rising else "giảm"
+        return f"{name} {movement} {percent:.1f}% từ {first_period} đến {last_period} ({figures})"
+    movement = "rose" if rising else "fell"
+    return f"{name} {movement} {percent:.1f}% between {first_period} and {last_period} ({figures})"
+
+
+def _change_headline(language: NameLanguage, name: str, value: float, unit: str | None) -> str:
+    figure = f"{value:+,.1f}%" if unit == "percent" else f"{value:+,.0f}"
+    if language is NameLanguage.ZH_HANT:
+        return f"{name}的變化幅度最大（{figure}）"  # noqa: RUF001
+    if language is NameLanguage.VIETNAMESE:
+        return f"{name} thay đổi nhiều nhất ({figure})"
+    return f"{name} changed the most ({figure})"
+
+
+_MIN_MEDIAN_ENTITIES = 3
+_INDEX_NOTE = {
+    "zh": "指數",
+    "vi": "chỉ số",
+    "en": "index",
+}
+
+
+def _text_key(language: NameLanguage) -> str:
+    if language is NameLanguage.ZH_HANT:
+        return "zh"
+    if language is NameLanguage.VIETNAMESE:
+        return "vi"
+    return "en"
+
+
+def _is_slope_shaped(rows: Sequence[dict[str, VisualizationValue]]) -> bool:
+    """Exactly two periods across enough entities to make a line chart a thicket."""
+
+    periods = {row.get("period") for row in rows}
+    entities = {row.get("entity_id") for row in rows}
+    return len(periods) == 2 and len(entities) >= _MIN_SLOPE_ENTITIES
+
+
+def _trend_fit(series: ObservationSeries, decomposition: DecomposedQuery | None) -> float:
+    """How much a line adds once a comparison chart is already answering the question.
+
+    A comparison bar reports first-to-last change. When every entity moved in one
+    direction throughout, the line redraws that single fact with more ink. When
+    one of them reversed along the way, the bar's endpoints hide a turn the
+    reader needs, and the line is the only view that shows it.
+    """
+
+    if decomposition is None or AnalysisOperation.COMPARE_ENTITIES not in decomposition.operations:
+        return 1.0
+    return 0.3 if _every_entity_is_monotonic(series) else 1.0
+
+
+def _every_entity_is_monotonic(series: ObservationSeries) -> bool:
+    by_entity: dict[str, list[ObservationPoint]] = {}
+    for point in series.points:
+        by_entity.setdefault(point.entity_id, []).append(point)
+    for points in by_entity.values():
+        ordered = sorted(points, key=lambda point: point.period)
+        steps = [right.value - left.value for left, right in pairwise(ordered)]
+        rising = [step for step in steps if step > 0]
+        falling = [step for step in steps if step < 0]
+        if rising and falling:
+            return False
+    return True
+
+
+def _measured_rows(
+    series: ObservationSeries,
+    measure: Measure | None,
+    denominators: Mapping[str, float] | None,
+    language: NameLanguage,
+) -> tuple[list[dict[str, VisualizationValue]], str | None, str | None, str | None] | None:
+    """Rows for the line, in the chosen measure, with the axis text it implies.
+
+    A percentage-change measure collapses each entity to one number, which is a
+    bar and not a line, so the trend keeps its published unit and the comparison
+    candidate carries that measure instead.
+    """
+
+    rows: list[dict[str, VisualizationValue]]
+    if measure is None or measure.transform is Transform.PCT_CHANGE:
+        rows = [
+            {
+                "period": point.period,
+                "entity_id": point.entity_id,
+                "entity_name": readable_entity_name(point.entity_id, point.entity_name, language),
+                "value": point.value,
+                "estimated_value": point.estimated_value,
+            }
+            for point in series.points
+        ]
+        return rows, series.unit_code, None, None
+    measured = apply_measure(series, measure, denominators=denominators)
+    if not measured:
+        return None
+    rows = [
+        {
+            "period": point.period,
+            "entity_id": point.entity_id,
+            "entity_name": readable_entity_name(point.entity_id, point.entity_name, language),
+            "value": point.value,
+            # The published figure travels with the transformed one so a tooltip
+            # can always show the number that was actually cited.
+            "source_value": point.source_value,
+        }
+        for point in measured
+    ]
+    return rows, measure.unit_code, measure.label, measure.rationale
+
+
+def _spatial_fit(question: str, decomposition: DecomposedQuery | None) -> float:
+    """How much a map is worth drawing, from structure first and wording second.
+
+    The wording test alone fires on the word "district" in a single-district
+    trend question, which is how an answer about one place ends up carrying a
+    map of one shaded polygon. The number of places the question actually names
+    is the stronger signal, so it decides, and the wording only raises the fit.
+    """
+
+    explicit = _wants_map(question)
+    if decomposition is None:
+        return 1.0 if explicit else 0.0
+    named = len(decomposition.entity_ids)
+    if named == 1:
+        return 0.0
+    if named == 0:
+        return 1.0 if explicit else 0.5
+    return 1.0 if explicit else 0.7
 
 
 def _complete_series_rows(
@@ -733,8 +1128,10 @@ def _labels(question: str) -> dict[str, str]:
             "license": "授權條款",
             "lower": "下界",
             "map_description": "以行政區為單位的分級著色圖。顏色代表後端回傳的數值本身",
+            "median": "中位數",
             "metric": "指標",
             "model_version": "模型版本",
+            "peak": "高點",
             "period": "期間",
             "period_end": "結束期間",
             "period_start": "開始期間",
@@ -750,6 +1147,7 @@ def _labels(question: str) -> dict[str, str]:
             "source_id": "來源識別碼",
             "source_title": "可用的外部資料來源",
             "trend_suffix": "趨勢",
+            "trough": "低點",
             "upper": "上界",
             "value": "數值",
         }
@@ -774,8 +1172,10 @@ def _labels(question: str) -> dict[str, str]:
         "license": "License",
         "lower": "Lower bound",
         "map_description": "District choropleth; shading encodes the value the backend returned",
+        "median": "Median",
         "metric": "Metric",
         "model_version": "Model version",
+        "peak": "Peak",
         "period": "Period",
         "period_end": "Period end",
         "period_start": "Period start",
@@ -791,6 +1191,7 @@ def _labels(question: str) -> dict[str, str]:
         "source_id": "Source ID",
         "source_title": "Available external data sources",
         "trend_suffix": "trend",
+        "trough": "Trough",
         "upper": "Upper bound",
         "value": "Value",
     }

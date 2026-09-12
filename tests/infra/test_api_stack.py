@@ -13,9 +13,8 @@ import pytest
 from aws_cdk.assertions import Match, Template
 
 from infra.environments import resolve_environment
-from infra.errors import InfraConfigError
 from infra.stacks import api as api_module
-from infra.stacks.api import ApiStack, resolve_model_id, resolve_write_secret
+from infra.stacks.api import ApiStack, resolve_model_id
 from tests.infra.constants import PLACEHOLDER_ACCOUNT, PLACEHOLDER_REGION
 
 STATE_MACHINE_ARN = (
@@ -23,7 +22,6 @@ STATE_MACHINE_ARN = (
 )
 MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 FOUNDATION_MODEL_ID = "anthropic.claude-sonnet-4-6"
-WRITE_SECRET = "a-sufficiently-long-secret"
 
 
 @pytest.fixture
@@ -49,7 +47,6 @@ def template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Template:
         state_machine_arn=STATE_MACHINE_ARN,
         region=PLACEHOLDER_REGION,
         model_id=MODEL_ID,
-        write_secret=WRITE_SECRET,
         env=cdk.Environment(account=PLACEHOLDER_ACCOUNT, region=PLACEHOLDER_REGION),
     )
     return Template.from_stack(stack)
@@ -64,6 +61,16 @@ class TestApiFunction:
                 "Runtime": "python3.12",
                 "Handler": "apps.api.lambda_handler.handler",
             },
+        )
+
+    def test_concurrency_is_reserved_so_a_burst_cannot_run_unbounded(
+        self, template: Template
+    ) -> None:
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            Match.object_like(
+                {"ReservedConcurrentExecutions": api_module._API_RESERVED_CONCURRENCY}
+            ),
         )
 
     def test_data_root_points_at_a_writable_location(self, template: Template) -> None:
@@ -91,7 +98,7 @@ class TestApiFunction:
                             "YOUTH_COMPASS_STATE_MACHINE_ARN": STATE_MACHINE_ARN,
                             "YOUTH_COMPASS_MODEL__PROVIDER": "bedrock",
                             "YOUTH_COMPASS_MODEL__MODEL_ID": MODEL_ID,
-                            "YOUTH_COMPASS_API__WRITE_SECRET": WRITE_SECRET,
+                            "YOUTH_COMPASS_API__WRITE_SECRET_ARN": Match.any_value(),
                         }
                     )
                 }
@@ -219,6 +226,19 @@ class TestHttpApi:
             },
         )
 
+    def test_the_default_stage_is_throttled(self, template: Template) -> None:
+        # The copilot route is public and each call can invoke Bedrock twice,
+        # so a burst must be rejected at the edge rather than billed.
+        template.has_resource_properties(
+            "AWS::ApiGatewayV2::Stage",
+            {
+                "DefaultRouteSettings": {
+                    "ThrottlingBurstLimit": api_module._API_THROTTLE_BURST,
+                    "ThrottlingRateLimit": api_module._API_THROTTLE_RATE_PER_SECOND,
+                }
+            },
+        )
+
     def test_publishes_the_base_url_and_site_url(self, template: Template) -> None:
         outputs = template.find_outputs("*")
         assert "ApiBaseUrl" in outputs
@@ -277,26 +297,38 @@ class TestStaticSite:
         assert rewritten == {403: "/index.html", 404: "/index.html"}
 
 
+class TestWriteSecret:
+    """The guard's secret is generated and read at runtime, never templated."""
+
+    def test_the_secret_is_generated_by_secrets_manager(self, template: Template) -> None:
+        template.has_resource_properties(
+            "AWS::SecretsManager::Secret",
+            Match.object_like({"GenerateSecretString": Match.any_value()}),
+        )
+
+    def test_no_literal_secret_appears_in_the_template(self, template: Template) -> None:
+        # The whole point of the move: a synth-time value would be readable by
+        # anyone who can read the template or the function configuration.
+        rendered = json.dumps(template.to_json())
+        # "SecretString" is the property carrying a supplied value;
+        # "GenerateSecretString" (which the resource does use) is a different key.
+        assert '"SecretString"' not in rendered
+        assert 'YOUTH_COMPASS_API__WRITE_SECRET"' not in rendered
+
+    def test_the_function_may_read_the_secret(self, template: Template) -> None:
+        statements = [
+            statement
+            for policy in template.find_resources("AWS::IAM::Policy").values()
+            for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+            if "secretsmanager:GetSecretValue" in _as_list(statement.get("Action"))
+        ]
+        assert statements, "the API function cannot read its write secret"
+
+    def test_the_secret_name_is_published_for_operators(self, template: Template) -> None:
+        assert "WriteSecretName" in template.find_outputs("*")
+
+
 class TestResolvers:
-    def test_write_secret_is_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("YOUTH_COMPASS_WRITE_SECRET", raising=False)
-
-        with pytest.raises(InfraConfigError, match="write secret"):
-            resolve_write_secret(None)
-
-    def test_short_write_secret_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("YOUTH_COMPASS_WRITE_SECRET", raising=False)
-
-        with pytest.raises(InfraConfigError, match="too short"):
-            resolve_write_secret("short")
-
-    def test_write_secret_falls_back_to_the_environment(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("YOUTH_COMPASS_WRITE_SECRET", WRITE_SECRET)
-
-        assert resolve_write_secret(None) == WRITE_SECRET
-
     def test_model_id_defaults_to_the_verified_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("YOUTH_COMPASS_MODEL_ID", raising=False)
 

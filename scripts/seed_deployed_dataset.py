@@ -4,7 +4,10 @@ The deployed environment starts empty: curated data lives in S3 and DynamoDB,
 not in the repository, so a fresh deploy has no datasets until a file is pushed
 through the same approval-gated flow a reviewer would use.
 
-    export YOUTH_COMPASS_WRITE_SECRET=...        # never passed as an argument
+    # The deployed secret lives in Secrets Manager; never pass it as an argument.
+    export YOUTH_COMPASS_WRITE_SECRET="$(aws secretsmanager get-secret-value \
+        --secret-id YouthCompass-hackathon-api-write-secret \
+        --query SecretString --output text)"
     uv run python -m scripts.seed_deployed_dataset \
         --api https://<id>.execute-api.us-east-1.amazonaws.com \
         --file "data/source/01_人口/_全部年度_全區.csv" \

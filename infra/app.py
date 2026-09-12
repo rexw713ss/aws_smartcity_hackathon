@@ -24,7 +24,6 @@ from infra.environments import resolve_environment, resolve_region  # noqa: E402
 from infra.stacks.api import (  # noqa: E402
     ApiStack,
     resolve_model_id,
-    resolve_write_secret,
 )
 from infra.stacks.budget import BudgetStack, resolve_budget_email  # noqa: E402
 from infra.stacks.data import DataStack  # noqa: E402
@@ -87,7 +86,6 @@ def build_app() -> cdk.App:
             state_machine_arn=workflow.state_machine.state_machine_arn,
             region=region,
             model_id=resolve_model_id(app.node.try_get_context("modelId")),
-            write_secret=resolve_write_secret(app.node.try_get_context("writeSecret")),
             env=cdk_env,
         )
 

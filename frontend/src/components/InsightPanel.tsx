@@ -64,7 +64,10 @@ function VisualizationCard({ spec }: { spec: VisualizationSpec }) {
   return (
     <figure className="viz-card" data-viz-id={spec.visualization_id} data-viz-type={spec.type}>
       <figcaption>
-        <h3>{spec.title}</h3>
+        {/* The headline is the finding; the title names the subject. A reader
+            who only skims the answer should still leave with the finding. */}
+        {spec.headline ? <h3 className="viz-headline">{spec.headline}</h3> : <h3>{spec.title}</h3>}
+        {spec.headline ? <p className="viz-subject">{spec.title}</p> : null}
         {spec.description ? <p>{spec.description}</p> : null}
       </figcaption>
       <ChartView spec={spec} />
@@ -215,7 +218,6 @@ export default function InsightPanel({
               {charts.map(spec => (
                 <VisualizationCard key={spec.visualization_id} spec={spec} />
               ))}
-              <p className="panel-note">{t('chartNote')}</p>
             </>
           ) : (
             !pending && (

@@ -1,10 +1,11 @@
 """Grounded decision-support copilot API."""
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import Field
 
 from apps.api.dependencies import LocalRuntime
 from apps.api.schemas import ApiModel
+from apps.api.security import require_write_token
 from youth_compass.acquisition import AcquisitionStart
 from youth_compass.agent import CopilotResponse, ToolCapability
 from youth_compass.decisioning import (
@@ -98,6 +99,9 @@ async def query_copilot(payload: CopilotQueryRequest, request: Request) -> Copil
     "/acquisitions",
     response_model=AcquisitionStart,
     status_code=status.HTTP_202_ACCEPTED,
+    # Writes into the incoming zone and starts an ingestion job, so it belongs
+    # behind the same guard as the reviewer write endpoints.
+    dependencies=[Depends(require_write_token)],
 )
 def acquire_source(payload: SourceAcquisitionRequest, request: Request) -> AcquisitionStart:
     """Snapshot an allowlisted candidate into the approval-gated ingestion workflow."""

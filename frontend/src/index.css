@@ -832,5 +832,60 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
   padding: 12px 0 12px 14px; border-left: 1px solid var(--accent);
   font-size: var(--text-caption); color: var(--ink-secondary); line-height: 1.6;
 }
-.map-attribution { font-size: 11px; color: var(--ink-muted); line-height: 1.6; }
-.map-attribution span { font-family: ui-monospace, monospace; }
+
+/* Choropleth key. Top-right so it never meets the zoom controls, and inert to
+   the pointer so it cannot swallow a pan that starts on top of it. */
+.map-legend {
+  position: absolute; right: 12px; top: 12px;
+  display: grid; gap: 8px; padding: 10px 12px;
+  border-radius: var(--radius-cards);
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  border: 1px solid var(--separator);
+  pointer-events: none;
+}
+.map-legend-title {
+  display: grid; gap: 2px; max-width: 15ch;
+  color: var(--ink-secondary); font: 10px ui-monospace, monospace;
+  letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.4;
+}
+.map-legend-title i { font-style: normal; color: var(--ink-muted); text-transform: none; }
+.map-legend-body { display: flex; align-items: stretch; gap: 8px; }
+.map-legend-ramp {
+  width: 10px; height: 92px; border-radius: var(--radius-pills);
+  border: 1px solid var(--map-border);
+  /* Same two mixes as fillFor, bottom to top. */
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--accent) 18%, var(--map-base)),
+    color-mix(in srgb, var(--accent) 88%, var(--map-base))
+  );
+}
+.map-legend-stops {
+  display: flex; flex-direction: column; justify-content: space-between;
+  color: var(--ink-secondary); font: 10px ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.map-legend-empty { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--ink-muted); }
+.map-legend-empty i {
+  width: 10px; height: 10px; border-radius: 3px;
+  border: 1px solid var(--map-border); background: var(--map-base);
+}
+
+@media (max-width: 720px) {
+  .map-legend { padding: 8px 10px; gap: 6px; }
+  .map-legend-ramp { height: 64px; width: 8px; }
+}
+
+/* The finding leads the card; the subject line under it stays secondary, so a
+   headline never reads as a second title competing with the chart. */
+.viz-card .viz-headline {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.viz-card .viz-subject {
+  color: var(--chart-muted);
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}

@@ -6,16 +6,19 @@ publishes data to the curated zone and the Glue catalog.
 """
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from apps.api import security
 from apps.api.main import create_app
 from apps.api.security import WRITE_TOKEN_HEADER
 from youth_compass.config import ApiSettings, AppSettings
 
 ORIGIN = "https://dashboard.example.org"
 SECRET = "test-write-secret"
+ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:write-AbCdEf"
 
 
 def _client(tmp_path: Path, **api_overrides: object) -> TestClient:
@@ -163,3 +166,131 @@ class TestWriteToken:
         response = client.post(path, json={})
 
         assert response.status_code != 401
+
+    def test_source_acquisition_without_a_token_is_rejected(self, tmp_path: Path) -> None:
+        # Acquisition snapshots a source into the incoming zone and starts an
+        # ingestion job, so it is a write and belongs behind the same guard.
+        client = _client(tmp_path, write_secret=SECRET)
+
+        response = client.post(
+            "/api/v1/copilot/acquisitions",
+            json={"candidateId": "moi-population", "submittedBy": "steward"},
+        )
+
+        assert response.status_code == 401
+
+
+class TestWriteSecretFromSecretsManager:
+    """A deployment stores the secret in Secrets Manager, not in an env var."""
+
+    def test_the_guard_reads_the_expected_value_from_the_secret_store(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        def fake_fetch(arn: str) -> str:
+            calls.append(arn)
+            return SECRET
+
+        security._secret_cache.clear()
+        client = _client(tmp_path, write_secret_arn=ARN)
+        with patch.object(security, "_fetch_secret", fake_fetch):
+            rejected = client.post("/api/v1/uploads", json={})
+            accepted = client.post(
+                "/api/v1/uploads",
+                json={"contentType": "text/csv", "submittedBy": "steward"},
+                headers={WRITE_TOKEN_HEADER: SECRET},
+            )
+
+        assert rejected.status_code == 401
+        assert accepted.status_code != 401
+        assert calls == [ARN, ARN]  # once per guarded request; the stub bypasses the cache
+
+    def test_a_literal_secret_still_wins(self, tmp_path: Path) -> None:
+        # Local development and the offline suite configure one directly, and
+        # must never reach the network for it.
+        client = _client(tmp_path, write_secret=SECRET, write_secret_arn=ARN)
+
+        def explode(arn: str) -> str:
+            raise AssertionError("the secret store must not be consulted")
+
+        with patch.object(security, "_fetch_secret", explode):
+            response = client.post(
+                "/api/v1/uploads",
+                json={"contentType": "text/csv", "submittedBy": "steward"},
+                headers={WRITE_TOKEN_HEADER: SECRET},
+            )
+
+        assert response.status_code != 401
+
+    def test_an_unreachable_secret_store_fails_closed(self, tmp_path: Path) -> None:
+        # A write must be refused, never allowed through, when the expected
+        # value cannot be read.
+        security._secret_cache.clear()
+        client = _client(tmp_path, write_secret_arn=ARN)
+
+        def explode(arn: str) -> str:
+            raise RuntimeError("secretsmanager is unreachable")
+
+        with patch.object(security, "_fetch_secret", explode):
+            response = client.post(
+                "/api/v1/uploads",
+                json={"contentType": "text/csv", "submittedBy": "steward"},
+                headers={WRITE_TOKEN_HEADER: SECRET},
+            )
+
+        assert response.status_code == 503
+
+    def test_the_cache_is_reused_within_its_ttl(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        class FakeClient:
+            def get_secret_value(self, SecretId: str) -> dict[str, str]:
+                calls.append(SecretId)
+                return {"SecretString": SECRET}
+
+        security._secret_cache.clear()
+        with patch("boto3.client", lambda name: FakeClient()):
+            assert security._fetch_secret(ARN) == SECRET
+            assert security._fetch_secret(ARN) == SECRET
+        security._secret_cache.clear()
+
+        assert calls == [ARN]
+
+
+class TestErrorMessages:
+    """Domain failures must not hand the caller internal server topology."""
+
+    def test_a_server_side_failure_returns_a_generic_message(self, tmp_path: Path) -> None:
+        from youth_compass.domain import YouthCompassError
+
+        client = _client(tmp_path)
+        app = client.app
+
+        @app.get("/test/boom")  # type: ignore[union-attr]
+        def boom() -> None:
+            raise YouthCompassError("/srv/secret/path failed on arn:aws:iam::1234:role/admin")
+
+        response = client.get("/test/boom")
+
+        assert response.status_code == 500
+        assert response.json()["error"]["message"] == "the request could not be completed"
+
+    def test_a_client_error_keeps_its_reason_but_redacts_paths_and_arns(
+        self, tmp_path: Path
+    ) -> None:
+        from youth_compass.domain import QueryExecutionError
+
+        client = _client(tmp_path)
+        app = client.app
+
+        @app.get("/test/query-boom")  # type: ignore[union-attr]
+        def query_boom() -> None:
+            raise QueryExecutionError(
+                "feature materialization is unavailable: /var/task/data/features.parquet"
+            )
+
+        response = client.get("/test/query-boom")
+
+        assert response.status_code == 422
+        message = response.json()["error"]["message"]
+        assert "feature materialization is unavailable" in message
+        assert "/var/task" not in message

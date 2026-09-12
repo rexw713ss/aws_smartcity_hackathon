@@ -6,7 +6,7 @@
 // camelCase aliases (apps/api/schemas.ApiModel), RESPONSE bodies are the domain
 // contracts serialized in snake_case.
 
-export const visualizationTypes = ['line', 'comparison_bar', 'ranking_bar', 'contribution_bar', 'choropleth', 'data_table'] as const
+export const visualizationTypes = ['line', 'slope', 'scatter', 'comparison_bar', 'ranking_bar', 'contribution_bar', 'choropleth', 'data_table'] as const
 export type VisualizationType = (typeof visualizationTypes)[number]
 
 /** Boundary sets a choropleth may be keyed against. The spec names the scheme;
@@ -23,6 +23,16 @@ export type CopilotStatus = (typeof copilotStatuses)[number]
 export type VisualizationEncoding = { field: string; label: string; data_type: string; unit: string | null }
 export type VisualizationColumn = { field: string; label: string; unit: string | null }
 export type VisualizationValue = string | number | boolean | null
+export const annotationKinds = ['peak', 'trough', 'turning_point', 'latest'] as const
+export type AnnotationKind = (typeof annotationKinds)[number]
+export type VisualizationAnnotation = {
+  kind: AnnotationKind
+  label: string
+  entity_name: string | null
+  period: string | null
+  value: number | null
+}
+export type VisualizationReferenceLine = { label: string; value: number; axis: 'x' | 'y' }
 
 export type VisualizationSpec = {
   schema_version: string
@@ -33,9 +43,15 @@ export type VisualizationSpec = {
   x: VisualizationEncoding | null
   y: VisualizationEncoding | null
   series_field: string | null
+  band_lower_field: string | null
+  band_upper_field: string | null
   region_field: string | null
   region_scheme: RegionScheme | null
   columns: VisualizationColumn[]
+  headline: string | null
+  annotations: VisualizationAnnotation[]
+  reference_lines: VisualizationReferenceLine[]
+  focus_entities: string[]
   rows: Record<string, VisualizationValue>[]
   citation_ids: string[]
   truncated: boolean
@@ -333,6 +349,7 @@ function parseVisualization(raw: unknown): VisualizationSpec {
   if (!visualizationTypes.includes(raw.type as VisualizationType)) throw new ContractError()
   if (!optionalText(raw.description, 2000) || !optionalText(raw.series_field, 120)) throw new ContractError()
   if (!optionalText(raw.region_field, 120)) throw new ContractError()
+  if (!optionalText(raw.band_lower_field, 120) || !optionalText(raw.band_upper_field, 120)) throw new ContractError()
   // A map without a usable region key would silently render nothing; refuse it
   // here rather than show an empty map beside a populated table.
   if (raw.type === 'choropleth' && (!isText(raw.region_field, 120) || !regionSchemes.includes(raw.region_scheme as RegionScheme))) {
@@ -355,11 +372,36 @@ function parseVisualization(raw: unknown): VisualizationSpec {
     x: parseEncoding(raw.x),
     y: parseEncoding(raw.y),
     series_field: (raw.series_field as string) ?? null,
+    // Both or neither: half a band would draw an interval with one edge.
+    band_lower_field: isText(raw.band_lower_field, 120) && isText(raw.band_upper_field, 120) ? raw.band_lower_field : null,
+    band_upper_field: isText(raw.band_lower_field, 120) && isText(raw.band_upper_field, 120) ? raw.band_upper_field : null,
     region_field: (raw.region_field as string) ?? null,
     region_scheme: regionSchemes.includes(raw.region_scheme as RegionScheme)
       ? (raw.region_scheme as RegionScheme)
       : null,
     columns,
+    headline: isText(raw.headline, 300) ? raw.headline : null,
+    annotations: array(raw.annotations, 12).map(item => {
+      if (!isObject(item) || !isText(item.label, 200)) throw new ContractError()
+      if (!annotationKinds.includes(item.kind as AnnotationKind)) throw new ContractError()
+      return {
+        kind: item.kind as AnnotationKind,
+        label: item.label,
+        entity_name: isText(item.entity_name, 200) ? item.entity_name : null,
+        period: isText(item.period, 60) ? item.period : null,
+        value: typeof item.value === 'number' ? item.value : null,
+      }
+    }),
+    reference_lines: array(raw.reference_lines, 4).map(item => {
+      if (!isObject(item) || !isText(item.label, 200) || typeof item.value !== 'number') {
+        throw new ContractError()
+      }
+      return { label: item.label, value: item.value, axis: item.axis === 'x' ? 'x' as const : 'y' as const }
+    }),
+    focus_entities: array(raw.focus_entities, 40).map(item => {
+      if (!isText(item, 200)) throw new ContractError()
+      return item
+    }),
     rows,
     citation_ids: array(raw.citation_ids, 200).map(item => {
       if (!isText(item, 120)) throw new ContractError()
