@@ -66,6 +66,17 @@ export default function DistrictMap({
     ? areas.find(area => area.district.code === readoutCode)?.district ?? null
     : null
 
+  // Pointed-at first so a hover reads above a standing selection.
+  const emphasis = ([
+    { kind: 'selected' as const, code: selected },
+    { kind: 'hovered' as const, code: hovered === selected ? null : hovered },
+  ])
+    .flatMap(item => {
+      if (!item.code) return []
+      const area = areas.find(candidate => candidate.district.code === item.code)
+      return area ? [{ ...item, code: item.code, path: area.path }] : []
+    })
+
   const fillFor = (code: string): string => {
     const hit = highlights.byCode.get(code)
     if (!hit) return 'var(--map-base)'
@@ -125,6 +136,10 @@ export default function DistrictMap({
                 <path key={area.name} d={area.path} fillRule="evenodd" />
               ))}
             </g>
+            {/* Fills first. Strokes are a separate layer below, because a border
+                drawn here would be painted over by the next district's fill —
+                which is what made the outline look thick in places and missing
+                in others. */}
             {areas.map(area => {
               const code = area.district.code
               const hit = highlights.byCode.get(code)
@@ -156,6 +171,27 @@ export default function DistrictMap({
                 </g>
               )
             })}
+
+            {/* Every boundary at one uniform hairline, on top of every fill, so
+                the 29 districts read as separate areas before any interaction. */}
+            <g className="map-borders" aria-hidden="true">
+              {areas.map(area => (
+                <path key={area.district.code} d={area.path} fillRule="evenodd" />
+              ))}
+            </g>
+
+            {/* Emphasis last: nothing can paint over the selected or pointed
+                outline, so it stays an even weight all the way round. */}
+            {emphasis.map(item => (
+              <path
+                key={`${item.kind}-${item.code}`}
+                className={`map-emphasis is-${item.kind}`}
+                d={item.path}
+                fillRule="evenodd"
+                aria-hidden="true"
+              />
+            ))}
+
             <g className="map-labels" aria-hidden="true">
               {atlas.neighbors.map(area => (
                 <text key={area.name} x={area.label.x} y={area.label.y}>{area.name}</text>

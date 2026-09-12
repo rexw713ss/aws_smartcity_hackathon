@@ -68,6 +68,9 @@
        carries Ember at an intensity set by the backend's own figure. */
     --map-base: var(--ash);
     --map-cited: var(--ivory);
+    /* Visible enough to separate 29 areas at rest, quiet enough not to
+       compete with the Ember shading that carries the answer. */
+    --map-border: #b9b6b2;
 
     /* The mono chart CSS inherited from the dashboard work reads these. */
     --mono-ink: var(--graphite);
@@ -149,6 +152,7 @@
     --chart-text: #cfcbc7;
     --map-base: #2b2826;
     --map-cited: #332e27;
+    --map-border: #565049;
     --depth-shadow-deep: rgba(0, 0, 0, 0.5);
   }
 

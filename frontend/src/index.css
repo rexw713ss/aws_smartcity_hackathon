@@ -426,23 +426,29 @@ button.ghost:hover { background: var(--ink); color: var(--canvas); }
 .map-camera svg { display: block; width: 100%; height: 100%; }
 :root[data-motion="reduced"] .map-camera { transition: none; }
 
-.map-neighbors path { fill: var(--fog); stroke: var(--separator); stroke-width: 0.5; }
+/* Strokes keep their on-screen weight through the zoom transform. */
+.map-stage svg path { vector-effect: non-scaling-stroke; }
+
+.map-neighbors path { fill: var(--fog); stroke: var(--map-border); stroke-width: 0.75; opacity: 0.5; }
 .map-labels text {
   fill: var(--ink-muted); font-size: 9px;
   font-family: var(--font-cjk); letter-spacing: 0;
 }
 
+/* Fill layer: no stroke at all, so nothing here can be half-covered. */
 .map-district { cursor: pointer; outline: none; }
-.map-district path {
-  stroke: var(--surface-raised);
-  stroke-width: 0.8;
-  transition: fill 180ms var(--ease-out), stroke 180ms var(--ease-out);
-}
-.map-district:hover path { stroke: var(--ink); stroke-width: 1.2; }
-/* Selection is a graphite outline, so it never competes with the Ember shading
-   that carries the answer's own figures. */
-.map-district.is-selected path { stroke: var(--ink); stroke-width: 2; }
-.map-district:focus-visible path { stroke: var(--accent); stroke-width: 2; }
+.map-district path { stroke: none; transition: fill 180ms var(--ease-out); }
+
+/* Border layer: one hairline per district, painted above every fill. */
+.map-borders { pointer-events: none; }
+.map-borders path { fill: none; stroke: var(--map-border); stroke-width: 0.75; }
+
+/* Emphasis layer, painted last and never overdrawn. Selection is graphite so it
+   never competes with the Ember shading that carries the answer's figures. */
+.map-emphasis { pointer-events: none; fill: none; stroke-linejoin: round; }
+.map-emphasis.is-hovered { stroke: var(--ink-secondary); stroke-width: 1.75; }
+.map-emphasis.is-selected { stroke: var(--ink); stroke-width: 2.5; }
+.map-district:focus-visible path { fill: color-mix(in srgb, var(--accent) 30%, var(--map-base)); }
 
 .map-controls {
   position: absolute; right: 12px; bottom: 12px;
