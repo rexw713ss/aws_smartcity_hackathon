@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from youth_compass.domain.errors import ConfigurationError
@@ -118,6 +118,40 @@ class AcquisitionSettings(BaseModel):
         return self
 
 
+class ApiSettings(BaseModel):
+    """HTTP surface settings that only matter once the API is deployed.
+
+    Both fields default to "closed": no cross-origin caller is allowed and no
+    write token is configured. The deployment stack supplies real values.
+    """
+
+    # Browsers refuse cross-origin calls unless the API echoes the origin back,
+    # so a deployed frontend on a different host needs its origin listed here.
+    #
+    # Held as a comma-separated string rather than a sequence on purpose:
+    # pydantic-settings JSON-decodes complex field types read from the
+    # environment, so a plain `https://a,https://b` value could never populate a
+    # tuple field. Lambda environment variables are always strings. Use
+    # ``allowed_origins`` to read the parsed form.
+    cors_allowed_origins: str = ""
+    # Shared secret required by the mutating endpoints. When unset the guard is
+    # inactive, which keeps local development and the test suite unchanged.
+    write_secret: str | None = None
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _join_origins(cls, value: object) -> object:
+        """Accept a YAML list as well as the environment's comma-separated form."""
+        if isinstance(value, list | tuple):
+            return ",".join(str(item) for item in value)
+        return value
+
+    @property
+    def allowed_origins(self) -> tuple[str, ...]:
+        """The configured origins, empty when nothing is allowed."""
+        return tuple(part.strip() for part in self.cors_allowed_origins.split(",") if part.strip())
+
+
 _LOCAL_ENVIRONMENT = "local"
 # The provider-selection keys, and the local default each resolves to when the
 # environment is "local" and the key is absent.
@@ -159,6 +193,7 @@ class AppSettings(BaseSettings):
     profile: ProfileSettings = ProfileSettings()
     transform: TransformSettings = TransformSettings()
     acquisition: AcquisitionSettings = AcquisitionSettings()
+    api: ApiSettings = ApiSettings()
 
     storage: StorageSettings | None = None
     catalog: CatalogSettings | None = None

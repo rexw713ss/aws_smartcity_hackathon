@@ -17,12 +17,23 @@ ACCOUNT_ID = re.compile(r"(?<!\d)\d{12}(?!\d)")
 ACCESS_KEY = re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")
 
 
+# Generated build output, not source. `cdk synth` stages Lambda assets here,
+# bundling third-party wheels whose data tables contain 12-digit runs; scanning
+# them reports vendored library code rather than anything we wrote. The mypy
+# configuration excludes this directory for the same reason.
+_GENERATED_DIRECTORIES = ("cdk.out", "build", "__pycache__")
+
+
+def _is_generated(path: Path) -> bool:
+    return any(part in _GENERATED_DIRECTORIES for part in path.parts)
+
+
 def _py_files(*relative: str) -> list[Path]:
     files: list[Path] = []
     for rel in relative:
         base = ROOT / rel
         if base.exists():
-            files.extend(sorted(base.rglob("*.py")))
+            files.extend(sorted(p for p in base.rglob("*.py") if not _is_generated(p)))
     return files
 
 

@@ -1,12 +1,14 @@
 """FastAPI reviewer and dashboard API for the offline reference runtime."""
 
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.copilot import router as copilot_router
@@ -24,6 +26,7 @@ from apps.api.schemas import (
     QualityResponse,
     UploadResponse,
 )
+from apps.api.security import WRITE_TOKEN_HEADER, require_write_token
 from apps.api.uploads import (
     aws_workflow_configured,
     get_aws_job_reference,
@@ -49,11 +52,42 @@ from youth_compass.domain.contracts import MappingAnalysis
 from youth_compass.ports import ApprovalDecision, JobReference
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_DATA_ROOT_ENV_VAR = "YOUTH_COMPASS_DATA_ROOT"
 
 
-def create_app(data_root: Path = Path("data")) -> FastAPI:
+def default_data_root() -> Path:
+    """The data root to use when a caller does not name one.
+
+    Reads the environment so a deployment can relocate the tree without
+    touching code. Lambda in particular must point this at a writable location,
+    because the unpacked package at /var/task is read-only.
+    """
+    return Path(os.environ.get(_DATA_ROOT_ENV_VAR, "data"))
+
+
+def create_app(data_root: Path | None = None) -> FastAPI:
     app = FastAPI(title="New Taipei Youth Compass API", version=__version__)
-    app.state.runtime = LocalRuntime(data_root)
+    runtime = LocalRuntime(default_data_root() if data_root is None else data_root)
+    app.state.runtime = runtime
+    # Exposed separately so request-scoped guards can read settings without
+    # reaching through the runtime.
+    app.state.settings = runtime.settings
+
+    # A browser-based frontend served from another origin cannot call this API
+    # unless its origin is allowed here. Defaults to empty, so nothing is
+    # exposed cross-origin until a deployment configures it.
+    allowed_origins = list(runtime.settings.api.allowed_origins)
+    if allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=allowed_origins,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            # The write guard travels in a custom header, so it must be
+            # allowed through preflight.
+            allow_headers=["Content-Type", WRITE_TOKEN_HEADER],
+            max_age=600,
+        )
+
     app.include_router(copilot_router)
     app.include_router(uploads_router)
 
@@ -106,6 +140,7 @@ def create_app(data_root: Path = Path("data")) -> FastAPI:
         response_model=UploadResponse,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["reviewer"],
+        dependencies=[Depends(require_write_token)],
     )
     async def upload_dataset(
         request: Request,
@@ -153,6 +188,7 @@ def create_app(data_root: Path = Path("data")) -> FastAPI:
         "/api/v1/ingestion-jobs/{job_id}/decision",
         response_model=JobStatusResponse,
         tags=["reviewer"],
+        dependencies=[Depends(require_write_token)],
     )
     def decide_ingestion(
         job_id: str, payload: DecisionRequest, request: Request

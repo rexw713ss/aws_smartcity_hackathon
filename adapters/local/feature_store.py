@@ -8,14 +8,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import TypeAdapter, ValidationError
 
 from youth_compass.decisioning import FeatureEvidence, FeatureRegistry, FeatureValue
 from youth_compass.decisioning.provider import FeatureProvider, FeatureQuery, FeatureSet
-from youth_compass.decisioning.schema import FEATURE_VALUE_SCHEMA
 from youth_compass.domain.errors import QueryExecutionError
+
+# pyarrow is imported inside the materialization path only. Reading features
+# needs DuckDB alone, so a read-only consumer (the API) never pays for pyarrow —
+# which matters because it is the single largest dependency in the tree and the
+# API is packaged for AWS Lambda's size limit.
 
 _EVIDENCE_ADAPTER = TypeAdapter(tuple[FeatureEvidence, ...])
 
@@ -31,6 +33,11 @@ class FeatureParquetMaterializer:
         self._registry = registry
 
     def materialize(self, values: Iterable[FeatureValue], destination: Path) -> Path:
+        import pyarrow as pa  # type: ignore[import-untyped]
+        import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
+        from youth_compass.decisioning.schema import FEATURE_VALUE_SCHEMA
+
         records = list(values)
         if not records:
             raise ValueError("at least one feature value is required")

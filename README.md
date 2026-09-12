@@ -68,9 +68,9 @@ Bedrock model against the same expected plans.
 
 When a catalog gap is detected, the copilot can now discover configured HTTPS source candidates
 and submit a selected immutable snapshot to the existing approval-gated ingestion workflow. See
-`docs/21-dynamic-data-acquisition.md`; external acquisition remains disabled until verified source
+`docs/22-dynamic-data-acquisition.md`; external acquisition remains disabled until verified source
 manifests and hostname allowlists are configured.
 
 Copilot answers also include versioned, frontend-independent chart and table specifications for
 decision rankings, feature contributions, observation trends, comparisons, dataset coverage, and
-source candidates. See `docs/22-answer-visualizations.md`.
+source candidates. See `docs/23-answer-visualizations.md`.

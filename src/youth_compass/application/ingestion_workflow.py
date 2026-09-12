@@ -34,7 +34,11 @@ from youth_compass.ports import (
     SourceAdapter,
     WorkflowCheckpoint,
 )
-from youth_compass.transformation import TransformOptions, run_csv_transformation
+
+# youth_compass.transformation is imported inside _transform rather than here.
+# It pulls in polars and pyarrow, the two largest dependencies in the tree, and
+# only the approval-transform path needs them. Deferring keeps them off the
+# import path of read-only consumers such as the API packaged for AWS Lambda.
 
 
 class IngestionJob(BaseModel):
@@ -328,6 +332,8 @@ class LocalIngestionWorkflow:
             raise WorkflowStateError(f"cannot analyze source {source_name!r}: {exc}") from exc
 
     def _transform(self, job: IngestionJob, decision: ApprovalDecision) -> PublicationManifest:
+        from youth_compass.transformation import TransformOptions, run_csv_transformation
+
         normalized_uri = job.normalized_uri or job.source_uri
         normalized_name = job.normalized_name or job.source_name
         content = self._objects.get(normalized_uri)

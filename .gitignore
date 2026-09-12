@@ -66,3 +66,5 @@ frontend/playwright-report/
 # Raw CSVs must never be served from the browser: the frontend reads published
 # metrics through the API so lineage and quality travel with every number.
 frontend/public/data/
+
+.api-write-secret

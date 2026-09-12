@@ -191,14 +191,29 @@ class WorkflowStack(TaggedStack):
         await_approval.next(publish)
 
         # 3. Confidence gate: high confidence auto-publishes; else pause for review.
+        #
+        # The analyze handler reports failures in its payload rather than raising
+        # (status "error", no "result" key), so the Lambda invocation succeeds and
+        # analyze's States.ALL catch never fires. Both branches below are
+        # therefore required: without the status check a failed analysis reaches
+        # the confidence comparison, and without is_present the comparison
+        # references a missing path and kills the execution with States.Runtime,
+        # leaving the upload neither published nor quarantined.
+        _CONFIDENCE_PATH = "$.analysis.Payload.result.validation.overall_confidence"
         gate = (
             sfn.Choice(self, "ConfidenceGate")
             .when(
-                sfn.Condition.number_greater_than_equals(
-                    "$.analysis.Payload.result.validation.overall_confidence", 0.95
+                sfn.Condition.string_equals("$.analysis.Payload.status", "error"),
+                quarantine,
+            )
+            .when(
+                sfn.Condition.and_(
+                    sfn.Condition.is_present(_CONFIDENCE_PATH),
+                    sfn.Condition.number_greater_than_equals(_CONFIDENCE_PATH, 0.95),
                 ),
                 publish,
             )
+            # Unknown or low confidence is a review decision, never a crash.
             .otherwise(await_approval)
         )
         analyze.add_catch(quarantine, errors=["States.ALL"], result_path="$.error")
