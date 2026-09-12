@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="新北市 29 個行政區青年人口官方統計指標。" />
+    <meta name="theme-color" content="#0a2035" />
+    <script>
+      if (localStorage.getItem('youth-compass-theme') === 'dark' || (!localStorage.getItem('youth-compass-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark')
+      }
+    </script>
+    <title>新北市青年觀測站</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
