@@ -1,0 +1,228 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import atlas from '../data/district-map.json'
+import type { HighlightSet } from '../lib/districtHighlights'
+import { resolveDistrict, type District } from '../lib/districts'
+import { formatNumber } from '../lib/format'
+
+type Camera = { x: number; y: number; scale: number }
+const home: Camera = { x: 0, y: 0, scale: 1 }
+const minScale = 1
+const maxScale = 3.5
+
+/** Atlas areas joined to the canonical dictionary by name. The atlas `number`
+ * field is alphabetical by English name and is deliberately never read. */
+const areas = atlas.districts
+  .map(area => ({ ...area, district: resolveDistrict(area.name) }))
+  .filter((area): area is typeof area & { district: District } => area.district !== null)
+
+export default function DistrictMap({
+  highlights,
+  selected,
+  onSelect,
+  onAsk,
+}: {
+  highlights: HighlightSet
+  selected: string | null
+  onSelect: (code: string | null) => void
+  onAsk: (question: string) => void
+}) {
+  const [camera, setCamera] = useState<Camera>(home)
+  const [hovered, setHovered] = useState<string | null>(null)
+  const drag = useRef<{ id: number; x: number; y: number; from: Camera; moved: boolean } | null>(null)
+  const suppressClick = useRef(false)
+  const stage = useRef<HTMLDivElement>(null)
+
+  // React's synthetic onFocus/onBlur do not fire on SVG <g>, so keyboard focus
+  // is tracked with the native focusin/focusout pair, which does bubble.
+  useEffect(() => {
+    const node = stage.current
+    if (!node) return
+    const enter = (event: FocusEvent) => {
+      const area = (event.target as Element | null)?.closest<SVGGElement>('[data-district]')
+      setHovered(area?.dataset.district ?? null)
+    }
+    const leave = () => setHovered(null)
+    node.addEventListener('focusin', enter)
+    node.addEventListener('focusout', leave)
+    return () => {
+      node.removeEventListener('focusin', enter)
+      node.removeEventListener('focusout', leave)
+    }
+  }, [])
+
+  const move = useCallback((next: Camera) => {
+    const scale = Math.max(minScale, Math.min(maxScale, next.scale))
+    const limit = 180 * scale
+    setCamera({
+      x: Math.max(-limit, Math.min(limit, next.x)),
+      y: Math.max(-limit, Math.min(limit, next.y)),
+      scale,
+    })
+  }, [])
+
+  const readoutCode = hovered ?? selected
+  const readout = readoutCode ? highlights.byCode.get(readoutCode) ?? null : null
+  const readoutDistrict = readoutCode
+    ? areas.find(area => area.district.code === readoutCode)?.district ?? null
+    : null
+
+  const fillFor = (code: string): string => {
+    const hit = highlights.byCode.get(code)
+    if (!hit) return 'var(--map-base)'
+    if (hit.value === null || highlights.maximum <= 0) return 'var(--map-cited)'
+    // Ember intensity encodes the backend's own figure. Nothing is recomputed:
+    // the ratio is only an opacity, never a number shown to the reader.
+    const share = Math.max(0, Math.min(1, hit.value / highlights.maximum))
+    return `color-mix(in srgb, var(--accent) ${18 + share * 70}%, var(--map-base))`
+  }
+
+  return (
+    <section className="district-map" aria-label="New Taipei district map">
+      <div
+        className="map-stage"
+        ref={stage}
+        onPointerDown={event => {
+          if (event.button !== 0) return
+          drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, from: camera, moved: false }
+          suppressClick.current = false
+        }}
+        onPointerMove={event => {
+          const active = drag.current
+          if (!active || active.id !== event.pointerId) return
+          const dx = event.clientX - active.x
+          const dy = event.clientY - active.y
+          if (!active.moved) {
+            if (Math.hypot(dx, dy) < 6) return
+            active.moved = true
+            suppressClick.current = true
+            event.currentTarget.setPointerCapture(event.pointerId)
+            setHovered(null)
+          }
+          move({ ...active.from, x: active.from.x + dx, y: active.from.y + dy })
+        }}
+        onPointerUp={event => {
+          if (drag.current?.id !== event.pointerId) return
+          drag.current = null
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+        }}
+        onPointerCancel={() => { drag.current = null }}
+        onClickCapture={event => {
+          if (!suppressClick.current) return
+          event.preventDefault()
+          event.stopPropagation()
+          suppressClick.current = false
+        }}
+      >
+        <div
+          className="map-camera"
+          style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})` }}
+        >
+          <svg viewBox={atlas.viewBox} role="group" aria-label="New Taipei City districts">
+            <g className="map-neighbors" aria-hidden="true">
+              {atlas.neighbors.map(area => (
+                <path key={area.name} d={area.path} fillRule="evenodd" />
+              ))}
+            </g>
+            {areas.map(area => {
+              const code = area.district.code
+              const hit = highlights.byCode.get(code)
+              const isSelected = selected === code
+              return (
+                <g
+                  key={code}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  aria-label={
+                    hit
+                      ? `${area.district.english} District, ${hit.valueLabel ?? 'value'} ${hit.value === null ? 'not stated' : formatNumber(hit.value)}`
+                      : `${area.district.english} District, not in this answer`
+                  }
+                  data-district={code}
+                  className={`map-district${isSelected ? ' is-selected' : ''}${hit ? ' is-cited' : ''}`}
+                  onClick={() => onSelect(isSelected ? null : code)}
+                  onPointerEnter={() => { if (!drag.current?.moved) setHovered(code) }}
+                  onPointerLeave={() => setHovered(null)}
+                  onKeyDown={event => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    onSelect(isSelected ? null : code)
+                  }}
+                >
+                  <title>{area.district.name}</title>
+                  <path d={area.path} fillRule="evenodd" fill={fillFor(code)} />
+                </g>
+              )
+            })}
+            <g className="map-labels" aria-hidden="true">
+              {atlas.neighbors.map(area => (
+                <text key={area.name} x={area.label.x} y={area.label.y}>{area.name}</text>
+              ))}
+            </g>
+          </svg>
+        </div>
+
+        <div className="map-controls" role="group" aria-label="Map zoom">
+          <button type="button" aria-label="Zoom out" disabled={camera.scale <= minScale}
+            onClick={() => move({ ...camera, scale: camera.scale - 0.5 })}>−</button>
+          <output>{Math.round(camera.scale * 100)}%</output>
+          <button type="button" aria-label="Zoom in" disabled={camera.scale >= maxScale}
+            onClick={() => move({ ...camera, scale: camera.scale + 0.5 })}>+</button>
+          <button type="button" aria-label="Reset view" onClick={() => move(home)}>↺</button>
+        </div>
+      </div>
+
+      <div className="map-readout" aria-live="polite">
+        {readoutDistrict ? (
+          <>
+            <div className="map-readout-head">
+              <strong>{readoutDistrict.english}</strong>
+              <span className="cjk-safe">{readoutDistrict.name}</span>
+              <code>{readoutDistrict.code}</code>
+            </div>
+            {readout ? (
+              <>
+                <p className="map-reading">
+                  {readout.valueLabel ?? 'Value'}
+                  <b>{readout.value === null ? '—' : formatNumber(readout.value)}</b>
+                  {readout.unit ? <i>{readout.unit}</i> : null}
+                  {readout.rank !== null ? <span className="map-rank">rank {readout.rank}</span> : null}
+                </p>
+                <p className="map-source">from “{readout.source}”</p>
+              </>
+            ) : (
+              <p className="map-source">Not part of the current answer.</p>
+            )}
+            <button
+              type="button"
+              className="ghost map-ask"
+              onClick={() => onAsk(`What is the youth population trend in ${readoutDistrict.english} District?`)}
+            >
+              Ask about {readoutDistrict.english}
+            </button>
+          </>
+        ) : (
+          <p className="map-source">
+            {highlights.byCode.size
+              ? `${highlights.byCode.size} district${highlights.byCode.size === 1 ? '' : 's'} in this answer. Point at an area to read its figure.`
+              : 'Point at a district to read it, or select one to ask about it.'}
+          </p>
+        )}
+      </div>
+
+      {highlights.unplaceable.length ? (
+        <p className="map-note">
+          Not shown on the map: {highlights.unplaceable.join(', ')}. These entities are not New Taipei
+          districts, and placing them would require a spatial join this answer does not provide.
+        </p>
+      ) : null}
+
+      <p className="map-attribution">
+        Boundaries: <span>taiwan-atlas {atlas.edition}</span>, simplified. Shading encodes the figure the
+        backend returned for the current answer; grey areas are outside New Taipei City.
+      </p>
+    </section>
+  )
+}

@@ -64,6 +64,11 @@
     --chart-cursor: var(--slate);
     --chart-hover: rgba(32, 32, 32, 0.04);
 
+    /* Map surfaces: an uncited district is inert warm grey; a cited one
+       carries Ember at an intensity set by the backend's own figure. */
+    --map-base: var(--ash);
+    --map-cited: var(--ivory);
+
     /* The mono chart CSS inherited from the dashboard work reads these. */
     --mono-ink: var(--graphite);
     --mono-muted: var(--slate);
@@ -142,6 +147,8 @@
     --chart-grid: rgba(232, 230, 227, 0.09);
     --chart-hover: rgba(232, 230, 227, 0.05);
     --chart-text: #cfcbc7;
+    --map-base: #2b2826;
+    --map-cited: #332e27;
     --depth-shadow-deep: rgba(0, 0, 0, 0.5);
   }
 

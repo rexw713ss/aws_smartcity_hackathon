@@ -171,3 +171,50 @@ test('a stale reply cannot replace the newest answer', async ({ page }) => {
   await page.waitForTimeout(2000)
   await expect(page.getByText('stale answer')).toHaveCount(0)
 })
+
+test('highlights only districts the answer actually names', async ({ page }) => {
+  await mockCopilot(page, {
+    query: {
+      ...rankingAnswer,
+      visualizations: [
+        {
+          ...rankingAnswer.visualizations[0],
+          rows: [
+            { rank: 1, entity_id: 'banqiao', entity_name: 'Banqiao', score: 55.6, eligible: true },
+            { rank: 2, entity_id: '17', entity_name: '林口區', score: 41.2, eligible: true },
+            { rank: 3, entity_id: 'site-xindian-river', entity_name: 'Xindian riverside', score: 30, eligible: true },
+          ],
+        },
+      ],
+    },
+  })
+  await page.goto('/')
+  await ask(page, 'Where should I buy a home?')
+  await showInsight(page)
+  await page.getByRole('tab', { name: /Map/ }).click()
+
+  // 'banqiao' (English slug) and '17' (district code) both resolve; the site does not.
+  await expect(page.locator('.map-district.is-cited')).toHaveCount(2)
+  await expect(page.locator('.map-district[data-district="01"]')).toHaveClass(/is-cited/)
+  await expect(page.locator('.map-district[data-district="17"]')).toHaveClass(/is-cited/)
+  await expect(page.getByText(/Not shown on the map/)).toContainText('Xindian riverside')
+})
+
+test('reads out the backend figure for a district and says when there is none', async ({ page }) => {
+  await mockCopilot(page, { query: rankingAnswer })
+  await page.goto('/')
+  await ask(page, 'Where should I buy a home?')
+  await showInsight(page)
+  await page.getByRole('tab', { name: /Map/ }).click()
+
+  await page.locator('.map-district[data-district="01"]').click()
+  const readout = page.locator('.map-readout')
+  await expect(readout).toContainText('Banqiao')
+  await expect(readout).toContainText('55.6')
+  await expect(readout).toContainText('Candidate ranking')
+
+  // An uncited district must never borrow a neighbour's figure.
+  await page.locator('.map-district[data-district="29"]').click()
+  await expect(readout).toContainText('Not part of the current answer')
+  await expect(readout).not.toContainText('55.6')
+})

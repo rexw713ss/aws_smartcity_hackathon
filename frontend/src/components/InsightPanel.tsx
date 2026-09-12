@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { CopilotResponse, VisualizationSpec } from '../lib/copilot'
+import { districtHighlights } from '../lib/districtHighlights'
 import { formatQuality, formatTimestamp } from '../lib/format'
 import ChartView from './ChartView'
+import DistrictMap from './DistrictMap'
 import SourceCandidates from './SourceCandidates'
 
-type Tab = 'charts' | 'evidence' | 'trace'
+type Tab = 'charts' | 'map' | 'evidence' | 'trace'
 
 function VisualizationCard({ spec }: { spec: VisualizationSpec }) {
   return (
@@ -47,13 +49,17 @@ export default function InsightPanel({
   pending,
   onAcquire,
   acquiring,
+  onAsk,
 }: {
   response: CopilotResponse | null
   pending: boolean
   onAcquire: (candidateId: string, submittedBy: string) => Promise<string>
   acquiring: boolean
+  onAsk: (question: string) => void
 }) {
   const [tab, setTab] = useState<Tab>('charts')
+  const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null)
+  const highlights = useMemo(() => districtHighlights(response), [response])
 
   // A new answer always returns the reader to the charts it produced.
   useEffect(() => {
@@ -62,6 +68,7 @@ export default function InsightPanel({
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: 'charts', label: 'Charts', count: response?.visualizations.length ?? 0 },
+    { id: 'map', label: 'Map', count: highlights.byCode.size },
     { id: 'evidence', label: 'Evidence', count: response?.citations.length ?? 0 },
     { id: 'trace', label: 'Trace', count: response?.tool_trace.length ?? 0 },
   ]
@@ -117,6 +124,15 @@ export default function InsightPanel({
               />
             )
           )
+        ) : null}
+
+        {tab === 'map' ? (
+          <DistrictMap
+            highlights={highlights}
+            selected={selectedDistrict}
+            onSelect={setSelectedDistrict}
+            onAsk={onAsk}
+          />
         ) : null}
 
         {tab === 'evidence' ? (

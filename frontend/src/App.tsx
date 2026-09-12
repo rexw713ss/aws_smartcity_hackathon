@@ -8,10 +8,13 @@ import useNarrowLayout from './lib/useNarrowLayout'
 const apiBase = (import.meta.env.VITE_COPILOT_API_BASE as string | undefined) ?? '/api/v1'
 const requestTimeoutMs = 30_000
 
+// Phrasings the offline DeterministicQueryDecomposer actually routes; see
+// evals/agent-routing.jsonl. With the Bedrock decomposer enabled, paraphrases
+// route too, but these chips must work in the offline demo path as well.
 const suggestions = [
-  'Compare the youth population trend by district from 2023 to 2025',
-  'Which districts are best for young people buying a home?',
-  'Where should EV chargers be placed first?',
+  'Compare population trend from 2023 to 2025',
+  'Where should I buy a home?',
+  'Where should we place an EV charging station?',
   'Which youth datasets are published in the catalog?',
 ]
 
@@ -201,7 +204,13 @@ export default function App() {
             />
           ) : null}
           {!narrow || mobileView === 'insight' ? (
-            <InsightPanel response={response} pending={pending} onAcquire={acquire} acquiring={acquiring} />
+            <InsightPanel
+              response={response}
+              pending={pending}
+              onAcquire={acquire}
+              acquiring={acquiring}
+              onAsk={ask}
+            />
           ) : null}
         </main>
       </div>

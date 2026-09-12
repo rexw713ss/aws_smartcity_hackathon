@@ -48,6 +48,33 @@ npm run build       # typecheck + production bundle
 npm run test:e2e    # Playwright, mocked API (needs a browser installed)
 ```
 
+## District map
+
+The **Map** tab draws the 29 New Taipei districts and shades the ones the current
+answer actually named, with Ember intensity set by the backend's own figure.
+Clicking or focusing a district reads out that figure, its rank, and which
+visualization it came from; a district the answer did not mention says so rather
+than borrowing a neighbour's number.
+
+Entity identifiers are resolved through `src/lib/districts.ts` by **exact** match
+on a zero-padded code (`01`), a canonical Chinese name (`板橋區`), or a lowercase
+English slug (`banqiao`) — the three shapes the backend actually emits. Anything
+else, including sites like `site-banqiao-station`, is listed as unplaceable.
+Substring matching is deliberately absent: guessing that a site named after a
+district sits inside it would be an unfounded spatial join.
+
+`districts.ts` is generated. After changing the backend dictionary or swapping
+the atlas, run:
+
+```bash
+uv run python -m scripts.generate_district_dictionary
+```
+
+`tests/unit/test_district_dictionary.py` fails if the committed file drifts. It
+also pins the trap the generator exists to avoid: the atlas `number` field is
+alphabetical by English name, so atlas 2 is 板橋區 while backend code `02` is
+三重區. Joining on `number` would mislabel every district silently.
+
 ## Design
 
 The visual system is **Ventriloc** (`DESIGN.md`): editorial data observatory on
