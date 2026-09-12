@@ -57,3 +57,12 @@ build/
 
 # Local reports and previews generated during development
 output/
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+# Raw CSVs must never be served from the browser: the frontend reads published
+# metrics through the API so lineage and quality travel with every number.
+frontend/public/data/
