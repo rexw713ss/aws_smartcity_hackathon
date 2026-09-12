@@ -1,239 +1,170 @@
 # AWS Workstream — Status and Handoff
 
 > Owner: AWS integration engineer
-> Status: **Planning complete for Stage 1. No AWS code written yet. Nothing deployed.**
-> Last updated: 2026-09-06
-> Audience: frontend, backend, and data-engineering teammates who need to know what the AWS lane is doing, what it will provide, and what it does not provide yet.
+> Status: **Stages 1 and 2 complete and deployed. Generative AI (Bedrock) live. Ingestion pipeline verified end to end against the real account.**
+> Last updated: 2026-09-12
+> Audience: frontend, backend, and data-engineering teammates who need to know what the AWS lane provides today and what it still does not.
 
-This is a living status document, not a design document. The numbered `docs/00-` through `docs/11-` files hold the approved architecture. This file explains where the AWS workstream actually stands against that architecture.
-
----
-
-## 1. Timeline warning
-
-The competition is **9/12-9/13** and today is **9/6**. That is roughly six days.
-
-Two facts from the official rules drive everything below:
-
-1. The organizer provides the AWS environment **only on the morning of 9/12**, announced at the opening ceremony.
-2. The organizer **suspends the account after the competition** and explicitly does not preserve team data.
-
-Practical consequence: the AWS stack must be deployable into an unfamiliar, empty account in minutes, and all data must be exportable before shutdown. Neither can be figured out on competition morning.
+This is a living status document, not a design document. The numbered `docs/00-` through `docs/20-` files hold the approved architecture. This file records where the AWS workstream actually stands.
 
 ---
 
-## 2. Current status at a glance
+## 1. Status at a glance
 
 | Item | State |
 |---|---|
-| AWS integration plan (3 cost-staged stages) | Agreed |
-| Stage 1 requirements spec | Written, awaiting review |
-| Stage 1 design document | Not started |
-| Stage 1 task list | Not started |
-| Stage 1 implementation | **Not started — zero code** |
-| Any deployed AWS resource | **None. Nothing has been deployed. No AWS spend has occurred.** |
-| AWS CDK CLI | Installed locally (`package.json`, `aws-cdk` ^2.1140.0) |
-| AWS account | Available for cheap Stage 2 rehearsal |
-
-Directories still empty (`.gitkeep` only): `src/youth_compass/ports/`, `adapters/aws/`, `adapters/local/`, `tests/contract/`, `ml/`.
-
----
-
-## 3. Findings from the competition rules that affect other workstreams
-
-These are not AWS-lane details. They change what other people build.
-
-### 3.1 Bedrock is mandatory, not optional
-
-The rules state 「僅限使用 Amazon Bedrock、SageMaker AI 的基礎模型」 — only foundation models from Amazon Bedrock or Amazon SageMaker AI may be used.
-
-`docs/01-system-architecture.md` and `docs/04-agentic-ai.md` currently treat Ollama as a first-class local provider with Bedrock as an optional AWS swap. **For the submission this is backwards.** A local Ollama model in the final demo would violate the rules.
-
-- Backend: the `ModelProvider` port is a required delivery, not a nice-to-have. Keep `FakeModelProvider` for tests, keep Ollama for offline development, but the demo path must run on Bedrock.
-- The submission must include a 「生成式 AI 技術應用」 (generative AI application) section.
-
-### 3.2 Submission requirements
-
-Proposals are uploaded within the 30-hour window and must cover: problem linkage, data usage, technical architecture, generative AI application, and a live demo.
-
-### 3.3 Judging criteria
-
-Technical feasibility, applicability, topic fit, completeness, and creativity (bonus).
-
-### 3.4 Eligibility logistics
-
-All members must attend the assigned data workshop, and at least two members must attend both generative-AI workshops, or the team loses finalist eligibility. Worth confirming this is already satisfied.
+| Stage 1 — foundation (ports, contract harness, CDK app, scripts) | **Done**, merged |
+| Stage 2 — AWS adapters (S3, Glue, Athena, EventBridge, Step Functions, DynamoDB) | **Done**, merged |
+| PR1 — AWS orchestration infrastructure | **Done**, merged, deployed |
+| PR2 — production ingestion workflow (durable state + real callback tokens) | **Done**, merged, deployed |
+| Stage 3 — generative AI (Bedrock + grounded copilot) | **Done**, merged, live |
+| Glue table registration on publish | **Done**, deployed, verified live |
+| Forecasting ("Predict" pillar) | **Not implemented** — see section 5 |
+| Real row-level transform in the deployed Lambda | **Not implemented** — see section 5 |
+| Deployed stacks | Budget, Data, Workflow — all `UPDATE_COMPLETE` in `us-east-1` |
+| Test suite | 588 passing, 1 skipped (opt-in real-AWS test) |
+| Static checks | `ruff` clean, `ruff format` clean, `mypy --strict` clean (84 source files) |
 
 ---
 
-## 4. What the AWS workstream owns
+## 2. Region change: Tokyo is not usable
 
-Per `docs/07-project-structure.md` section 12:
+**The project now runs in `us-east-1`, not `ap-northeast-1`.**
 
-- AWS adapters under `adapters/aws/`
-- IAM and account setup
-- Infrastructure as code
-- Deployment pipelines
-- Step Functions / Lambda / Glue integration
-- SageMaker managed pipeline
-- Bedrock / AgentCore deployment
-- CloudWatch integration and cost controls
+The hackathon account (`765996595659`, `WSParticipantRole`) blocks `ap-northeast-1` with a service control policy. This is not a configuration preference — calls to Tokyo fail outright:
 
-The hard rule that keeps our lanes separate is the dependency direction in `docs/07` section 13: **domain, application, and ports must never import `boto3`.** AWS-specific code lives only in `adapters/aws/`. If you see an AWS import creeping into shared code, that is a bug in my lane.
+| Region | Bedrock Converse result |
+|---|---|
+| `ap-northeast-1` | `AccessDeniedException` |
+| `us-east-1` | Success |
 
----
+Every adapter default, the model config, and `configs/aws.example.yaml` were switched to `us-east-1`. If you see `ap-northeast-1` anywhere in new code, it will fail on this account.
 
-## 5. The plan, staged by cost
-
-The AWS work is split into three stages so that nothing expensive is built before the hackathon credits exist.
-
-### Stage 1 — Zero cost, no AWS account needed
-
-Foundation only. Deploys nothing, spends nothing.
-
-1. Port Protocol definitions published as a proposal
-2. Reusable contract-test harness backed by in-memory AWS fakes
-3. AWS CDK app that synthesizes but never deploys, including a Budgets stack
-4. Runnable verification scripts (preflight, smoke test, data export)
-5. One-command bootstrap for a fresh account, plus a Makefile
-
-### Stage 2 — Cheap real AWS (realistically single-digit dollars total)
-
-S3 object store, Glue catalog, Athena query engine, Lambda-packaged transforms, Step Functions ingestion workflow with human-approval callback, EventBridge trigger and quarantine path.
-
-**No always-on compute in this stage.** Everything is per-invocation or tiny storage.
-
-### Stage 3 — Deferred until hackathon credits arrive
-
-Bedrock model provider, AgentCore Runtime deployment, AgentCore Gateway MCP tool layer, and optionally a SageMaker training pipeline.
-
-Deliberate decision: the forecast ships as a **precomputed Parquet artifact** rather than a live SageMaker pipeline, matching the demo-resilience advice in `docs/10-demo-and-evaluation.md` section 11. A judge cannot tell the difference, and it removes the largest cost and failure risk. The SageMaker pipeline is an upgrade if time allows.
+Still defaulting to Tokyo, deliberately left alone because they drive CDK deploys and were not in scope for a runtime fix: `scripts/aws_bootstrap.py`, `scripts/aws_export.py`, `scripts/aws_teardown.py`, and `infra/environments.py`. Pass `--region us-east-1` / `-c region=us-east-1` when using them, or change them as a separate decision.
 
 ---
 
-## 6. What Stage 1 will deliver
+## 3. What is deployed right now
 
-Nothing in this list exists yet. This is the planned artifact set.
+Account `765996595659`, region `us-east-1`.
 
-| Artifact | Path | Purpose |
-|---|---|---|
-| Port Protocols | `src/youth_compass/ports/` | The fixed seam between domain logic and infrastructure |
-| Contract-test harness | `tests/contract/` | One suite every adapter must satisfy, local or AWS |
-| CDK app | `infra/` | Infrastructure as code, synthesized and reviewable, deployed later |
-| Preflight checker | `scripts/aws_preflight.py` | Ten-second account readiness table for competition morning |
-| Smoke tester | `scripts/aws_smoke_test.py` | End-to-end round-trip verification with self-cleanup |
-| Data exporter | `scripts/aws_export.py` | Pulls all S3 and catalog data local before account suspension |
-| Makefile | `Makefile` | `make hackathon-bootstrap` plus named operational targets |
-| Provider config | `configs/local.yaml`, `configs/aws.example.yaml` | Swap infrastructure by configuration, not code |
-| Optional LocalStack | `docker-compose.yml` | Manual AWS exploration without an account |
-| Dev dependencies | `pyproject.toml` | boto3, moto, aws-cdk-lib, constructs added to the dev group only |
+**Six S3 buckets** (versioned, public access blocked):
+`youthcompasshackathon-{incoming,standardized,curated,quarantined,forecasts,metadata}-765996595659`
 
-### Why there are three separate verification programs
+**Glue database:** `youth_compass_hackathon`
 
-Because they answer different questions:
+**DynamoDB:** `youthcompasshackathon-metadata` (on-demand)
 
-1. **Contract tests** (`tests/contract/`) — "is my adapter logic correct?" Runs offline, no credentials, no cost, in CI.
-2. **Infra tests** (`infra/`) — "would this deploy the resources and permissions I intend?" Synthesis only, nothing created.
-3. **Preflight and smoke test** (`scripts/`) — "does the real account actually work right now?" One command, pass/fail table, readable output.
+**Lambdas:** `TransformFunction` (profiling, mapping, approval pause, publish) and `UploadEventFunction` (S3 event to workflow start)
+
+**Step Functions Standard workflow:**
+`arn:aws:states:us-east-1:765996595659:stateMachine:IngestionWorkflow29B06432-5XJBOuZbHvNw`
+
+**Plus:** EventBridge rule on `incoming/` object-created events, and a Budgets stack that deploys before any data resource.
 
 ---
 
-## 7. Open decisions that need backend input
+## 4. End-to-end verification against the real account
 
-Three items in the Stage 1 spec touch backend-owned code or documents. Flagging rather than deciding unilaterally.
+The full chain was run live, not mocked. Baseline before the run: **zero** Glue tables.
 
-1. **Port count.** `docs/01` section 5 defines six ports. `docs/07` section 7 fixes eight filenames, adding CheckpointStore, EventBus, and Clock while omitting WorkflowRunner. The spec currently covers nine Protocols, with `workflow_runner.py` proposed as an addition to `docs/07` section 7. Happy to trim to the six from `docs/01` section 5 if you would rather defer the rest.
+1. Presigned POST upload, exactly as a browser would do it → HTTP `204`
+2. S3 EventBridge event → upload Lambda → **one** Step Functions execution
+3. Execution `SUCCEEDED`
+4. Curated object written to the curated bucket
+5. Glue `EXTERNAL_TABLE` created, schema inferred from the source profile:
+   `year bigint`, `district string`, `age_label string`, `population bigint`
+6. **Athena query succeeded** — returned all three districts ordered by population, with the CSV header correctly excluded
 
-2. **`pyproject.toml` changes.** Stage 1 adds four dev dependencies, and extends ruff and mypy coverage to `infra/` and `scripts/`, which narrows the existing `[tool.mypy] exclude`. Runtime dependencies stay untouched. This is a shared file, so tell me if you would rather apply it yourself.
+This closes the PR2 Definition-of-Done item *"approval produces real curated objects and a Glue table"*, which previously was not met: the transform step copied the object to the curated zone but never registered it, so published data was not queryable.
 
-3. **`src/youth_compass/config.py` changes.** Provider-name validation naturally belongs in the existing loader, but that file is backend-owned. The spec is written so this validation can live in a separate AWS-workstream settings module instead. Your call.
+Bedrock was separately verified with a real Converse call: Amazon Nova Lite answered a youth-policy question with token accounting reported.
 
-**The port signatures are a proposal, not a decree.** They are transcribed from the owner-approved `docs/01` section 5 so I am not inventing anything, but if the real implementation needs different signatures, amend them. The contract-test suite is what keeps the change cheap: it localizes the blast radius to the adapter.
+### Two things that will bite you in a demo
 
----
+**Uploads must go through the presigned API.** Dropping a file into the bucket with `aws s3 cp` or the console **will be rejected**. `verify_upload` requires `job-id` and `submitted-by` object metadata and a key shaped `incoming/job-<hex>/...`. This is intentional defence in depth, and it is working — but it means the console is not a valid upload path.
 
-## 8. What other teams can and cannot rely on
-
-**Cannot rely on yet:** any working AWS adapter, any deployed stack, any Bedrock or foundation-model integration, any SageMaker pipeline. None of these exist.
-
-**Can plan against:** the port signatures in `docs/01` section 5, the provider-selection config shape in `docs/01` section 6, and the fact that switching between local and AWS will be a configuration change rather than a code change.
-
-**Frontend:** nothing in Stage 1 affects you. The API contract remains the backend's `docs/06-backend-api.md`.
-
-**Data engineering:** the forecast is expected as a Parquet artifact written to a `forecasts/` location. Portable `ml/prepare|train|evaluate|inference.py` scripts taking paths as arguments (per `docs/05` section 8) will wrap cleanly into SageMaker later if we get there. Please avoid importing web application code in those scripts.
-
-**Backend:** see the three open decisions above, and note the Bedrock rule in section 3.1.
+**`configs/aws.example.yaml` still ships `model_id: <PLACEHOLDER_...>`.** The copilot raises `ConfigurationError` unless it is replaced with a real model id (`amazon.nova-lite-v1:0`). Set it before demoing.
 
 ---
 
-## 9. Cost reference
+## 5. What is *not* implemented
 
-A common question: does AWS keep charging while nobody is using it?
+Being explicit here, because two of these are easy to assume are done.
 
-**Continuous — accrues hourly whether or not you touch it:**
-storage (S3 per GB-month, DynamoDB, CloudWatch Logs retention), and always-on compute (SageMaker endpoints and notebook instances, RDS, NAT Gateways, Elastic IPs, EBS volumes).
+### 5.1 Forecasting — the "Predict" pillar does not exist
 
-**Per-use — costs nothing when idle:**
-Athena queries, Lambda invocations, Step Functions transitions, S3 requests, EventBridge events, Bedrock tokens, SageMaker training jobs.
+There is **no forecasting implementation at all**, local or AWS:
 
-At this project's data scale (a few MB, roughly 49k rows in the largest topic), Stage 2's sleeping cost is **a few cents per month**, because it contains no always-on compute at all.
+- `src/youth_compass/forecasting/` is an **empty directory**
+- `adapters/local/` contains no forecast adapter
+- `adapters/aws/` contains no SageMaker adapter
+- The only `ForecastService` implementation is `tests/contract/reference/forecast_service.py`, registered as `reference` — a **test-only stub** that exists to exercise the contract suite
 
-**The things that actually burn money are specific and avoidable.** None are in the plan, and creating any of them should be a deliberate, flagged decision:
+So the `ForecastService` port and its `ForecastRequest` / `ForecastResult` / `ForecastPoint` models are defined and contract-tested, but nothing implements them for production use.
 
-- SageMaker real-time endpoints and notebook instances
-- NAT Gateways
-- RDS instances
-- Unassociated Elastic IPs
+SageMaker has been dropped by decision — local prediction is the agreed direction. That local implementation still needs to be written, and it is currently the largest missing piece of the product story. The architecture already anticipates the cheap path: ship the forecast as a **precomputed Parquet artifact** in the `forecasts/` bucket (per `docs/10` section 11) rather than training anything live.
 
-Three guardrails are built into the plan: the Budgets stack deploys before any data resource, `make aws-teardown` gives one-command cleanup behind a confirmation prompt, and the preflight checker flags any always-on resource it finds in the account.
+### 5.2 The deployed transform does not transform rows
 
-Figures above are estimates for the Tokyo region and should be confirmed against the AWS pricing calculator before anyone relies on them.
+`adapters/aws/transform_lambda.py` `_transform` copies the source object into the curated or quarantined zone and registers the Glue table. It does **not** run the row-level canonical transformation (dimension normalisation, youth weighting, Parquet output, rejection thresholds).
 
----
+That logic exists and is well tested — but in the **local** pipeline (`src/youth_compass/transformation/`), not in the Lambda. Consequence: curated output is the original CSV, not a transformed Parquet fact table. The publish/quarantine branch, the curated write, and catalog registration are all genuinely proven; the heavy transform is the gap.
 
-## 10. Environment setup for AWS work
+### 5.3 API-role IAM for approval callbacks
 
-Region: **ap-northeast-1 (Tokyo)** — nearest to the team, and it has Bedrock.
-
-```bash
-# AWS CLI v2
-aws --version
-
-# CDK CLI (already installed in this repo via npm)
-npx cdk --version
-
-# Credentials — prefer IAM Identity Center
-aws configure sso
-# or, with an IAM user that has MFA enabled
-aws configure
-
-# One-time per account and region, before the first deploy
-npx cdk bootstrap aws://<account-id>/ap-northeast-1
-```
-
-Secrets never belong in committed files. Use environment variables, SSM Parameter Store, or Secrets Manager. `.env` and `node_modules/` are already gitignored.
+Resuming a paused workflow needs `states:SendTaskSuccess` / `SendTaskFailure`. This works locally with developer credentials. A deployed API role has not been granted these permissions yet.
 
 ---
 
-## 11. Where the detail lives
+## 6. Architectural rules that still hold
 
-The full Stage 1 requirements, with acceptance criteria and a glossary explaining every AWS term used, are in the project spec for `aws-stage1-foundation`. Ask me for a walkthrough rather than reading it cold — it is written for implementation precision, not for onboarding.
+The dependency direction from `docs/07` section 13 is intact and enforced by a test: **`src/youth_compass/` never imports `boto3`.** All AWS code lives in `adapters/aws/`. Swapping local for AWS is a configuration change, not a code change.
 
-Related approved architecture documents:
+Adapters are selected by config (`configs/local.yaml` vs `configs/aws.example.yaml`). Every adapter satisfies the same contract suite as its local counterpart, so an adapter swap cannot silently change behaviour.
 
-- `docs/01-system-architecture.md` — port definitions, offline and AWS architectures, provider config
-- `docs/07-project-structure.md` — repository layout, adapter filenames, ownership boundaries, dependency rules
-- `docs/08-quality-security-observability.md` — IAM role separation, query controls, AWS cost controls
-- `docs/09-implementation-plan.md` — the overall phase plan and the AWS phase outline
-- `docs/10-demo-and-evaluation.md` — demo narrative, end-to-end acceptance tests, resilience checklist
+One deliberate exception worth knowing: the Lambda registers the Glue table directly rather than reusing the `GlueCatalog` adapter. That adapter writes a single `placeholder` column and requires a full `DatasetMetadata` object the Lambda does not have, so reusing it would have produced a worse schema.
 
 ---
 
-## 12. Next steps in the AWS lane
+## 7. Cost posture
 
-1. Review the Stage 1 requirements and settle the three open decisions in section 7
-2. Produce the Stage 1 design and task list
-3. Implement Stage 1 (zero cost, no account needed)
-4. Rehearse Stage 2 against a personal account for a few dollars, well before 9/12
-5. On 9/12 morning: run preflight against the provided account, then `make hackathon-bootstrap`
-6. Before the event closes: run the data export
+No always-on compute is deployed. Everything is per-invocation or small storage: S3 objects (a few MB), an on-demand DynamoDB table, two Lambdas, a Standard workflow that suspends without charge while awaiting approval, and Bedrock billed per token.
+
+Idle cost is a few cents per month. The money-burning resources — SageMaker endpoints and notebook instances, NAT Gateways, RDS, unassociated Elastic IPs — are **not** in the deployment, and creating any of them should be a deliberate, flagged decision.
+
+Guardrails: the Budgets stack deploys before any data resource, `make aws-teardown` cleans up behind a confirmation prompt, and the preflight checker flags always-on resources it finds.
+
+---
+
+## 8. What other teams can rely on
+
+**Can rely on now:** presigned browser uploads to S3, an S3 event starting exactly one workflow execution, job status surviving API and Lambda restarts (DynamoDB-backed), mapping proposals and quality reports through the existing API, approval producing real curated objects **and** a queryable Glue table, rejection producing no published data, and a working Bedrock model provider behind the `ModelProvider` port.
+
+**Cannot rely on yet:** any forecast (section 5.1), transformed Parquet in the curated zone (section 5.2), and approval callbacks from a deployed API role (section 5.3).
+
+**Frontend:** uploads must use the presigned API, not direct bucket writes. See section 4.
+
+**Data engineering:** the forecast is still expected as a Parquet artifact under the `forecasts/` bucket. Keep `ml/` scripts path-argument driven and free of web-application imports.
+
+**Backend:** Bedrock is wired and live. Set `model.model_id` before any deploy, and keep `model.region` at `us-east-1`.
+
+---
+
+## 9. Where the detail lives
+
+- `docs/01-system-architecture.md` — ports, architectures, provider config
+- `docs/07-project-structure.md` — layout, adapter filenames, ownership, dependency rules
+- `docs/08-quality-security-observability.md` — IAM separation, query controls, cost controls
+- `docs/10-demo-and-evaluation.md` — demo narrative, acceptance tests, resilience checklist
+- `docs/20-grounded-copilot.md` — the copilot and agent layer
+- `docs/aws-architecture.md` — the deployed AWS architecture diagram
+
+---
+
+## 10. Suggested next steps
+
+1. **Local forecasting** — the one missing product pillar. Cheapest credible path is a precomputed Parquet artifact in the `forecasts/` bucket, served through the `ForecastService` port.
+2. **Real row-level transform in the Lambda** — makes curated output a genuine Parquet fact table instead of a copied CSV.
+3. **API-role IAM** for `SendTaskSuccess` / `SendTaskFailure` before the API is deployed to AWS.
+4. **Before the account is suspended:** run the data export (`scripts/aws_export.py --region us-east-1`). The organizer does not preserve team data.
