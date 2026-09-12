@@ -19,6 +19,7 @@ from collections.abc import Iterator
 import pytest
 
 # Importing these packages populates the registries via their adapter factories.
+import tests.contract.local
 import tests.contract.reference
 
 try:

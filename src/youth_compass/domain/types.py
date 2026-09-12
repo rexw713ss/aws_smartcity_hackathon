@@ -5,6 +5,9 @@ from enum import StrEnum
 
 class FileFormat(StrEnum):
     CSV = "csv"
+    EXCEL = "excel"
+    JSON = "json"
+    PDF = "pdf"
 
 
 class PrimitiveType(StrEnum):

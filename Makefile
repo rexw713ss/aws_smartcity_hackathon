@@ -6,12 +6,18 @@ DEST ?= ./exports/aws
 
 .DEFAULT_GOAL := help
 
-.PHONY: help hackathon-bootstrap aws-preflight aws-synth aws-smoke aws-export \
-        aws-teardown test lint typecheck format
+.PHONY: help local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
+        aws-export aws-teardown test lint typecheck format
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*## "} {printf "  %-22s %s\n", $$1, $$2}'
+
+local-api:  ## Run the offline FastAPI service on port 8000
+	uv run uvicorn apps.api.main:app --reload --port 8000
+
+dashboard:  ## Run the temporary Streamlit dashboard on port 8501
+	uv run streamlit run apps/dashboard/app.py --server.port 8501
 
 hackathon-bootstrap:  ## Empty account to verified stack (creds). ASSUME_YES=1 to skip prompt
 	uv run python -m scripts.aws_bootstrap $(if $(ASSUME_YES),--assume-yes,)

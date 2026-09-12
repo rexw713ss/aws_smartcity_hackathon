@@ -1,5 +1,10 @@
 # Backend API Contract
 
+> Implementation note: the offline reviewer, catalog, city summary, district
+> profile, and district comparison vertical slice is implemented. Forecast,
+> copilot, priority ranking, trend, authentication, and pagination remain target
+> contracts. See [`16-reviewer-dashboard-api.md`](./16-reviewer-dashboard-api.md).
+
 ## 1. API goals
 
 The backend exposes stable contracts to the dashboard and agent while hiding whether the implementation uses local adapters or AWS services.
@@ -52,6 +57,37 @@ Response `202 Accepted`:
   }
 }
 ```
+
+### `POST /api/v1/uploads`
+
+Issues a short-lived presigned S3 form for the AWS runtime. The response contains
+the server-generated `jobId`, the S3 `url` and signed `fields`, plus `complete`
+and shared ingestion-job links. The browser submits the file as
+`multipart/form-data`; the API server does not proxy the file bytes.
+
+After S3 returns `204`, call:
+
+```http
+POST /api/v1/uploads/{jobId}/complete
+Content-Type: application/json
+
+{"objectKey": "incoming/{jobId}/...csv", "topicHint": "population"}
+```
+
+The completion endpoint verifies the object size, signed job metadata, submitter,
+and key prefix before starting the Step Functions execution. It is safe to retry:
+the Step Functions execution name is the same `jobId`.
+
+An S3 notification routed through EventBridge may invoke
+`adapters.aws.upload_event_handler.handler` instead. The event handler performs
+the same verification and starts the same idempotently named execution, so the
+callback and event paths can safely converge.
+
+AWS configuration:
+
+- `YOUTH_COMPASS_INCOMING_BUCKET`
+- `YOUTH_COMPASS_STATE_MACHINE_ARN`
+- `YOUTH_COMPASS_REGION` (defaults to `us-east-1`)
 
 ### `GET /api/v1/ingestion-jobs/{job_id}`
 

@@ -51,3 +51,6 @@ configs/aws.yaml
 # Local data export destination written by scripts/aws_export.py before the
 # hackathon account is suspended; this is real data, not source.
 exports/
+
+# Local reports and previews generated during development
+output/

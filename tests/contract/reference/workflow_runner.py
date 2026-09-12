@@ -33,6 +33,21 @@ class InMemoryWorkflowRunner:
             callback_token=f"token-{self._counter}",
         )
 
+    def get_job_reference(self, job_id: str) -> JobReference:
+        status = self._status.get(job_id)
+        if status is None:
+            raise WorkflowStateError(f"unknown workflow job {job_id!r}")
+        return JobReference(
+            job_id=job_id,
+            status=status,
+            created_at=datetime(2026, 9, 12, tzinfo=UTC),
+            callback_token=(
+                f"token-{job_id.removeprefix('job-')}"
+                if status is JobStatus.AWAITING_APPROVAL
+                else None
+            ),
+        )
+
     def resume_after_approval(self, job_id: str, decision: ApprovalDecision) -> None:
         status = self._status.get(job_id)
         if status is None:

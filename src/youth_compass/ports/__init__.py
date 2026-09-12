@@ -29,6 +29,7 @@ from youth_compass.ports.model_provider import (
 )
 from youth_compass.ports.object_store import ObjectStore
 from youth_compass.ports.query_engine import QueryEngine, QueryResult, QuerySpec
+from youth_compass.ports.source_adapter import NormalizedTabularSource, SourceAdapter
 from youth_compass.ports.workflow_runner import (
     ApprovalDecision,
     IngestionRequest,
@@ -54,10 +55,12 @@ __all__ = [
     "ModelProvider",
     "ModelRequest",
     "ModelResponse",
+    "NormalizedTabularSource",
     "ObjectStore",
     "QueryEngine",
     "QueryResult",
     "QuerySpec",
+    "SourceAdapter",
     "TrainingRequest",
     "TrainingRun",
     "TrainingStatus",
