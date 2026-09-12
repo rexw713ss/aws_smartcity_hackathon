@@ -19,7 +19,7 @@ from youth_compass.ports.event_bus import DomainEvent
 class EventBridgeBus:
     """EventBus backed by Amazon EventBridge with in-process fan-out."""
 
-    def __init__(self, bus_name: str, region: str = "ap-northeast-1") -> None:
+    def __init__(self, bus_name: str, region: str = "us-east-1") -> None:
         self._bus_name = bus_name
         self._client = boto3.client("events", region_name=region)
         self._handlers: dict[str, list[Callable[[DomainEvent], None]]] = {}

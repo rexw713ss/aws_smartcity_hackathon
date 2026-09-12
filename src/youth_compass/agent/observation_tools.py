@@ -66,8 +66,7 @@ class InspectDatasetTool:
         candidates = [
             item
             for item in self._catalog.list_datasets()
-            if item.status is DatasetStatus.PUBLISHED
-            and item.quality_score >= min_quality_score
+            if item.status is DatasetStatus.PUBLISHED and item.quality_score >= min_quality_score
         ]
         metadata = _select_dataset(candidates, decomposition)
         result = self._query_engine_factory(metadata).execute(
@@ -79,9 +78,7 @@ class InspectDatasetTool:
             )
         )
         if result.truncated:
-            raise QueryExecutionError(
-                "dataset inspection exceeded the safe 100000-row query limit"
-            )
+            raise QueryExecutionError("dataset inspection exceeded the safe 100000-row query limit")
         records = _records(result.columns, result.rows)
         if not records:
             raise QueryExecutionError("the selected published dataset has no observations")
@@ -134,9 +131,7 @@ class QueryObservationsTool:
             )
         )
         if result.truncated:
-            raise QueryExecutionError(
-                "observation query exceeded the safe 100000-row query limit"
-            )
+            raise QueryExecutionError("observation query exceeded the safe 100000-row query limit")
         records = _records(result.columns, result.rows)
         requested = set(decomposition.entity_ids)
         if requested:
@@ -152,9 +147,7 @@ class QueryObservationsTool:
         units = {str(row["unit_code"]) for row in records}
         scopes = {str(row["population_scope"]) for row in records}
         if len(units) != 1 or len(scopes) != 1:
-            raise QueryExecutionError(
-                "mixed units or population scopes cannot be compared safely"
-            )
+            raise QueryExecutionError("mixed units or population scopes cannot be compared safely")
         grouped: dict[tuple[str, str], ObservationPoint] = {}
         for row in records:
             entity_id = _entity_id(row)
@@ -175,8 +168,7 @@ class QueryObservationsTool:
                 update={
                     "value": round(current.value + value, 4),
                     "estimated_value": round(
-                        current.estimated_value
-                        + (value if row["is_estimated"] is True else 0),
+                        current.estimated_value + (value if row["is_estimated"] is True else 0),
                         4,
                     ),
                 }
@@ -278,10 +270,7 @@ def _select_metric(metrics: tuple[str, ...], decomposition: DecomposedQuery) -> 
     requested = set(decomposition.metric_terms) | set(decomposition.subject_terms)
     requested_tokens = {token for term in requested for token in _tokens(term)}
     scored = sorted(
-        (
-            (len(set(_tokens(metric)) & requested_tokens), metric)
-            for metric in metrics
-        ),
+        ((len(set(_tokens(metric)) & requested_tokens), metric) for metric in metrics),
         key=lambda item: (-item[0], item[1]),
     )
     if len(metrics) == 1:

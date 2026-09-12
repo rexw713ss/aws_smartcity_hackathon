@@ -166,9 +166,7 @@ def test_unsupported_question_does_not_query_data() -> None:
 def test_missing_or_low_quality_data_refuses_to_rank() -> None:
     service, provider = _service((_value("banqiao", "property_cost", 80, quality=0.4),))
 
-    response = asyncio.run(
-        service.answer("Where should I buy a home?", min_quality_score=0.8)
-    )
+    response = asyncio.run(service.answer("Where should I buy a home?", min_quality_score=0.8))
 
     assert response.status is CopilotStatus.INSUFFICIENT_DATA
     assert response.candidates == ()
@@ -176,9 +174,7 @@ def test_missing_or_low_quality_data_refuses_to_rank() -> None:
 
 
 def test_model_planner_is_schema_constrained_and_profile_allowlisted() -> None:
-    provider = StaticModelProvider(
-        '{"profile_code":"home_buying","entity_ids":["model-invented"]}'
-    )
+    provider = StaticModelProvider('{"profile_code":"home_buying","entity_ids":["model-invented"]}')
     planner = ModelCopilotPlanner(provider)
 
     intent = asyncio.run(planner.plan("Help me choose a home", ("banqiao",)))
@@ -223,9 +219,7 @@ def test_model_planner_rejects_unregistered_profile() -> None:
         ("Write arbitrary SQL", None),
     ],
 )
-def test_deterministic_planner_evaluation_set(
-    question: str, expected: str | None
-) -> None:
+def test_deterministic_planner_evaluation_set(question: str, expected: str | None) -> None:
     intent = asyncio.run(DeterministicCopilotPlanner().plan(question, ()))
 
     assert (intent.profile_code if intent else None) == expected

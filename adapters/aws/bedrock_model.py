@@ -29,7 +29,7 @@ class BedrockModelProvider:
         self,
         model_id: str,
         *,
-        region: str = "ap-northeast-1",
+        region: str = "us-east-1",
         timeout_seconds: float = 30.0,
         max_attempts: int = 3,
         client: BedrockRuntimeClient | None = None,

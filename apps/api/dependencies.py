@@ -113,8 +113,6 @@ class LocalRuntime:
             feature_registry=self.feature_registry,
             profile_registry=self.profile_registry,
             decomposer=decomposer,
-            observation_tools=ObservationToolSuite(
-                self.catalog, self._observation_query_engine
-            ),
+            observation_tools=ObservationToolSuite(self.catalog, self._observation_query_engine),
         )
         return self._copilot_service

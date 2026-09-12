@@ -27,9 +27,7 @@ class StaticModelProvider:
 
 
 class FailingDecomposer:
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         del question, entity_ids
         raise ModelInvocationError("Bedrock unavailable")
 
@@ -141,13 +139,9 @@ def test_model_decomposer_is_schema_constrained_and_preserves_user_scope() -> No
 
 
 def test_model_decomposer_falls_back_to_deterministic_planning() -> None:
-    decomposer = FallbackQueryDecomposer(
-        FailingDecomposer(), DeterministicQueryDecomposer()
-    )
+    decomposer = FallbackQueryDecomposer(FailingDecomposer(), DeterministicQueryDecomposer())
 
-    result = asyncio.run(
-        decomposer.decompose("Compare population trend", ("a", "b"))
-    )
+    result = asyncio.run(decomposer.decompose("Compare population trend", ("a", "b")))
 
     assert result.metric_terms == ("population_count",)
     assert AnalysisOperation.QUERY_OBSERVATIONS in result.operations
