@@ -22,12 +22,13 @@ import pytest
 import tests.contract.reference
 
 try:
+    # Imported for their registration side effects (register_* decorators).
     import tests.contract.aws
     import tests.contract.aws.athena_query
     import tests.contract.aws.eventbridge_bus
     import tests.contract.aws.glue_catalog
     import tests.contract.aws.s3_store
-    import tests.contract.aws.step_functions_runner
+    import tests.contract.aws.step_functions_runner  # noqa: F401
 except ImportError:
     pass  # AWS adapters not yet present; reference adapters suffice
 from tests.contract.registry import (

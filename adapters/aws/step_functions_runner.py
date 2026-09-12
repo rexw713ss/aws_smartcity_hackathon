@@ -7,6 +7,7 @@ Functions. Under moto, uses an in-process job-state model since moto's Step
 Functions interpreter does not support the ``waitForTaskToken`` pattern.
 """
 
+import contextlib
 from datetime import UTC, datetime
 
 import boto3
@@ -34,14 +35,13 @@ class StepFunctionsRunner:
         """Start an execution and record the job as awaiting approval."""
         self._counter += 1
         job_id = f"sfn-job-{self._counter}"
-        try:
+        # Under moto the ARN may not resolve; the in-process state is authoritative.
+        with contextlib.suppress(botocore.exceptions.ClientError):
             self._client.start_execution(
                 stateMachineArn=self._arn,
                 name=job_id,
                 input=request.model_dump_json(),
             )
-        except botocore.exceptions.ClientError:
-            pass  # Under moto the ARN may not resolve; the in-process state is authoritative
         self._jobs[job_id] = JobStatus.AWAITING_APPROVAL
         return JobReference(
             job_id=job_id,
