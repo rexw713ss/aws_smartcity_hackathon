@@ -17,6 +17,9 @@ from aws_cdk import (
     RemovalPolicy,
 )
 from aws_cdk import (
+    aws_athena as athena,
+)
+from aws_cdk import (
     aws_dynamodb as dynamodb,
 )
 from aws_cdk import (
@@ -38,6 +41,13 @@ _INCOMING_EXPIRY_DAYS = 30
 _QUARANTINED_EXPIRY_DAYS = 90
 
 _ZONES = ("incoming", "quarantined", "standardized", "curated", "forecasts", "metadata")
+
+# Athena is billed per byte scanned. The curated datasets are a few MB, so this
+# cap is a guardrail against a runaway query, not a working limit — a single
+# scan should never approach it. Enforced at the workgroup so no per-query
+# override can raise it.
+_ATHENA_SCAN_CAP_BYTES = 1024 * 1024 * 1024  # 1 GiB
+_ATHENA_RESULTS_PREFIX = "athena-results/"
 
 
 class DataStack(TaggedStack):
@@ -104,6 +114,29 @@ class DataStack(TaggedStack):
             ),
         )
 
+        # --- Athena workgroup for read-only analytics ---
+        # Results land under a prefix of the metadata bucket. enforce_work_group
+        # _configuration=True means a caller cannot override the output location
+        # or the scan cap, so the guardrail cannot be bypassed per query.
+        self.athena_workgroup_name = f"{prefix}-analytics"
+        self.athena_results_uri = (
+            f"s3://{self.buckets['metadata'].bucket_name}/{_ATHENA_RESULTS_PREFIX}"
+        )
+        self.athena_workgroup = athena.CfnWorkGroup(
+            self,
+            "AnalyticsWorkGroup",
+            name=self.athena_workgroup_name,
+            recursive_delete_option=True,
+            work_group_configuration=athena.CfnWorkGroup.WorkGroupConfigurationProperty(
+                enforce_work_group_configuration=True,
+                publish_cloud_watch_metrics_enabled=True,
+                bytes_scanned_cutoff_per_query=_ATHENA_SCAN_CAP_BYTES,
+                result_configuration=athena.CfnWorkGroup.ResultConfigurationProperty(
+                    output_location=self.athena_results_uri,
+                ),
+            ),
+        )
+
         # --- DynamoDB metadata table (on-demand, no provisioned capacity) ---
         self.metadata_table = dynamodb.Table(
             self,
@@ -150,3 +183,10 @@ class DataStack(TaggedStack):
                 resources=[curated_bucket.arn_for_objects("*")],
             )
         )
+
+        # Names the API deployment consumes to wire its Athena adapter.
+        cdk.CfnOutput(self, "GlueDatabaseName", value=self.glue_database_name)
+        cdk.CfnOutput(self, "AthenaWorkGroupName", value=self.athena_workgroup_name)
+        cdk.CfnOutput(self, "AthenaResultsUri", value=self.athena_results_uri)
+        cdk.CfnOutput(self, "MetadataBucketName", value=self.buckets["metadata"].bucket_name)
+        cdk.CfnOutput(self, "CuratedBucketName", value=curated_bucket.bucket_name)

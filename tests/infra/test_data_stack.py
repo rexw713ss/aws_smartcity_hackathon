@@ -131,3 +131,37 @@ class TestSynthesis:
         for env_name in ("dev", "demo", "hackathon"):
             template = _synth(env_name)
             assert template.to_json().get("Resources")
+
+
+class TestAthenaWorkGroup:
+    def test_a_workgroup_exists(self) -> None:
+        template = _synth()
+        template.resource_count_is("AWS::Athena::WorkGroup", 1)
+
+    def test_configuration_is_enforced_with_a_scan_cap(self) -> None:
+        # Enforcement is what makes the cost cap real: without it a caller could
+        # override the output location or raise the scanned-bytes limit per query.
+        template = _synth()
+        resources = template.find_resources("AWS::Athena::WorkGroup")
+        config = next(iter(resources.values()))["Properties"]["WorkGroupConfiguration"]
+        assert config["EnforceWorkGroupConfiguration"] is True
+        assert config["BytesScannedCutoffPerQuery"] == 1024 * 1024 * 1024
+
+    def test_results_go_to_the_metadata_bucket_prefix(self) -> None:
+        template = _synth()
+        resources = template.find_resources("AWS::Athena::WorkGroup")
+        config = next(iter(resources.values()))["Properties"]["WorkGroupConfiguration"]
+        location = config["ResultConfiguration"]["OutputLocation"]
+        assert "metadata" in str(location)
+        assert "athena-results/" in str(location)
+
+    def test_names_are_exposed_as_outputs(self) -> None:
+        template = _synth()
+        outputs = template.find_outputs("*")
+        for key in (
+            "GlueDatabaseName",
+            "AthenaWorkGroupName",
+            "AthenaResultsUri",
+            "CuratedBucketName",
+        ):
+            assert key in outputs
