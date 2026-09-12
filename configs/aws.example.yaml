@@ -4,7 +4,7 @@
 #   standard AWS credential resolution for keys.
 # Every <PLACEHOLDER_...> token below must be replaced before use.
 environment: aws
-region: ap-northeast-1
+region: us-east-1
 storage:
   provider: s3
   bucket: <PLACEHOLDER_CURATED_BUCKET>
@@ -17,7 +17,7 @@ query:
 model:
   provider: bedrock
   model_id: <PLACEHOLDER_BEDROCK_MODEL_OR_INFERENCE_PROFILE_ID>
-  region: ap-northeast-1
+  region: us-east-1
   timeout_seconds: 30
   max_attempts: 3
 forecast:
