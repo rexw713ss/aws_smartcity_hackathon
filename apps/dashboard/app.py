@@ -107,6 +107,7 @@ def _default_metric(dataset: dict[str, Any]) -> str:
 _state("api_url", os.getenv("YOUTH_COMPASS_API_URL", "http://127.0.0.1:8000"))
 _state("active_job_id", None)
 _state("reviewer", "reviewer@newtaipei.gov.tw")
+_state("copilot_result", None)
 
 with st.sidebar:
     st.markdown("## 🧭 Youth Compass")
@@ -134,8 +135,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-overview_tab, explorer_tab, onboarding_tab = st.tabs(
-    ["01 · Policy overview", "02 · District explorer", "03 · Data onboarding"]
+overview_tab, explorer_tab, copilot_tab, onboarding_tab = st.tabs(
+    [
+        "01 · Policy overview",
+        "02 · District explorer",
+        "03 · Decision copilot",
+        "04 · Data onboarding",
+    ]
 )
 
 with overview_tab:
@@ -242,6 +248,104 @@ with explorer_tab:
             ).set_index("District")
             st.markdown(f"### District comparison · {html.escape(summary['period'])}")
             st.bar_chart(chart_data, color="#176b52", horizontal=True)
+
+with copilot_tab:
+    st.markdown("### Ask a grounded location question")
+    st.markdown(
+        '<div class="section-note">The copilot may select only a registered decision '
+        "profile. Retrieval, constraints, scoring, and citations remain deterministic.</div>",
+        unsafe_allow_html=True,
+    )
+    question = st.text_area(
+        "Question",
+        placeholder="Where should I buy a home? / Nên đặt trụ sạc xe ở đâu?",
+    )
+    entity_scope = st.text_input(
+        "Candidate IDs (optional, comma separated)",
+        placeholder="banqiao, linkou",
+    )
+    minimum_quality = st.slider(
+        "Minimum evidence quality",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.7,
+        step=0.05,
+    )
+    if st.button(
+        "Run grounded analysis",
+        type="primary",
+        use_container_width=True,
+        disabled=not question.strip() or not health,
+    ):
+        result = _safe(
+            _api().copilot,
+            question,
+            entity_ids=[item.strip() for item in entity_scope.split(",") if item.strip()],
+            min_quality_score=minimum_quality,
+        )
+        if result:
+            st.session_state.copilot_result = result
+
+    copilot_result = st.session_state.copilot_result
+    if copilot_result:
+        response_status = copilot_result.get("status", "unknown")
+        if response_status == "answered":
+            st.success(copilot_result.get("answer", ""))
+        else:
+            st.warning(copilot_result.get("answer", ""))
+        decomposition = copilot_result.get("decomposition") or {}
+        routed_plan = copilot_result.get("routed_plan") or {}
+        if decomposition:
+            with st.expander("Query decomposition and tool route"):
+                st.caption(decomposition.get("objective", ""))
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Step": step.get("step_id"),
+                                "Operation": step.get("operation"),
+                                "Tool": step.get("tool_name"),
+                                "Depends on": ", ".join(step.get("depends_on", [])),
+                            }
+                            for step in routed_plan.get("steps", [])
+                        ]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                missing_operations = routed_plan.get("missing_operations", [])
+                if missing_operations:
+                    st.warning("Missing tools: " + ", ".join(missing_operations))
+        plan = copilot_result.get("plan") or {}
+        if plan:
+            st.caption(
+                f"Plan: {plan.get('profile_code')}@{plan.get('profile_version')} · "
+                f"{len(plan.get('feature_codes', []))} features"
+            )
+        candidates = copilot_result.get("candidates", [])
+        if candidates:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Rank": item.get("rank") or "—",
+                            "Candidate": item.get("entity_name") or item.get("entity_id"),
+                            "Eligible": item.get("eligible"),
+                            "Score": item.get("score"),
+                            "Missing": ", ".join(item.get("missing_required_features", [])),
+                        }
+                        for item in candidates
+                    ]
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+        citations = copilot_result.get("citations", [])
+        if citations:
+            with st.expander("Evidence and lineage"):
+                st.dataframe(pd.DataFrame(citations), hide_index=True, use_container_width=True)
+        for warning in copilot_result.get("warnings", []):
+            st.caption(f"⚠️ {warning}")
 
 with onboarding_tab:
     st.markdown("### Add a new evidence source")

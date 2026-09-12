@@ -256,6 +256,22 @@ Restricted command used by an authorized workflow or operator.
 
 ## 7. Copilot endpoints
 
+### `GET /api/v1/copilot/capabilities`
+
+Lists the runtime's registered tool capabilities, their generic operations, and their
+dependencies. This is the capability inventory used by the smart router.
+
+### `POST /api/v1/copilot/query`
+
+Implemented offline endpoint for one grounded decision turn. It accepts a natural-language
+question, optional candidate IDs, and a minimum evidence quality. The response contains the
+query decomposition, routed tool plan, validated decision plan, deterministic ranking,
+feature contributions, dataset-version citations, tool trace, assumptions, and warnings.
+It returns `insufficient_data` rather than guessing when the runtime lacks a requested tool
+or the current feature snapshot cannot satisfy a profile.
+
+The session and streaming contracts below remain the next conversational increment.
+
 ### `POST /api/v1/copilot/sessions`
 
 Creates a session and returns a session identifier.

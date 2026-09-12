@@ -9,6 +9,7 @@ from fastapi import FastAPI, File, Form, Query, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from apps.api.copilot import router as copilot_router
 from apps.api.dependencies import LocalRuntime
 from apps.api.schemas import (
     CitySummaryResponse,
@@ -35,6 +36,7 @@ from youth_compass import __version__
 from youth_compass.domain import (
     AnalyticsNotAvailableError,
     DatasetNotFoundError,
+    ModelInvocationError,
     QueryExecutionError,
     QueryNotPermittedError,
     SourceNormalizationError,
@@ -51,6 +53,7 @@ _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 def create_app(data_root: Path = Path("data")) -> FastAPI:
     app = FastAPI(title="New Taipei Youth Compass API", version=__version__)
     app.state.runtime = LocalRuntime(data_root)
+    app.include_router(copilot_router)
     app.include_router(uploads_router)
 
     @app.exception_handler(YouthCompassError)
@@ -353,6 +356,8 @@ def _status_for_error(exc: YouthCompassError) -> int:
         return status.HTTP_409_CONFLICT
     if isinstance(exc, QueryExecutionError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT
+    if isinstance(exc, ModelInvocationError):
+        return status.HTTP_503_SERVICE_UNAVAILABLE
     if isinstance(exc, SourceNormalizationError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT
     return status.HTTP_500_INTERNAL_SERVER_ERROR

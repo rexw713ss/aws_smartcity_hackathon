@@ -49,11 +49,14 @@ See [`docs/11-development-guide.md`](./docs/11-development-guide.md) for all dev
 Run the API and dashboard in two terminals:
 
 ```bash
+make demo-features
 make local-api
 make dashboard
 ```
 
 Then open `http://127.0.0.1:8501`. The interface supports the full local demo:
 upload CSV, Excel, JSON, or a text-based PDF table, inspect its proposed mapping,
-approve or reject it, and query the published district aggregates through FastAPI
-and DuckDB. Scanned PDFs remain a later OCR/Amazon Textract integration.
+approve or reject it, query published district aggregates, and run grounded home-buying
+or EV-charger rankings through the Decision copilot tab. The copilot requires an immutable
+`data/features/current.parquet` snapshot. Scanned PDFs remain a later OCR/Amazon Textract
+integration.

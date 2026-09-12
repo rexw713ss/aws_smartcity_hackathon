@@ -34,6 +34,7 @@ data/forecasts/*
 !data/forecasts/.gitkeep
 data/metadata/*
 !data/metadata/.gitkeep
+data/features/*.parquet
 
 node_modules/
 # AWS CDK synthesis output and cached context.
