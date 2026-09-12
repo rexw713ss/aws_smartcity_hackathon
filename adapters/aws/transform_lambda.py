@@ -8,6 +8,7 @@ imported by any module under ``src/youth_compass/``.
 """
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -19,27 +20,53 @@ from youth_compass.mapping.engine import MappingOptions, analyze_mapping
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """Lambda entry point. Dispatches to ``profile`` or ``analyze`` actions.
 
-    Event shape::
+    Two input modes:
+
+    - Local path (used by tests and local invocation)::
 
         {"action": "profile", "source_path": "/tmp/file.csv"}
         {"action": "analyze", "source_path": "/tmp/file.csv", "topic_hint": "..."}
+
+    - S3 object (used by the Step Functions workflow)::
+
+        {"action": "analyze", "bucket": "...", "key": "incoming/x.csv"}
     """
     action = event.get("action", "")
+    bucket = event.get("bucket")
+    key = event.get("key")
     source_path = event.get("source_path", "")
 
-    if not source_path:
-        return _error("source_path is required")
+    if not source_path and not (bucket and key):
+        return _error("either source_path or (bucket + key) is required")
 
     try:
+        source = _download_from_s3(bucket, key) if bucket and key else Path(source_path)
         if action == "profile":
-            return _profile(Path(source_path))
+            return _profile(source)
         if action == "analyze":
-            return _analyze(Path(source_path), topic_hint=event.get("topic_hint"))
+            return _analyze(source, topic_hint=event.get("topic_hint"))
         return _error(f"unknown action: {action!r}; expected 'profile' or 'analyze'")
     except YouthCompassError as exc:
         return _error(f"{type(exc).__name__}: {exc}")
     except Exception as exc:
         return _error(f"unexpected: {type(exc).__name__}: {exc}"[:500])
+
+
+def _download_from_s3(bucket: str, key: str) -> Path:
+    """Download an S3 object to a temp file and return its path.
+
+    boto3 is imported lazily so the local-path mode and its tests never require
+    AWS libraries or credentials.
+    """
+    import boto3
+
+    suffix = Path(key).suffix or ".csv"
+    fd, tmp = tempfile.mkstemp(suffix=suffix)
+    import os
+
+    os.close(fd)
+    boto3.client("s3").download_file(bucket, key, tmp)
+    return Path(tmp)
 
 
 def _profile(source: Path) -> dict[str, Any]:
