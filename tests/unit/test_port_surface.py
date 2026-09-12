@@ -27,6 +27,7 @@ from youth_compass.ports import (
     ObjectStore,
     QueryEngine,
     SourceAdapter,
+    SourceConnector,
     WorkflowRunner,
 )
 
@@ -60,6 +61,11 @@ EXPECTED_SURFACE: dict[type, dict[str, tuple[str, ...]]] = {
     EventBus: {"publish": ("event",), "subscribe": ("event_type", "handler")},
     Clock: {"now": ()},
     SourceAdapter: {"normalize": ("file_name", "content")},
+    SourceConnector: {
+        "discover": ("requirement",),
+        "get": ("candidate_id",),
+        "fetch": ("candidate",),
+    },
 }
 
 EXPECTED_MODULE_NAMES = {
@@ -73,6 +79,7 @@ EXPECTED_MODULE_NAMES = {
     EventBus: "event_bus",
     Clock: "clock",
     SourceAdapter: "source_adapter",
+    SourceConnector: "source_connector",
 }
 
 # Requirement 1 criterion 11.
@@ -89,6 +96,9 @@ NAMED_PAYLOADS = {
     "JobReference": "workflow_runner",
     "ApprovalDecision": "workflow_runner",
     "NormalizedTabularSource": "source_adapter",
+    "AcquiredSource": "source_connector",
+    "DataRequirement": "source_connector",
+    "SourceCandidate": "source_connector",
 }
 
 PERMITTED_SCALARS = {str, int, float, bool, bytes, type(None), datetime, date}
@@ -289,9 +299,9 @@ def test_model_provider_generate_is_async() -> None:
     assert inspect.iscoroutinefunction(ModelProvider.generate)
 
 
-def test_ten_protocols_across_ten_modules() -> None:
-    assert len(ALL_PORTS) == 10
-    assert len(_port_modules()) == 10
+def test_eleven_protocols_across_eleven_modules() -> None:
+    assert len(ALL_PORTS) == 11
+    assert len(_port_modules()) == 11
 
 
 def test_object_store_put_metadata_is_parameterized_str_mapping() -> None:

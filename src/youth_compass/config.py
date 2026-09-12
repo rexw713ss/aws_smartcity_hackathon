@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from youth_compass.domain.errors import ConfigurationError
+from youth_compass.ports import SourceCandidate
 
 CONFIG_DIR = Path("configs")
 
@@ -90,6 +91,33 @@ class ForecastSettings(BaseModel):
     provider: ForecastProvider = ForecastProvider.LOCAL
 
 
+class AcquisitionSettings(BaseModel):
+    """Allowlisted external-source acquisition policy."""
+
+    enabled: bool = False
+    connector_id: str = Field(default="configured_http", pattern=r"^[a-z][a-z0-9_-]*$")
+    allowed_hosts: tuple[str, ...] = ()
+    max_download_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    timeout_seconds: float = Field(default=20.0, gt=0.0, le=120.0)
+    result_limit: int = Field(default=5, ge=1, le=20)
+    sources: tuple[SourceCandidate, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_enabled_connector(self) -> Self:
+        if self.enabled and (not self.allowed_hosts or not self.sources):
+            raise ValueError("enabled acquisition requires allowed_hosts and sources")
+        mismatched = [
+            source.candidate_id
+            for source in self.sources
+            if source.connector_id != self.connector_id
+        ]
+        if mismatched:
+            raise ValueError(
+                "acquisition sources use a different connector_id: " + ", ".join(mismatched)
+            )
+        return self
+
+
 _LOCAL_ENVIRONMENT = "local"
 # The provider-selection keys, and the local default each resolves to when the
 # environment is "local" and the key is absent.
@@ -130,6 +158,7 @@ class AppSettings(BaseSettings):
     data_root: Path = Path("data")
     profile: ProfileSettings = ProfileSettings()
     transform: TransformSettings = TransformSettings()
+    acquisition: AcquisitionSettings = AcquisitionSettings()
 
     storage: StorageSettings | None = None
     catalog: CatalogSettings | None = None

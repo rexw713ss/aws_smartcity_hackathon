@@ -42,6 +42,8 @@ The system has three core capabilities:
 | [18-tabular-source-adapters.md](./18-tabular-source-adapters.md) | Implemented CSV, Excel, JSON, and text-based PDF-table normalization boundary |
 | [19-reusable-feature-and-decision-layer.md](./19-reusable-feature-and-decision-layer.md) | Reusable feature contracts, decision profiles, constraints, and deterministic scoring |
 | [20-grounded-copilot.md](./20-grounded-copilot.md) | Grounded agent tools, decision planning, evidence citations, evaluation, and Bedrock seam |
+| [21-dynamic-data-acquisition.md](./21-dynamic-data-acquisition.md) | Controlled source discovery, HTTPS acquisition, ingestion handoff, and remaining replay work |
+| [22-answer-visualizations.md](./22-answer-visualizations.md) | Versioned chart/table contract, deterministic visualization builders, and frontend handoff |
 | [aws-architecture.md](./aws-architecture.md) | Full AWS architecture diagram: all services, data flow, security boundary |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 

@@ -17,6 +17,7 @@ EXPECTED_SUBCLASSES = (
     "ObjectStoreOperationError",
     "QueryExecutionError",
     "QueryNotPermittedError",
+    "SourceAcquisitionError",
     "SourceNormalizationError",
     "TrainingRejectedError",
     "WorkflowNotFoundError",

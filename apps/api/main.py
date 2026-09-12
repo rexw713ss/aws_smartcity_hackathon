@@ -39,6 +39,7 @@ from youth_compass.domain import (
     ModelInvocationError,
     QueryExecutionError,
     QueryNotPermittedError,
+    SourceAcquisitionError,
     SourceNormalizationError,
     WorkflowNotFoundError,
     WorkflowStateError,
@@ -358,7 +359,7 @@ def _status_for_error(exc: YouthCompassError) -> int:
         return status.HTTP_422_UNPROCESSABLE_CONTENT
     if isinstance(exc, ModelInvocationError):
         return status.HTTP_503_SERVICE_UNAVAILABLE
-    if isinstance(exc, SourceNormalizationError):
+    if isinstance(exc, SourceNormalizationError | SourceAcquisitionError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT
     return status.HTTP_500_INTERNAL_SERVER_ERROR
 

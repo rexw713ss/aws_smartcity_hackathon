@@ -61,3 +61,16 @@ or EV-charger rankings through the Decision copilot tab. The same copilot can in
 compare trends in published canonical datasets without a new feature mart. Decision rankings
 require an immutable `data/features/current.parquet` snapshot. Scanned PDFs remain a later
 OCR/Amazon Textract integration.
+
+Run the versioned English/Traditional Chinese decomposition and routing evaluation suite with
+`make agent-evals`. Use `--provider bedrock` with the eval script to compare the configured
+Bedrock model against the same expected plans.
+
+When a catalog gap is detected, the copilot can now discover configured HTTPS source candidates
+and submit a selected immutable snapshot to the existing approval-gated ingestion workflow. See
+`docs/21-dynamic-data-acquisition.md`; external acquisition remains disabled until verified source
+manifests and hostname allowlists are configured.
+
+Copilot answers also include versioned, frontend-independent chart and table specifications for
+decision rankings, feature contributions, observation trends, comparisons, dataset coverage, and
+source candidates. See `docs/22-answer-visualizations.md`.

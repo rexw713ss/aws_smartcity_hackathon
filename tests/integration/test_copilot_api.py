@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from adapters.local import FeatureParquetMaterializer
 from apps.api.main import create_app
+from youth_compass.acquisition import AcquiredSource, DataAcquisitionService
 from youth_compass.decisioning import (
     DEFAULT_FEATURES,
     FeatureEvidence,
@@ -20,6 +21,34 @@ from youth_compass.domain import (
     DatasetMetadata,
 )
 from youth_compass.domain.contracts import DatasetRole, DatasetStatus, PopulationScope
+from youth_compass.ports import DataRequirement, SourceCandidate
+
+
+class _PopulationSourceConnector:
+    candidate = SourceCandidate(
+        candidate_id="ntpc-population",
+        connector_id="test_sources",
+        title="New Taipei population",
+        publisher="New Taipei City Government",
+        download_url="https://data.example.gov.tw/population.csv",
+        file_name="population.csv",
+        source_format="csv",
+        topic_terms=("population",),
+        metric_codes=("population_count",),
+    )
+
+    def discover(self, requirement: DataRequirement) -> tuple[SourceCandidate, ...]:
+        return (self.candidate,) if "population_count" in requirement.metric_codes else ()
+
+    def get(self, candidate_id: str) -> SourceCandidate | None:
+        return self.candidate if candidate_id == self.candidate.candidate_id else None
+
+    def fetch(self, candidate: SourceCandidate) -> AcquiredSource:
+        return AcquiredSource(
+            candidate=candidate,
+            content=(b"year,district_code,district_name,population\n2025,banqiao,Banqiao,100\n"),
+            retrieved_at=datetime(2026, 9, 12, tzinfo=UTC),
+        )
 
 
 def _feature(entity: str, code: str, value: float) -> FeatureValue:
@@ -117,6 +146,11 @@ def test_copilot_query_returns_grounded_ranking(tmp_path: Path) -> None:
     assert body["plan"]["profile_code"] == "home_buying"
     assert body["candidates"][0]["entity_id"] == "banqiao"
     assert body["citations"]
+    assert [item["type"] for item in body["visualizations"]] == [
+        "ranking_bar",
+        "contribution_bar",
+        "data_table",
+    ]
     assert "source_uri" not in response.text
 
 
@@ -132,6 +166,35 @@ def test_copilot_refuses_when_feature_snapshot_is_missing(tmp_path: Path) -> Non
     assert response.json()["status"] == "insufficient_data"
 
 
+def test_missing_dataset_can_start_approval_gated_acquisition(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    runtime.acquisition = DataAcquisitionService((_PopulationSourceConnector(),), runtime.workflow)
+    runtime._copilot_service = None
+    client = TestClient(app)
+
+    query = client.post(
+        "/api/v1/copilot/query",
+        json={"question": "Compare population trend from 2023 to 2025"},
+    )
+
+    assert query.status_code == 200
+    assert query.json()["status"] == "acquisition_required"
+    assert query.json()["source_candidates"][0]["candidate_id"] == "ntpc-population"
+    assert query.json()["visualizations"][0]["visualization_id"] == "source-candidates-table"
+
+    started = client.post(
+        "/api/v1/copilot/acquisitions",
+        json={"candidateId": "ntpc-population", "submittedBy": "reviewer@example.com"},
+    )
+
+    assert started.status_code == 202
+    assert started.json()["ingestion_status"] == "awaiting_approval"
+    job_id = started.json()["ingestion_job_id"]
+    status_response = client.get(f"/api/v1/ingestion-jobs/{job_id}")
+    assert status_response.json()["status"] == "awaiting_approval"
+
+
 def test_copilot_capabilities_are_discoverable(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
 
@@ -139,6 +202,8 @@ def test_copilot_capabilities_are_discoverable(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert {item["name"] for item in response.json()} == {
+        "acquire_source",
+        "discover_sources",
         "search_catalog",
         "get_features",
         "rank_candidates",
@@ -178,6 +243,13 @@ def test_copilot_compares_generic_observation_trends(tmp_path: Path) -> None:
         "query_observations",
         "compare_entities",
         "explain_lineage",
+        "answer_composer",
+        "visualization_builder",
+    ]
+    assert [item["type"] for item in body["visualizations"]] == [
+        "line",
+        "comparison_bar",
+        "data_table",
     ]
     assert body["citations"][0]["dataset_version"] == "v1"
     assert "source_uri" not in response.text

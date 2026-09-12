@@ -6,7 +6,7 @@ DEST ?= ./exports/aws
 
 .DEFAULT_GOAL := help
 
-.PHONY: help demo-features local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
+.PHONY: help demo-features agent-evals local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
         aws-export aws-teardown test lint typecheck format
 
 help:  ## Show this help
@@ -21,6 +21,9 @@ dashboard:  ## Run the temporary Streamlit dashboard on port 8501
 
 demo-features:  ## Materialize an offline feature snapshot for the copilot demo
 	uv run python -m scripts.materialize_demo_features
+
+agent-evals:  ## Evaluate query decomposition and smart tool routing offline
+	uv run python -m scripts.run_agent_evals
 
 hackathon-bootstrap:  ## Empty account to verified stack (creds). ASSUME_YES=1 to skip prompt
 	uv run python -m scripts.aws_bootstrap $(if $(ASSUME_YES),--assume-yes,)

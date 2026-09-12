@@ -1,0 +1,23 @@
+environment: local
+acquisition:
+  enabled: true
+  connector_id: taiwan_open_data
+  allowed_hosts:
+    - data.example.gov.tw
+  max_download_bytes: 26214400
+  timeout_seconds: 20
+  result_limit: 5
+  sources:
+    - candidate_id: ntpc_population
+      connector_id: taiwan_open_data
+      title: New Taipei population dataset
+      publisher: New Taipei City Government
+      download_url: https://data.example.gov.tw/population.csv
+      file_name: population.csv
+      source_format: csv
+      topic_terms: [population, 人口]
+      metric_codes: [population_count]
+      entity_ids: [new_taipei_city]
+      license: Open Government Data License 1.0
+      period_start: "2020"
+      period_end: "2025"

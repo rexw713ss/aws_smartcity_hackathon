@@ -2,8 +2,11 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+
+from youth_compass.ports import DataRequirement, SourceCandidate
 
 
 class CopilotStatus(StrEnum):
@@ -11,6 +14,7 @@ class CopilotStatus(StrEnum):
 
     ANSWERED = "answered"
     INSUFFICIENT_DATA = "insufficient_data"
+    ACQUISITION_REQUIRED = "acquisition_required"
     UNSUPPORTED_QUESTION = "unsupported_question"
 
 
@@ -18,6 +22,7 @@ class AnalysisOperation(StrEnum):
     """Generic operations that may be routed to registered tools."""
 
     SEARCH_CATALOG = "search_catalog"
+    DISCOVER_SOURCES = "discover_sources"
     INSPECT_DATASET = "inspect_dataset"
     ACQUIRE_SOURCE = "acquire_source"
     QUERY_OBSERVATIONS = "query_observations"
@@ -192,6 +197,90 @@ class EntityComparison(BaseModel):
     changes: tuple[EntityChange, ...]
 
 
+class VisualizationType(StrEnum):
+    """Frontend-agnostic visualization templates supported by the API."""
+
+    LINE = "line"
+    COMPARISON_BAR = "comparison_bar"
+    RANKING_BAR = "ranking_bar"
+    CONTRIBUTION_BAR = "contribution_bar"
+    DATA_TABLE = "data_table"
+
+
+class VisualizationEncoding(BaseModel):
+    """Stable mapping from one row field to a visual channel."""
+
+    model_config = ConfigDict(frozen=True)
+
+    field: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1)
+    data_type: Literal["nominal", "ordinal", "quantitative", "temporal"]
+    unit: str | None = None
+
+
+class VisualizationColumn(BaseModel):
+    """One localized column in a table fallback."""
+
+    model_config = ConfigDict(frozen=True)
+
+    field: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1)
+    unit: str | None = None
+
+
+type VisualizationValue = str | int | float | bool | None
+
+
+class VisualizationSpec(BaseModel):
+    """Declarative, allowlisted visualization with grounded inline rows."""
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    visualization_id: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
+    type: VisualizationType
+    title: str = Field(min_length=1)
+    description: str | None = None
+    x: VisualizationEncoding | None = None
+    y: VisualizationEncoding | None = None
+    series_field: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
+    columns: tuple[VisualizationColumn, ...] = ()
+    rows: tuple[dict[str, VisualizationValue], ...] = Field(default=(), max_length=500)
+    citation_ids: tuple[str, ...] = ()
+    truncated: bool = False
+
+
+class AnswerCompositionContext(BaseModel):
+    """Only grounded, public facts that an answer composer may verbalize."""
+
+    model_config = ConfigDict(frozen=True)
+
+    question: str = Field(min_length=3)
+    analysis_type: Literal["decision", "dataset_inspection", "observation_comparison"]
+    grounded_facts_json: str = Field(min_length=2)
+    allowed_citation_ids: tuple[str, ...] = ()
+    fallback_answer: str = Field(min_length=1)
+
+
+class ComposedAnswer(BaseModel):
+    """Narrative selected after grounding and safety validation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    answer: str = Field(min_length=1)
+    citation_ids: tuple[str, ...] = ()
+    mode: Literal["model", "deterministic"]
+
+
+class AnswerDraft(BaseModel):
+    """Strict schema returned by the model before safety checks."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    answer: str = Field(min_length=1)
+    citation_ids: tuple[str, ...] = ()
+
+
 class FeatureContributionInsight(BaseModel):
     """Public explanation of one feature's score contribution."""
 
@@ -236,3 +325,6 @@ class CopilotResponse(BaseModel):
     tool_trace: tuple[ToolTrace, ...] = ()
     assumptions: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    data_requirement: DataRequirement | None = None
+    source_candidates: tuple[SourceCandidate, ...] = ()
+    visualizations: tuple[VisualizationSpec, ...] = ()

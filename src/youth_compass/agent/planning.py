@@ -20,9 +20,7 @@ from youth_compass.ports import ModelProvider, ModelRequest
 class QueryDecomposer(Protocol):
     """Turn a question into generic, schema-validated analysis operations."""
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         """Return a decomposition without executing any tool."""
         ...
 
@@ -30,9 +28,7 @@ class QueryDecomposer(Protocol):
 class DeterministicQueryDecomposer:
     """Offline decomposition for common discovery, analysis, and decision shapes."""
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         normalized = " ".join(question.casefold().split())
         decision = _contains(
             normalized,
@@ -42,6 +38,8 @@ class DeterministicQueryDecomposer:
             "buy house",
             "home buying",
             "housing location",
+            "買房",
+            "購屋",
             "trụ sạc",
             "trạm sạc",
             "tru sac",
@@ -49,10 +47,27 @@ class DeterministicQueryDecomposer:
             "ev charger",
             "charging station",
             "charger placement",
+            "充電站",
+            "充電樁",
         )
-        compare = _contains(normalized, "compare", "so sánh", "khác nhau", "versus", " vs ")
-        trend = _contains(normalized, "trend", "xu hướng", "tăng", "giảm", "over time")
-        forecast = _contains(normalized, "forecast", "dự báo", "predict", "tương lai")
+        compare = _contains(
+            normalized, "compare", "so sánh", "khác nhau", "versus", " vs ", "比較", "相比"
+        )
+        trend = _contains(
+            normalized,
+            "trend",
+            "xu hướng",
+            "tăng",
+            "giảm",
+            "over time",
+            "趨勢",
+            "變化",
+            "成長",
+            "下降",
+        )
+        forecast = _contains(
+            normalized, "forecast", "dự báo", "predict", "tương lai", "預測", "預估", "未來"
+        )
         discover = _contains(
             normalized,
             "dataset",
@@ -60,6 +75,9 @@ class DeterministicQueryDecomposer:
             "nguồn dữ liệu",
             "dữ liệu nào",
             "what data",
+            "資料集",
+            "資料來源",
+            "有哪些資料",
         )
 
         operations: list[AnalysisOperation] = [AnalysisOperation.SEARCH_CATALOG]
@@ -117,9 +135,7 @@ class ModelQueryDecomposer:
     def __init__(self, provider: ModelProvider) -> None:
         self._provider = provider
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
@@ -152,9 +168,7 @@ class FallbackQueryDecomposer:
         self._primary = primary
         self._fallback = fallback
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         try:
             return await self._primary.decompose(question, entity_ids)
         except ModelInvocationError:
@@ -277,6 +291,26 @@ def register_observation_capabilities(registry: ToolCapabilityRegistry) -> None:
     )
 
 
+def register_acquisition_capabilities(registry: ToolCapabilityRegistry) -> None:
+    """Advertise controlled source discovery and ingestion handoff capabilities."""
+
+    registry.register(
+        ToolCapability(
+            name="discover_sources",
+            operation=AnalysisOperation.DISCOVER_SOURCES,
+            description="Find allowlisted external sources matching a bounded data requirement.",
+        )
+    )
+    registry.register(
+        ToolCapability(
+            name="acquire_source",
+            operation=AnalysisOperation.ACQUIRE_SOURCE,
+            description="Snapshot one selected source into the approval-gated ingestion workflow.",
+            requires=(AnalysisOperation.DISCOVER_SOURCES,),
+        )
+    )
+
+
 def _contains(text: str, *terms: str) -> bool:
     return any(term in text for term in terms)
 
@@ -307,20 +341,17 @@ def _subject_terms(text: str) -> tuple[str, ...]:
 
 def _metric_terms(text: str) -> tuple[str, ...]:
     aliases = {
-        "population_count": ("population", "dân số"),
-        "unemployment_count": ("unemployment", "thất nghiệp"),
+        "population_count": ("population", "dân số", "人口", "青年人口"),
+        "unemployment_count": ("unemployment", "thất nghiệp", "失業"),
     }
-    return tuple(
-        metric
-        for metric, terms in aliases.items()
-        if any(term in text for term in terms)
-    )
+    return tuple(metric for metric, terms in aliases.items() if any(term in text for term in terms))
 
 
 def _time_expression(text: str) -> str | None:
-    years = re.findall(r"\b(?:19|20)\d{2}\b", text)
+    years = re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", text)
     relative = re.search(
-        r"(?:last|past|trong)\s+\d+\s+(?:years?|năm)|\b\d+\s+năm\s+(?:qua|gần đây)",
+        r"(?:last|past|trong)\s+\d+\s+(?:years?|năm)|\b\d+\s+năm\s+(?:qua|gần đây)"
+        r"|(?:過去|最近)\s*\d+\s*年",
         text,
     )
     if relative:

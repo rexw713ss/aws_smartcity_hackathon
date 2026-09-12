@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from adapters.local import (
+    AllowlistedHttpSourceConnector,
     DuckDBFeatureProvider,
     DuckDBQueryEngine,
     FileSystemObjectStore,
@@ -11,10 +12,12 @@ from adapters.local import (
     SQLiteCheckpointStore,
     SystemClock,
 )
+from youth_compass.acquisition import DataAcquisitionService
 from youth_compass.agent import (
     DeterministicQueryDecomposer,
     FallbackQueryDecomposer,
     GroundedCopilotService,
+    ModelAnswerComposer,
     ModelQueryDecomposer,
     ObservationToolSuite,
 )
@@ -29,6 +32,7 @@ from youth_compass.decisioning import (
 )
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import AnalyticsNotAvailableError, ConfigurationError
+from youth_compass.ports import SourceConnector
 from youth_compass.transformation.schema import CANONICAL_FIELDS
 
 
@@ -57,6 +61,22 @@ class LocalRuntime:
                 max_rejection_rate=self.settings.transform.max_rejection_rate,
                 transformation_version=self.settings.transform.transformation_version,
             ),
+        )
+        connectors: tuple[SourceConnector, ...] = ()
+        if self.settings.acquisition.enabled:
+            connectors = (
+                AllowlistedHttpSourceConnector(
+                    self.settings.acquisition.connector_id,
+                    self.settings.acquisition.sources,
+                    allowed_hosts=frozenset(self.settings.acquisition.allowed_hosts),
+                    max_download_bytes=self.settings.acquisition.max_download_bytes,
+                    timeout_seconds=self.settings.acquisition.timeout_seconds,
+                ),
+            )
+        self.acquisition = DataAcquisitionService(
+            connectors,
+            self.workflow,
+            result_limit=self.settings.acquisition.result_limit,
         )
 
     def analytics(self, dataset_id: str) -> CuratedAnalyticsService:
@@ -87,6 +107,7 @@ class LocalRuntime:
         if self._copilot_service is not None:
             return self._copilot_service
         decomposer = None
+        answer_composer = None
         if self.settings.model and self.settings.model.provider is ModelProviderName.BEDROCK:
             from adapters.aws.bedrock_model import BedrockModelProvider
 
@@ -104,6 +125,7 @@ class LocalRuntime:
             decomposer = FallbackQueryDecomposer(
                 ModelQueryDecomposer(bedrock), DeterministicQueryDecomposer()
             )
+            answer_composer = ModelAnswerComposer(bedrock)
         provider = DuckDBFeatureProvider(
             self.data_root / "features" / "current.parquet",
             self.feature_registry,
@@ -113,8 +135,8 @@ class LocalRuntime:
             feature_registry=self.feature_registry,
             profile_registry=self.profile_registry,
             decomposer=decomposer,
-            observation_tools=ObservationToolSuite(
-                self.catalog, self._observation_query_engine
-            ),
+            answer_composer=answer_composer,
+            observation_tools=ObservationToolSuite(self.catalog, self._observation_query_engine),
+            acquisition=self.acquisition,
         )
         return self._copilot_service

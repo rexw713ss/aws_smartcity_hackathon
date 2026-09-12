@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 
 from youth_compass.agent import (
+    AnswerCompositionContext,
+    ComposedAnswer,
     CopilotStatus,
     DeterministicCopilotPlanner,
     GroundedCopilotService,
@@ -49,6 +51,19 @@ class StaticModelProvider:
     async def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)
         return ModelResponse(text=self.text, model_id="bedrock-test")
+
+
+class RecordingAnswerComposer:
+    def __init__(self) -> None:
+        self.contexts: list[AnswerCompositionContext] = []
+
+    async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
+        self.contexts.append(context)
+        return ComposedAnswer(
+            answer="Banqiao là lựa chọn phù hợp nhất.",
+            citation_ids=(),
+            mode="model",
+        )
 
 
 def _value(entity: str, feature: str, value: float, *, quality: float = 0.9) -> FeatureValue:
@@ -120,6 +135,8 @@ def test_home_question_ranks_with_citations_and_no_storage_uri_leak() -> None:
         "get_features",
         "rank_candidates",
         "explain_lineage",
+        "answer_composer",
+        "visualization_builder",
     ]
     assert set(provider.queries[0].feature_codes) == {
         "property_cost",
@@ -153,6 +170,37 @@ def test_charger_question_applies_feasibility_constraint() -> None:
     assert "site_feasibility" in response.candidates[1].failed_constraints[0]
 
 
+def test_service_composes_only_public_grounded_decision_facts() -> None:
+    feature_provider = StaticFeatureProvider(
+        tuple(
+            _value("banqiao", feature, value)
+            for feature, value in {
+                "property_cost": 80,
+                "transit_accessibility": 90,
+                "amenity_accessibility": 85,
+                "environmental_risk": 20,
+            }.items()
+        )
+    )
+    composer = RecordingAnswerComposer()
+    service = GroundedCopilotService(
+        feature_provider=feature_provider,
+        feature_registry=FeatureRegistry(DEFAULT_FEATURES),
+        profile_registry=DecisionProfileRegistry(DEFAULT_DECISION_PROFILES),
+        answer_composer=composer,
+    )
+
+    response = asyncio.run(service.answer("Tôi nên mua nhà ở đâu?"))
+
+    assert response.answer == "Banqiao là lựa chọn phù hợp nhất."
+    assert len(composer.contexts) == 1
+    assert composer.contexts[0].analysis_type == "decision"
+    assert "file:///" not in composer.contexts[0].grounded_facts_json
+    assert response.tool_trace[-2].tool == "answer_composer"
+    assert response.tool_trace[-2].outcome == "model"
+    assert response.tool_trace[-1].tool == "visualization_builder"
+
+
 def test_unsupported_question_does_not_query_data() -> None:
     service, provider = _service(())
 
@@ -166,9 +214,7 @@ def test_unsupported_question_does_not_query_data() -> None:
 def test_missing_or_low_quality_data_refuses_to_rank() -> None:
     service, provider = _service((_value("banqiao", "property_cost", 80, quality=0.4),))
 
-    response = asyncio.run(
-        service.answer("Where should I buy a home?", min_quality_score=0.8)
-    )
+    response = asyncio.run(service.answer("Where should I buy a home?", min_quality_score=0.8))
 
     assert response.status is CopilotStatus.INSUFFICIENT_DATA
     assert response.candidates == ()
@@ -176,9 +222,7 @@ def test_missing_or_low_quality_data_refuses_to_rank() -> None:
 
 
 def test_model_planner_is_schema_constrained_and_profile_allowlisted() -> None:
-    provider = StaticModelProvider(
-        '{"profile_code":"home_buying","entity_ids":["model-invented"]}'
-    )
+    provider = StaticModelProvider('{"profile_code":"home_buying","entity_ids":["model-invented"]}')
     planner = ModelCopilotPlanner(provider)
 
     intent = asyncio.run(planner.plan("Help me choose a home", ("banqiao",)))
@@ -223,9 +267,7 @@ def test_model_planner_rejects_unregistered_profile() -> None:
         ("Write arbitrary SQL", None),
     ],
 )
-def test_deterministic_planner_evaluation_set(
-    question: str, expected: str | None
-) -> None:
+def test_deterministic_planner_evaluation_set(question: str, expected: str | None) -> None:
     intent = asyncio.run(DeterministicCopilotPlanner().plan(question, ()))
 
     assert (intent.profile_code if intent else None) == expected
