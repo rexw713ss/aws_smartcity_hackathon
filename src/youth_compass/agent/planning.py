@@ -1,6 +1,7 @@
 """Query decomposition, capability discovery, and deterministic tool routing."""
 
 import json
+import logging
 import re
 from typing import Protocol
 
@@ -23,6 +24,9 @@ class QueryDecomposer(Protocol):
     async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         """Return a decomposition without executing any tool."""
         ...
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class DeterministicQueryDecomposer:
@@ -171,7 +175,10 @@ class FallbackQueryDecomposer:
     async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         try:
             return await self._primary.decompose(question, entity_ids)
-        except ModelInvocationError:
+        except ModelInvocationError as exc:
+            # Visible in the logs as well as the trace: a misconfigured provider
+            # otherwise degrades silently into keyword matching.
+            _LOGGER.warning("query decomposer fell back to the deterministic path: %s", exc)
             return await self._fallback.decompose(question, entity_ids)
 
 

@@ -1,6 +1,7 @@
 """Grounded answer composition with citation and numerical safety checks."""
 
 import json
+import logging
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
@@ -14,6 +15,8 @@ from youth_compass.agent.contracts import (
 )
 from youth_compass.domain.errors import ModelInvocationError
 from youth_compass.ports import ModelProvider, ModelRequest
+
+_LOGGER = logging.getLogger(__name__)
 
 _NUMBER = re.compile(r"(?<![\w])[-+]?\d+(?:\.\d+)?")
 _CITATION = re.compile(r"\bdata-\d+\b")
@@ -108,7 +111,12 @@ class FallbackAnswerComposer:
     async def compose(self, context: AnswerCompositionContext) -> ComposedAnswer:
         try:
             return await self._primary.compose(context)
-        except ModelInvocationError:
+        except ModelInvocationError as exc:
+            # A silent fallback is the worst failure mode here: answers stay
+            # correct and grounded, so a misconfigured model provider looks
+            # exactly like a working one. The response trace still reports
+            # mode='deterministic'; this makes it visible in the logs too.
+            _LOGGER.warning("answer composer fell back to the deterministic template: %s", exc)
             return await self._fallback.compose(context)
 
 
