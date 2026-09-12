@@ -1,5 +1,6 @@
 """Local composition root for API dependencies."""
 
+import os
 from pathlib import Path
 
 from adapters.local import (
@@ -26,7 +27,13 @@ from youth_compass.agent import (
 )
 from youth_compass.analytics import CuratedAnalyticsService
 from youth_compass.application import LocalIngestionWorkflow, LocalWorkflowOptions
-from youth_compass.config import AppSettings, ModelProviderName, load_settings
+from youth_compass.config import (
+    AppSettings,
+    CatalogProvider,
+    ModelProviderName,
+    QueryProvider,
+    load_settings,
+)
 from youth_compass.decisioning import (
     DEFAULT_DECISION_PROFILES,
     DEFAULT_FEATURES,
@@ -37,6 +44,8 @@ from youth_compass.domain.canonical import CANONICAL_FIELDS
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import AnalyticsNotAvailableError, ConfigurationError
 from youth_compass.ports import SourceConnector
+from youth_compass.ports.catalog import DataCatalog
+from youth_compass.ports.query_engine import QueryEngine
 
 
 class LocalRuntime:
@@ -46,7 +55,11 @@ class LocalRuntime:
         self.data_root = data_root.resolve()
         self.settings = settings or load_settings()
         metadata_database = self.data_root / "metadata" / "youth-compass.sqlite3"
-        self.catalog = SQLiteCatalog(metadata_database)
+        # The catalog is provider-selected: Glue+DynamoDB when the AWS profile is
+        # active, SQLite offline. The checkpoint store stays local — it backs the
+        # in-process LocalIngestionWorkflow, which the deployed API does not run
+        # (uploads go through Step Functions).
+        self.catalog = self._build_catalog(metadata_database)
         self.checkpoints = SQLiteCheckpointStore(metadata_database)
         self.feature_registry = FeatureRegistry(DEFAULT_FEATURES)
         self.profile_registry = DecisionProfileRegistry(DEFAULT_DECISION_PROFILES)
@@ -88,8 +101,57 @@ class LocalRuntime:
             raise AnalyticsNotAvailableError(f"dataset {dataset_id!r} has no published version")
         return CuratedAnalyticsService(self._observation_query_engine(metadata), metadata)
 
-    def _observation_query_engine(self, metadata: DatasetMetadata) -> DuckDBQueryEngine:
-        """Build an allowlisted engine for one immutable canonical dataset version."""
+    def _build_catalog(self, metadata_database: Path) -> DataCatalog:
+        """Select the catalog by configuration: Glue on AWS, SQLite offline."""
+        catalog = self.settings.catalog
+        if catalog is not None and catalog.provider is CatalogProvider.GLUE:
+            from adapters.aws.glue_catalog import GlueCatalog
+
+            database = catalog.database
+            table = os.environ.get("YOUTH_COMPASS_METADATA_TABLE")
+            if not database or not table:
+                raise ConfigurationError(
+                    "the glue catalog needs catalog.database and YOUTH_COMPASS_METADATA_TABLE"
+                )
+            return GlueCatalog(
+                database=database,
+                table_name=table,
+                region=os.environ.get("YOUTH_COMPASS_REGION", "us-east-1"),
+            )
+        return SQLiteCatalog(metadata_database)
+
+    def _observation_query_engine(self, metadata: DatasetMetadata) -> QueryEngine:
+        """Build an allowlisted engine for one immutable canonical dataset version.
+
+        Athena over the curated S3 zone when the AWS query profile is active,
+        DuckDB over the local canonical Parquet otherwise. Both enforce the same
+        metric/dimension allowlist, so the analytics behaviour is identical.
+        """
+        allowed_metrics = {"metric_value"}
+        allowed_dimensions = set(CANONICAL_FIELDS) - {"metric_value"}
+
+        query = self.settings.query
+        if query is not None and query.provider is QueryProvider.ATHENA:
+            from adapters.aws.athena_query import AthenaQueryEngine
+
+            database = self._glue_database()
+            workgroup = query.workgroup
+            results_bucket = os.environ.get("YOUTH_COMPASS_ATHENA_RESULTS_BUCKET")
+            if not workgroup or not results_bucket:
+                raise ConfigurationError(
+                    "the athena query engine needs query.workgroup and "
+                    "YOUTH_COMPASS_ATHENA_RESULTS_BUCKET"
+                )
+            # The Glue table is named by dataset_id (see the transform Lambda).
+            return AthenaQueryEngine(
+                database=database,
+                workgroup=workgroup,
+                output_bucket=results_bucket,
+                region=os.environ.get("YOUTH_COMPASS_REGION", "us-east-1"),
+                allowed_tables={metadata.dataset_id},
+                allowed_metrics=allowed_metrics,
+                allowed_dimensions=allowed_dimensions,
+            )
 
         parquet = (
             self.data_root
@@ -100,9 +162,15 @@ class LocalRuntime:
         )
         return DuckDBQueryEngine(
             tables={metadata.dataset_id: parquet},
-            allowed_metrics={"metric_value"},
-            allowed_dimensions=set(CANONICAL_FIELDS) - {"metric_value"},
+            allowed_metrics=allowed_metrics,
+            allowed_dimensions=allowed_dimensions,
         )
+
+    def _glue_database(self) -> str:
+        catalog = self.settings.catalog
+        if catalog is None or not catalog.database:
+            raise ConfigurationError("query.provider=athena requires catalog.database")
+        return catalog.database
 
     def copilot(self) -> GroundedCopilotService:
         """Build the offline agent over the current immutable feature snapshot."""

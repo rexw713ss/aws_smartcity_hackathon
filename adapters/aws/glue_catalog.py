@@ -94,14 +94,52 @@ class GlueCatalog:
     def search_compatible(self, profile: DatasetProfile) -> list[DatasetMetadata]:
         """Scan for datasets whose grain is compatible with the profile."""
         wanted = set(profile.candidate_grain)
-        results: list[DatasetMetadata] = []
-        response = self._ddb.scan()
-        for item in response.get("Items", []):
-            if item.get("version") == "__published__":
+        return [
+            metadata
+            for metadata in self._all_records()
+            if not wanted or wanted.issubset(set(metadata.grain.dimensions))
+        ]
+
+    def list_datasets(self) -> list[DatasetMetadata]:
+        """Return the published version of each dataset, one record per dataset.
+
+        Backs the API's catalog listing. Reads the ``__published__`` pointers and
+        resolves each to its full record, so unpublished versions are not listed.
+        """
+        published: list[DatasetMetadata] = []
+        for item in self._scan_items():
+            if item.get("version") != "__published__":
                 continue
-            if "metadata_json" not in item:
+            try:
+                published.append(self.get(str(item["dataset_id"])))
+            except DatasetNotFoundError:
                 continue
-            metadata = DatasetMetadata.model_validate_json(item["metadata_json"])
-            if not wanted or wanted.issubset(set(metadata.grain.dimensions)):
-                results.append(metadata)
-        return results
+        return sorted(published, key=lambda record: record.dataset_id)
+
+    def list_versions(self, dataset_id: str) -> list[DatasetMetadata]:
+        """Return every stored version of ``dataset_id``, oldest first."""
+        versions = [
+            metadata for metadata in self._all_records() if metadata.dataset_id == dataset_id
+        ]
+        return sorted(versions, key=lambda record: record.created_at)
+
+    def _all_records(self) -> list[DatasetMetadata]:
+        """Every full dataset record, skipping the pointer items."""
+        records: list[DatasetMetadata] = []
+        for item in self._scan_items():
+            if item.get("version") == "__published__" or "metadata_json" not in item:
+                continue
+            records.append(DatasetMetadata.model_validate_json(item["metadata_json"]))
+        return records
+
+    def _scan_items(self) -> list[dict[str, object]]:
+        """Paginated scan of the metadata table."""
+        items: list[dict[str, object]] = []
+        kwargs: dict[str, object] = {}
+        while True:
+            response = self._ddb.scan(**kwargs)
+            items.extend(response.get("Items", []))
+            start_key = response.get("LastEvaluatedKey")
+            if not start_key:
+                return items
+            kwargs["ExclusiveStartKey"] = start_key

@@ -45,6 +45,8 @@ EXPECTED_SURFACE: dict[type, dict[str, tuple[str, ...]]] = {
         "register": ("dataset",),
         "get": ("dataset_id",),
         "search_compatible": ("profile",),
+        "list_datasets": (),
+        "list_versions": ("dataset_id",),
     },
     QueryEngine: {"execute": ("query",)},
     ModelProvider: {"generate": ("request",)},
