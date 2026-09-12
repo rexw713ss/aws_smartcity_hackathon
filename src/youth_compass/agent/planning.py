@@ -145,6 +145,22 @@ class ModelQueryDecomposer:
         )
 
 
+class FallbackQueryDecomposer:
+    """Use a deterministic decomposer when the configured model is unavailable."""
+
+    def __init__(self, primary: QueryDecomposer, fallback: QueryDecomposer) -> None:
+        self._primary = primary
+        self._fallback = fallback
+
+    async def decompose(
+        self, question: str, entity_ids: tuple[str, ...]
+    ) -> DecomposedQuery:
+        try:
+            return await self._primary.decompose(question, entity_ids)
+        except ModelInvocationError:
+            return await self._fallback.decompose(question, entity_ids)
+
+
 class ToolCapabilityRegistry:
     """Registry searched by operation rather than hard-coded tool branching."""
 

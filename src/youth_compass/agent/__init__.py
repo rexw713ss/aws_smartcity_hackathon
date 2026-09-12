@@ -28,6 +28,7 @@ from youth_compass.agent.observation_tools import (
 )
 from youth_compass.agent.planning import (
     DeterministicQueryDecomposer,
+    FallbackQueryDecomposer,
     ModelQueryDecomposer,
     QueryDecomposer,
     SmartToolRouter,
@@ -58,6 +59,7 @@ __all__ = [
     "EntityChange",
     "EntityComparison",
     "EvidenceCitation",
+    "FallbackQueryDecomposer",
     "FeatureContributionInsight",
     "GroundedCopilotService",
     "InspectDatasetTool",

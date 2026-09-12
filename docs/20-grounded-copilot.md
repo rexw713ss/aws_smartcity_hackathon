@@ -62,10 +62,25 @@ the same endpoint under **Decision copilot**.
 
 ## 4. Bedrock integration
 
-`ModelQueryDecomposer` and `ModelCopilotPlanner` already target the asynchronous
-`ModelProvider` port. The Bedrock adapter only needs to implement `ModelProvider.generate`.
-Responses are parsed into strict schemas; decision intents are also checked against the
-profile allowlist before any data tool executes.
+`BedrockModelProvider` implements the asynchronous `ModelProvider` port with Amazon
+Bedrock's Converse API. It uses `outputConfig.textFormat` when a response schema is present,
+validates the returned JSON again in the application, configures bounded SDK retries and
+timeouts, and translates SDK failures into `ModelInvocationError`. The blocking boto3 call
+runs outside the event loop.
+
+Enable it with:
+
+```bash
+export YOUTH_COMPASS_MODEL__PROVIDER=bedrock
+export YOUTH_COMPASS_MODEL__MODEL_ID=<model-or-inference-profile-id>
+export YOUTH_COMPASS_MODEL__REGION=ap-northeast-1
+```
+
+The API runtime then uses Bedrock for `ModelQueryDecomposer`, with
+`DeterministicQueryDecomposer` as a fail-safe for transient model failures. The task role
+needs `bedrock:InvokeModel` for the configured model or inference profile. AWS credentials
+continue to use the standard boto3 credential chain and are never stored in application
+configuration.
 
 Bedrock should initially be used for intent classification and later for narrative
 wording. Retrieval, scoring, constraints, evidence, and the final structured result remain

@@ -4,12 +4,15 @@ import asyncio
 
 from youth_compass.agent import (
     AnalysisOperation,
+    DecomposedQuery,
     DeterministicQueryDecomposer,
+    FallbackQueryDecomposer,
     ModelQueryDecomposer,
     SmartToolRouter,
     ToolCapability,
     default_decision_capabilities,
 )
+from youth_compass.domain import ModelInvocationError
 from youth_compass.ports import ModelRequest, ModelResponse
 
 
@@ -21,6 +24,14 @@ class StaticModelProvider:
     async def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)
         return ModelResponse(text=self.response, model_id="bedrock-test")
+
+
+class FailingDecomposer:
+    async def decompose(
+        self, question: str, entity_ids: tuple[str, ...]
+    ) -> DecomposedQuery:
+        del question, entity_ids
+        raise ModelInvocationError("Bedrock unavailable")
 
 
 def test_decomposer_splits_cross_district_trend_question() -> None:
@@ -127,3 +138,16 @@ def test_model_decomposer_is_schema_constrained_and_preserves_user_scope() -> No
     assert decomposition.entity_ids == ("banqiao",)
     assert decomposition.operations[-1] is AnalysisOperation.QUERY_OBSERVATIONS
     assert provider.requests[0].response_schema is not None
+
+
+def test_model_decomposer_falls_back_to_deterministic_planning() -> None:
+    decomposer = FallbackQueryDecomposer(
+        FailingDecomposer(), DeterministicQueryDecomposer()
+    )
+
+    result = asyncio.run(
+        decomposer.decompose("Compare population trend", ("a", "b"))
+    )
+
+    assert result.metric_terms == ("population_count",)
+    assert AnalysisOperation.QUERY_OBSERVATIONS in result.operations

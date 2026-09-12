@@ -16,5 +16,9 @@ query:
   workgroup: <PLACEHOLDER_ATHENA_WORKGROUP>
 model:
   provider: bedrock
+  model_id: <PLACEHOLDER_BEDROCK_MODEL_OR_INFERENCE_PROFILE_ID>
+  region: ap-northeast-1
+  timeout_seconds: 30
+  max_attempts: 3
 forecast:
   provider: sagemaker
