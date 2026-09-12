@@ -49,9 +49,7 @@ from youth_compass.ports import ModelProvider, ModelRequest
 class CopilotPlanner(Protocol):
     """Convert natural language into an allowlisted, schema-validated intent."""
 
-    async def plan(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> CopilotIntent | None:
+    async def plan(self, question: str, entity_ids: tuple[str, ...]) -> CopilotIntent | None:
         """Return a supported intent, or None when no profile can answer."""
         ...
 
@@ -78,9 +76,7 @@ class DeterministicCopilotPlanner:
         "charger placement",
     )
 
-    async def plan(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> CopilotIntent | None:
+    async def plan(self, question: str, entity_ids: tuple[str, ...]) -> CopilotIntent | None:
         normalized = " ".join(question.casefold().split())
         if any(term in normalized for term in self._HOME_TERMS):
             return CopilotIntent(profile_code="home_buying", entity_ids=entity_ids)
@@ -101,9 +97,7 @@ class ModelCopilotPlanner:
         self._provider = provider
         self._allowed_profiles = frozenset(allowed_profiles)
 
-    async def plan(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> CopilotIntent | None:
+    async def plan(self, question: str, entity_ids: tuple[str, ...]) -> CopilotIntent | None:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
@@ -186,9 +180,7 @@ class GroundedCopilotService:
             )
         ]
         if intent is None:
-            missing_capabilities = tuple(
-                item.value for item in routed_plan.missing_operations
-            )
+            missing_capabilities = tuple(item.value for item in routed_plan.missing_operations)
             if decomposition.needs_clarification:
                 answer = decomposition.clarification_question or "Please clarify the analysis goal."
                 response_status = CopilotStatus.UNSUPPORTED_QUESTION
@@ -228,14 +220,11 @@ class GroundedCopilotService:
             )
 
         if not routed_plan.executable:
-            missing_summary = ", ".join(
-                item.value for item in routed_plan.missing_operations
-            )
+            missing_summary = ", ".join(item.value for item in routed_plan.missing_operations)
             return CopilotResponse(
                 status=CopilotStatus.INSUFFICIENT_DATA,
                 answer=(
-                    "The validated plan cannot run because tools are missing: "
-                    f"{missing_summary}."
+                    f"The validated plan cannot run because tools are missing: {missing_summary}."
                 ),
                 generated_at=now,
                 decomposition=decomposition,
@@ -438,9 +427,7 @@ class GroundedCopilotService:
             series = tools.query_observations.execute(decomposition, inspection, metadata)
         except YouthCompassError as exc:
             trace.append(
-                ToolTrace(
-                    tool="query_observations", outcome="unavailable", summary=str(exc)[:300]
-                )
+                ToolTrace(tool="query_observations", outcome="unavailable", summary=str(exc)[:300])
             )
             return self._observation_failure(
                 now,
@@ -630,14 +617,9 @@ def _candidate_insights(
     return tuple(results)
 
 
-def _observation_answer(
-    series: ObservationSeries, comparison: EntityComparison | None
-) -> str:
+def _observation_answer(series: ObservationSeries, comparison: EntityComparison | None) -> str:
     if comparison is None:
-        return (
-            f"Retrieved {len(series.points)} grounded observations for "
-            f"{series.metric_code}."
-        )
+        return f"Retrieved {len(series.points)} grounded observations for {series.metric_code}."
     summaries = []
     for change in comparison.changes[:5]:
         name = change.entity_name or change.entity_id

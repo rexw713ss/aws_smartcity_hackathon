@@ -40,15 +40,11 @@ def test_runtime_falls_back_when_bedrock_decomposition_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     UnavailableBedrockProvider.calls = 0
-    monkeypatch.setattr(
-        bedrock_model, "BedrockModelProvider", UnavailableBedrockProvider
-    )
+    monkeypatch.setattr(bedrock_model, "BedrockModelProvider", UnavailableBedrockProvider)
     runtime = LocalRuntime(tmp_path, _settings("test-model"))
 
     response = asyncio.run(
-        runtime.copilot().answer(
-            "Compare population trend", entity_ids=("banqiao", "linkou")
-        )
+        runtime.copilot().answer("Compare population trend", entity_ids=("banqiao", "linkou"))
     )
 
     assert UnavailableBedrockProvider.calls == 1

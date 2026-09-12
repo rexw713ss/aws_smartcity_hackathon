@@ -42,9 +42,5 @@ def test_compare_entities_calculates_change_without_model_arithmetic() -> None:
 def test_compare_entities_requires_two_periods_per_entity() -> None:
     with pytest.raises(QueryExecutionError, match="at least two periods"):
         CompareEntitiesTool().execute(
-            _series(
-                ObservationPoint(
-                    entity_id="a", period="2025", value=100, estimated_value=0
-                )
-            )
+            _series(ObservationPoint(entity_id="a", period="2025", value=100, estimated_value=0))
         )

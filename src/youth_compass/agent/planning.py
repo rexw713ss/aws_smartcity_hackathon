@@ -20,9 +20,7 @@ from youth_compass.ports import ModelProvider, ModelRequest
 class QueryDecomposer(Protocol):
     """Turn a question into generic, schema-validated analysis operations."""
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         """Return a decomposition without executing any tool."""
         ...
 
@@ -30,9 +28,7 @@ class QueryDecomposer(Protocol):
 class DeterministicQueryDecomposer:
     """Offline decomposition for common discovery, analysis, and decision shapes."""
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         normalized = " ".join(question.casefold().split())
         decision = _contains(
             normalized,
@@ -117,9 +113,7 @@ class ModelQueryDecomposer:
     def __init__(self, provider: ModelProvider) -> None:
         self._provider = provider
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
@@ -152,9 +146,7 @@ class FallbackQueryDecomposer:
         self._primary = primary
         self._fallback = fallback
 
-    async def decompose(
-        self, question: str, entity_ids: tuple[str, ...]
-    ) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
         try:
             return await self._primary.decompose(question, entity_ids)
         except ModelInvocationError:
@@ -310,11 +302,7 @@ def _metric_terms(text: str) -> tuple[str, ...]:
         "population_count": ("population", "dân số"),
         "unemployment_count": ("unemployment", "thất nghiệp"),
     }
-    return tuple(
-        metric
-        for metric, terms in aliases.items()
-        if any(term in text for term in terms)
-    )
+    return tuple(metric for metric, terms in aliases.items() if any(term in text for term in terms))
 
 
 def _time_expression(text: str) -> str | None:

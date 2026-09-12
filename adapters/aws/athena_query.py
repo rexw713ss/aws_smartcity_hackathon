@@ -27,7 +27,7 @@ class AthenaQueryEngine:
         database: str,
         workgroup: str,
         output_bucket: str,
-        region: str = "ap-northeast-1",
+        region: str = "us-east-1",
         *,
         allowed_tables: set[str] | None = None,
         allowed_metrics: set[str] | None = None,

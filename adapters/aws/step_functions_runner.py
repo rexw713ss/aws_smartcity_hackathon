@@ -51,7 +51,7 @@ class StepFunctionsRunner:
     def __init__(
         self,
         state_machine_arn: str,
-        region: str = "ap-northeast-1",
+        region: str = "us-east-1",
         *,
         token_store: WorkflowTokenStore | None = None,
     ) -> None:
