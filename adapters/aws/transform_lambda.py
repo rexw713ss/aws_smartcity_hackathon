@@ -83,10 +83,15 @@ def _await_approval(event: dict[str, Any]) -> dict[str, Any]:
 def _transform(event: dict[str, Any]) -> dict[str, Any]:
     """Publish the approved dataset to curated + Glue, or route to quarantine.
 
-    Deliberately simple for the MVP: it copies the source object into the
-    curated (approved) or quarantined (rejected) zone and records a manifest.
+    The object is copied into the curated (approved) or quarantined (rejected)
+    zone. On approval the curated location is additionally registered as a Glue
+    table whose column schema is derived from the source profile, so the
+    published data is immediately queryable through Athena. Rejected data is
+    never registered, keeping quarantined rows out of the catalog.
+
     The heavy row-level transform is exercised by the local pipeline; here we
-    prove the publish/quarantine branch and the curated-zone write.
+    prove the publish/quarantine branch, the curated-zone write, and the
+    catalog registration.
     """
     import boto3
 
@@ -98,7 +103,8 @@ def _transform(event: dict[str, Any]) -> dict[str, Any]:
     _, _, rest = source_uri.partition("s3://")
     src_bucket, _, src_key = rest.partition("/")
 
-    s3 = boto3.client("s3", region_name=os.environ.get("YOUTH_COMPASS_REGION", "us-east-1"))
+    region = os.environ.get("YOUTH_COMPASS_REGION", "us-east-1")
+    s3 = boto3.client("s3", region_name=region)
     zone_bucket = (
         os.environ["YOUTH_COMPASS_CURATED_BUCKET"]
         if approved
@@ -111,13 +117,94 @@ def _transform(event: dict[str, Any]) -> dict[str, Any]:
         Key=dest_key,
         CopySource={"Bucket": src_bucket, "Key": src_key},
     )
-    return {
+
+    result: dict[str, Any] = {
         "status": "ok",
         "action": "transform",
         "published": approved,
         "zone": zone,
         "uri": f"s3://{zone_bucket}/{dest_key}",
+        "glue_table": None,
     }
+    # Only published data enters the catalog; quarantined rows must stay out.
+    if approved:
+        result["glue_table"] = _register_curated_table(
+            job_id=job_id,
+            source=_download_from_s3(src_bucket, src_key),
+            location=f"s3://{zone_bucket}/{zone}/{job_id}/",
+            region=region,
+        )
+    return result
+
+
+# PrimitiveType -> Hive/Glue column type. Glue has no "empty"; such a column
+# carried no values to infer from, so the widest safe type is used.
+_GLUE_COLUMN_TYPES = {
+    "boolean": "boolean",
+    "integer": "bigint",
+    "float": "double",
+    "date": "date",
+    "string": "string",
+    "empty": "string",
+}
+
+
+def _glue_identifier(value: str) -> str:
+    """Reduce ``value`` to the lowercase alphanumeric/underscore Glue accepts."""
+    cleaned = "".join(char if char.isalnum() else "_" for char in value.lower())
+    stripped = cleaned.strip("_") or "dataset"
+    # Glue rejects names starting with a digit in some engines; prefix if needed.
+    return stripped if stripped[0].isalpha() else f"t_{stripped}"
+
+
+def _register_curated_table(*, job_id: str, source: Path, location: str, region: str) -> str | None:
+    """Create or update the Glue table describing the curated location.
+
+    Returns the qualified ``database.table`` name, or ``None`` when no Glue
+    database is configured (local and Moto runs that do not exercise Glue).
+    """
+    import boto3
+    import botocore.exceptions
+
+    database = os.environ.get("YOUTH_COMPASS_GLUE_DATABASE")
+    if not database:
+        return None
+
+    profile = profile_csv(source)
+    columns = [
+        {
+            "Name": _glue_identifier(column.name),
+            "Type": _GLUE_COLUMN_TYPES.get(str(column.inferred_type), "string"),
+        }
+        for column in profile.columns
+    ]
+    table_name = _glue_identifier(job_id)
+    table_input: dict[str, Any] = {
+        "Name": table_name,
+        "TableType": "EXTERNAL_TABLE",
+        # skip.header.line.count keeps the CSV header row out of query results.
+        "Parameters": {"classification": "csv", "skip.header.line.count": "1"},
+        "StorageDescriptor": {
+            "Columns": columns,
+            "Location": location,
+            "InputFormat": "org.apache.hadoop.mapred.TextInputFormat",
+            "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+            "SerdeInfo": {
+                "SerializationLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+                "Parameters": {"field.delim": ","},
+            },
+        },
+    }
+
+    glue = boto3.client("glue", region_name=region)
+    try:
+        glue.create_table(DatabaseName=database, TableInput=table_input)
+    except botocore.exceptions.ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "AlreadyExistsException":
+            raise
+        # Re-publishing the same job replaces the schema rather than failing.
+        glue.update_table(DatabaseName=database, TableInput=table_input)
+    return f"{database}.{table_name}"
 
 
 def _download_from_s3(bucket: str, key: str) -> Path:
