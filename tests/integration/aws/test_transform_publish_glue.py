@@ -32,9 +32,7 @@ def _aws(monkeypatch: pytest.MonkeyPatch):
         for bucket in (INCOMING, CURATED, QUARANTINED):
             s3.create_bucket(Bucket=bucket)
         s3.put_object(Bucket=INCOMING, Key="incoming/job-1/youth.csv", Body=CSV.encode())
-        boto3.client("glue", region_name=REGION).create_database(
-            DatabaseInput={"Name": DATABASE}
-        )
+        boto3.client("glue", region_name=REGION).create_database(DatabaseInput={"Name": DATABASE})
         yield
 
 
