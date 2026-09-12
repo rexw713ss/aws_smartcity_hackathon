@@ -18,6 +18,40 @@ from youth_compass.ports.query_engine import CellValue, QueryResult, QuerySpec
 _DEFAULT_TIMEOUT_S = 60
 _DEFAULT_SCAN_LIMIT = 100 * 1024 * 1024  # 100 MiB
 
+# Athena/Hive scalar type names -> the CellValue kind to coerce to. Athena
+# reports these in each column's ResultSetMetadata; anything not listed
+# (varchar, date, timestamp, …) stays a string.
+_INTEGER_TYPES = frozenset({"tinyint", "smallint", "integer", "int", "bigint"})
+_FLOAT_TYPES = frozenset({"float", "double", "real", "decimal"})
+
+
+def _coerce(value: str | None, column_type: str) -> CellValue:
+    """Turn an Athena string cell into the native type its column declares.
+
+    Athena serialises every value as a string; the QueryEngine contract returns
+    native types, so consumers (the analytics layer) can treat DuckDB and Athena
+    identically. A value that does not parse is left as the original string
+    rather than raising, so one malformed cell cannot fail a whole query.
+    """
+    if value is None:
+        return None
+    kind = column_type.split("(", 1)[0].strip().lower()
+    if kind in _INTEGER_TYPES:
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    if kind in _FLOAT_TYPES:
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    if kind == "boolean":
+        if value in ("true", "false"):
+            return value == "true"
+        return value
+    return value
+
 
 class AthenaQueryEngine:
     """QueryEngine backed by Amazon Athena."""
@@ -118,14 +152,22 @@ class AthenaQueryEngine:
             raise QueryExecutionError(f"scanned {scanned} bytes >= limit {self._scan_limit}")
 
         results = self._client.get_query_results(QueryExecutionId=execution_id)
-        columns: list[str] = [
-            col["Name"] for col in results["ResultSet"]["ResultSetMetadata"]["ColumnInfo"]
-        ]
+        column_info = results["ResultSet"]["ResultSetMetadata"]["ColumnInfo"]
+        columns: list[str] = [col["Name"] for col in column_info]
+        # Athena returns every cell as a string; the QueryEngine contract (and
+        # the analytics layer that consumes it) expects native types, matching
+        # the DuckDB engine. Coerce per column using Athena's declared types.
+        column_types: list[str] = [str(col.get("Type", "varchar")) for col in column_info]
         raw_rows = results["ResultSet"]["Rows"]
         # First row is the header in Athena results; skip it.
         data_rows: list[list[CellValue]] = []
         for row in raw_rows[1 : max_rows + 1]:
-            data_rows.append([datum.get("VarCharValue") for datum in row["Data"]])
+            data_rows.append(
+                [
+                    _coerce(datum.get("VarCharValue"), column_types[index])
+                    for index, datum in enumerate(row["Data"])
+                ]
+            )
 
         return QueryResult(
             columns=columns,
