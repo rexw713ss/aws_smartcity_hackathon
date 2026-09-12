@@ -127,9 +127,7 @@ class TestUploadSigner:
         assert stored["Body"].read() == b"district,value\nBanqiao,42\n"
 
     @pytest.mark.parametrize("submitted_by", ["", "   ", "line\nbreak", "x" * 257])
-    def test_invalid_submitter_is_rejected(
-        self, _bucket: None, submitted_by: str
-    ) -> None:
+    def test_invalid_submitter_is_rejected(self, _bucket: None, submitted_by: str) -> None:
         signer = S3UploadSigner(bucket=BUCKET, region=REGION)
         with pytest.raises(UploadNotPermittedError, match="submitted_by"):
             signer.presign_upload(content_type="text/csv", submitted_by=submitted_by)
@@ -150,9 +148,9 @@ class TestUploadEndpoint:
             )
         assert response.status_code == 200
         body = response.json()
-        assert body["objectKey"].startswith(f'incoming/{body["jobId"]}/')
+        assert body["objectKey"].startswith(f"incoming/{body['jobId']}/")
         assert body["status"] == "pending"
-        assert body["links"]["complete"].endswith(f'/{body["jobId"]}/complete')
+        assert body["links"]["complete"].endswith(f"/{body['jobId']}/complete")
         assert "url" in body and "fields" in body
 
     def test_disallowed_type_returns_415(self, monkeypatch: pytest.MonkeyPatch) -> None:
