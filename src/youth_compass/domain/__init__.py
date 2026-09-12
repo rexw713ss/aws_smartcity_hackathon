@@ -16,14 +16,20 @@ from youth_compass.domain.contracts import (
     QualityReport,
 )
 from youth_compass.domain.errors import (
+    AnalyticsNotAvailableError,
+    CatalogOperationError,
     ConfigurationError,
     DatasetNotFoundError,
     ForecastNotAvailableError,
     ModelInvocationError,
     ObjectNotFoundError,
+    ObjectStoreOperationError,
     QueryExecutionError,
     QueryNotPermittedError,
+    SourceNormalizationError,
     TrainingRejectedError,
+    WorkflowNotFoundError,
+    WorkflowPersistenceError,
     WorkflowStateError,
     YouthCompassError,
 )
@@ -40,7 +46,9 @@ from youth_compass.domain.types import (
 )
 
 __all__ = [
+    "AnalyticsNotAvailableError",
     "CanonicalField",
+    "CatalogOperationError",
     "ColumnMapping",
     "ColumnProfile",
     "ConfigurationError",
@@ -57,6 +65,7 @@ __all__ = [
     "MetricMapping",
     "ModelInvocationError",
     "ObjectNotFoundError",
+    "ObjectStoreOperationError",
     "PrimitiveType",
     "ProfileWarning",
     "PublicationManifest",
@@ -66,8 +75,11 @@ __all__ = [
     "QueryExecutionError",
     "QueryNotPermittedError",
     "SemanticRole",
+    "SourceNormalizationError",
     "TrainingRejectedError",
     "WarningSeverity",
+    "WorkflowNotFoundError",
+    "WorkflowPersistenceError",
     "WorkflowStateError",
     "YouthCompassError",
 ]

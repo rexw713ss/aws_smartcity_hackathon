@@ -39,6 +39,8 @@ class IngestionRequest(BaseModel):
     source_uri: str
     submitted_by: str
     topic_hint: str | None = None
+    job_id: str | None = Field(default=None, min_length=1)
+    original_filename: str | None = None
 
 
 class JobReference(BaseModel):
@@ -66,6 +68,10 @@ class WorkflowRunner(Protocol):
 
     def start_ingestion(self, request: IngestionRequest) -> JobReference:
         """Start an ingestion workflow and return its reference."""
+        ...
+
+    def get_job_reference(self, job_id: str) -> JobReference:
+        """Return the latest externally visible state for ``job_id``."""
         ...
 
     def resume_after_approval(self, job_id: str, decision: ApprovalDecision) -> None:

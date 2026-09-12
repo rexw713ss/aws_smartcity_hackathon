@@ -14,7 +14,7 @@ Security posture (docs/08 section 4.2):
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import boto3
 import botocore.exceptions
@@ -31,10 +31,15 @@ _ALLOWED_CONTENT_TYPES = {
 
 _DEFAULT_MAX_BYTES = 50 * 1024 * 1024  # 50 MiB
 _DEFAULT_EXPIRY_SECONDS = 900  # 15 minutes
+_MAX_SUBMITTED_BY_LENGTH = 256
 
 
 class UploadNotPermittedError(YouthCompassError):
     """The requested upload violates a content-type or size policy."""
+
+
+class UploadNotReadyError(YouthCompassError):
+    """The expected S3 object has not arrived or failed verification."""
 
 
 @dataclass(frozen=True)
@@ -43,9 +48,21 @@ class PresignedUpload:
 
     url: str
     fields: dict[str, str]
+    job_id: str
     object_key: str
     expires_at: datetime
     max_bytes: int
+
+
+@dataclass(frozen=True)
+class UploadedObject:
+    """Verified upload metadata used to start an ingestion workflow."""
+
+    source_uri: str
+    submitted_by: str
+    original_filename: str | None
+    content_type: str
+    size_bytes: int
 
 
 class S3UploadSigner:
@@ -72,6 +89,7 @@ class S3UploadSigner:
         content_type: str,
         submitted_by: str,
         original_filename: str | None = None,
+        job_id: str | None = None,
     ) -> PresignedUpload:
         """Return a presigned POST for one upload.
 
@@ -87,10 +105,25 @@ class S3UploadSigner:
             raise UploadNotPermittedError(
                 f"content type {content_type!r} is not allowed; permitted: {allowed}"
             )
+        if (
+            not submitted_by.strip()
+            or len(submitted_by) > _MAX_SUBMITTED_BY_LENGTH
+            or not submitted_by.isprintable()
+        ):
+            raise UploadNotPermittedError(
+                "submitted_by must contain 1-256 printable characters"
+            )
 
-        # Generated key: never trust the client's filename for the S3 key.
-        object_key = f"{self._prefix}{uuid.uuid4().hex}.{extension}"
-        expires_at = datetime.now(UTC)
+        correlation_id = job_id or f"job-{uuid.uuid4().hex}"
+        if not correlation_id.startswith("job-") or not correlation_id.removeprefix(
+            "job-"
+        ).isalnum():
+            raise UploadNotPermittedError("job_id must use the generated job-<id> format")
+
+        # Generated key: never trust the client's filename for the S3 key. The
+        # job prefix makes completion verifiable without server-local state.
+        object_key = f"{self._prefix}{correlation_id}/{uuid.uuid4().hex}.{extension}"
+        expires_at = datetime.now(UTC) + timedelta(seconds=self._expiry)
 
         # Provenance metadata must be part of the signed policy: S3 rejects any
         # form field not declared in the conditions. So build the fields and
@@ -98,6 +131,7 @@ class S3UploadSigner:
         fields: dict[str, str] = {
             "Content-Type": content_type,
             "x-amz-meta-submitted-by": submitted_by,
+            "x-amz-meta-job-id": correlation_id,
         }
         if original_filename:
             fields["x-amz-meta-original-filename"] = _safe_filename(original_filename)
@@ -122,9 +156,41 @@ class S3UploadSigner:
         return PresignedUpload(
             url=presigned["url"],
             fields=presigned["fields"],
+            job_id=correlation_id,
             object_key=object_key,
             expires_at=expires_at,
             max_bytes=self._max_bytes,
+        )
+
+    def verify_upload(self, *, job_id: str, object_key: str) -> UploadedObject:
+        """Verify that the signed object exists and belongs to ``job_id``."""
+
+        expected_prefix = f"{self._prefix}{job_id}/"
+        if not object_key.startswith(expected_prefix):
+            raise UploadNotPermittedError("object_key does not belong to this ingestion job")
+        try:
+            response = self._s3.head_object(Bucket=self._bucket, Key=object_key)
+        except botocore.exceptions.ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                raise UploadNotReadyError("uploaded object is not available yet") from exc
+            raise YouthCompassError(f"failed to inspect uploaded object: {exc}") from exc
+
+        metadata = response.get("Metadata", {})
+        if metadata.get("job-id") != job_id:
+            raise UploadNotPermittedError("uploaded object has invalid job metadata")
+        submitted_by = metadata.get("submitted-by", "")
+        if not submitted_by:
+            raise UploadNotPermittedError("uploaded object is missing submitter metadata")
+        size_bytes = int(response.get("ContentLength", 0))
+        if not 1 <= size_bytes <= self._max_bytes:
+            raise UploadNotPermittedError("uploaded object violates the signed size policy")
+        return UploadedObject(
+            source_uri=f"s3://{self._bucket}/{object_key}",
+            submitted_by=submitted_by,
+            original_filename=metadata.get("original-filename"),
+            content_type=str(response.get("ContentType", "application/octet-stream")),
+            size_bytes=size_bytes,
         )
 
 

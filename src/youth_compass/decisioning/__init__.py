@@ -1,0 +1,104 @@
+"""Reusable feature registry and deterministic decision scoring."""
+
+from youth_compass.decisioning.analysis_plan import (
+    AnalysisInput,
+    AnalysisJoin,
+    AnalysisPlan,
+    AnalysisPlanValidator,
+    JoinCardinality,
+    JoinType,
+    PlanValidationIssue,
+    PlanValidationReport,
+    PreAggregation,
+)
+from youth_compass.decisioning.builders import (
+    ComposableFeatureBuilder,
+    FeatureAggregation,
+    FeatureCompositionError,
+    MinMaxFeatureBuildSpec,
+    ObservationFeatureBuildSpec,
+    RatioFeatureBuildSpec,
+    ZeroDenominatorPolicy,
+)
+from youth_compass.decisioning.catalog import (
+    FeatureCatalogEntry,
+    FeatureMaterializationMetadata,
+    FeatureMaterializationStatus,
+    FeatureSearchQuery,
+    SemanticFeatureCatalog,
+)
+from youth_compass.decisioning.contracts import (
+    CandidateFeatures,
+    CandidateScore,
+    ConstraintOperator,
+    DecisionConstraint,
+    DecisionCriterion,
+    DecisionProfile,
+    DecisionResult,
+    EntityType,
+    FeatureContribution,
+    FeatureDefinition,
+    FeatureEvidence,
+    FeatureValue,
+    OptimizationDirection,
+)
+from youth_compass.decisioning.defaults import DEFAULT_DECISION_PROFILES, DEFAULT_FEATURES
+from youth_compass.decisioning.location import CanonicalLocation, LocationKind
+from youth_compass.decisioning.location_resolver import (
+    LocationResolution,
+    LocationResolutionMethod,
+    NewTaipeiDistrictResolver,
+)
+from youth_compass.decisioning.provider import FeatureProvider, FeatureQuery, FeatureSet
+from youth_compass.decisioning.registry import DecisionProfileRegistry, FeatureRegistry
+from youth_compass.decisioning.scoring import DecisionScoringEngine
+
+__all__ = [
+    "DEFAULT_DECISION_PROFILES",
+    "DEFAULT_FEATURES",
+    "AnalysisInput",
+    "AnalysisJoin",
+    "AnalysisPlan",
+    "AnalysisPlanValidator",
+    "CandidateFeatures",
+    "CandidateScore",
+    "CanonicalLocation",
+    "ComposableFeatureBuilder",
+    "ConstraintOperator",
+    "DecisionConstraint",
+    "DecisionCriterion",
+    "DecisionProfile",
+    "DecisionProfileRegistry",
+    "DecisionResult",
+    "DecisionScoringEngine",
+    "EntityType",
+    "FeatureAggregation",
+    "FeatureCatalogEntry",
+    "FeatureCompositionError",
+    "FeatureContribution",
+    "FeatureDefinition",
+    "FeatureEvidence",
+    "FeatureMaterializationMetadata",
+    "FeatureMaterializationStatus",
+    "FeatureProvider",
+    "FeatureQuery",
+    "FeatureRegistry",
+    "FeatureSearchQuery",
+    "FeatureSet",
+    "FeatureValue",
+    "JoinCardinality",
+    "JoinType",
+    "LocationKind",
+    "LocationResolution",
+    "LocationResolutionMethod",
+    "MinMaxFeatureBuildSpec",
+    "NewTaipeiDistrictResolver",
+    "ObservationFeatureBuildSpec",
+    "OptimizationDirection",
+    "PlanValidationIssue",
+    "PlanValidationReport",
+    "PreAggregation",
+    "RatioFeatureBuildSpec",
+    "SemanticFeatureCatalog",
+    "ZeroDenominatorPolicy",
+]

@@ -7,14 +7,20 @@ import pytest
 from youth_compass.domain import errors
 
 EXPECTED_SUBCLASSES = (
+    "AnalyticsNotAvailableError",
+    "CatalogOperationError",
     "ConfigurationError",
     "DatasetNotFoundError",
     "ForecastNotAvailableError",
     "ModelInvocationError",
     "ObjectNotFoundError",
+    "ObjectStoreOperationError",
     "QueryExecutionError",
     "QueryNotPermittedError",
+    "SourceNormalizationError",
     "TrainingRejectedError",
+    "WorkflowNotFoundError",
+    "WorkflowPersistenceError",
     "WorkflowStateError",
 )
 

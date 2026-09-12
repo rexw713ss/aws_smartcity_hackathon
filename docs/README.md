@@ -12,7 +12,8 @@ New Taipei Youth Compass is an adaptive data-to-decision platform for youth poli
 
 The system has three core capabilities:
 
-1. **Integrate:** onboard heterogeneous CSV, Excel, API, and eventually PDF sources.
+1. **Integrate:** onboard heterogeneous CSV, Excel, JSON, and text-based PDF tables,
+   with API sources and scanned-PDF OCR on the roadmap.
 2. **Predict:** forecast youth population trends with reproducible ML pipelines.
 3. **Act:** expose evidence, uncertainty, and policy options through a dashboard and agentic assistant.
 
@@ -34,6 +35,12 @@ The system has three core capabilities:
 | [11-development-guide.md](./11-development-guide.md) | Python 3.12/uv setup, CLI, API, quality commands, and current implementation status |
 | [12-aws-stage1-foundation.md](./12-aws-stage1-foundation.md) | AWS Stage 1 foundation: ports, contract harness, CDK synth, verification scripts (deploys nothing) |
 | [13-aws-stage2-adapters.md](./13-aws-stage2-adapters.md) | AWS Stage 2: real S3/Glue/Athena/EventBridge/StepFunctions adapters + CDK data stack |
+| [14-aws-integration-review.md](./14-aws-integration-review.md) | Backend review findings and acceptance criteria for the AWS integration workstream |
+| [15-local-ingestion-workflow.md](./15-local-ingestion-workflow.md) | Offline storage, approval, publication, persistence, and AWS replacement boundary |
+| [16-reviewer-dashboard-api.md](./16-reviewer-dashboard-api.md) | Implemented FastAPI reviewer/catalog/dashboard routes and safe DuckDB analytics |
+| [17-streamlit-dashboard.md](./17-streamlit-dashboard.md) | Temporary local UI for reviewer approval and district analytics |
+| [18-tabular-source-adapters.md](./18-tabular-source-adapters.md) | Implemented CSV, Excel, JSON, and text-based PDF-table normalization boundary |
+| [19-reusable-feature-and-decision-layer.md](./19-reusable-feature-and-decision-layer.md) | Reusable feature contracts, decision profiles, constraints, and deterministic scoring |
 | [aws-architecture.md](./aws-architecture.md) | Full AWS architecture diagram: all services, data flow, security boundary |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 

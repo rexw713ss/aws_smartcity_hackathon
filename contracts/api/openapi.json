@@ -1,0 +1,2243 @@
+{
+  "components": {
+    "schemas": {
+      "Body_upload_dataset_api_v1_datasets_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "submitted_by": {
+            "title": "Submitted By",
+            "type": "string"
+          },
+          "topic_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Hint"
+          }
+        },
+        "required": [
+          "file",
+          "submitted_by"
+        ],
+        "title": "Body_upload_dataset_api_v1_datasets_upload_post",
+        "type": "object"
+      },
+      "CitySummaryResponse": {
+        "properties": {
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "datasetVersion": {
+            "title": "Datasetversion",
+            "type": "string"
+          },
+          "districtCount": {
+            "title": "Districtcount",
+            "type": "integer"
+          },
+          "estimatedValue": {
+            "title": "Estimatedvalue",
+            "type": "number"
+          },
+          "metricCode": {
+            "title": "Metriccode",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "populationScope": {
+            "title": "Populationscope",
+            "type": "string"
+          },
+          "qualityScore": {
+            "title": "Qualityscore",
+            "type": "number"
+          },
+          "unitCode": {
+            "title": "Unitcode",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "datasetId",
+          "datasetVersion",
+          "metricCode",
+          "period",
+          "value",
+          "unitCode",
+          "populationScope",
+          "districtCount",
+          "estimatedValue",
+          "qualityScore"
+        ],
+        "title": "CitySummaryResponse",
+        "type": "object"
+      },
+      "ColumnMapping": {
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "source_column": {
+            "title": "Source Column",
+            "type": "string"
+          },
+          "target_field": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Target Field",
+            "type": "string"
+          },
+          "transformation": {
+            "title": "Transformation",
+            "type": "string"
+          },
+          "transformation_parameters": {
+            "additionalProperties": true,
+            "title": "Transformation Parameters",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_column",
+          "target_field",
+          "transformation",
+          "confidence",
+          "evidence"
+        ],
+        "title": "ColumnMapping",
+        "type": "object"
+      },
+      "ColumnProfile": {
+        "properties": {
+          "distinct_count": {
+            "minimum": 0.0,
+            "title": "Distinct Count",
+            "type": "integer"
+          },
+          "distinct_count_is_lower_bound": {
+            "default": false,
+            "title": "Distinct Count Is Lower Bound",
+            "type": "boolean"
+          },
+          "inferred_type": {
+            "$ref": "#/components/schemas/PrimitiveType"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "non_null_count": {
+            "minimum": 0.0,
+            "title": "Non Null Count",
+            "type": "integer"
+          },
+          "null_count": {
+            "minimum": 0.0,
+            "title": "Null Count",
+            "type": "integer"
+          },
+          "null_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Null Rate",
+            "type": "number"
+          },
+          "numeric_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Max"
+          },
+          "numeric_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Min"
+          },
+          "position": {
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "sample_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sample Values",
+            "type": "array"
+          },
+          "semantic_confidence": {
+            "default": 0.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Semantic Confidence",
+            "type": "number"
+          },
+          "semantic_role": {
+            "$ref": "#/components/schemas/SemanticRole",
+            "default": "unknown"
+          }
+        },
+        "required": [
+          "name",
+          "position",
+          "inferred_type",
+          "non_null_count",
+          "null_count",
+          "null_rate",
+          "distinct_count"
+        ],
+        "title": "ColumnProfile",
+        "type": "object"
+      },
+      "CompleteUploadRequest": {
+        "description": "The browser callback after the multipart form succeeds.",
+        "properties": {
+          "objectKey": {
+            "minLength": 1,
+            "title": "Objectkey",
+            "type": "string"
+          },
+          "topicHint": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topichint"
+          }
+        },
+        "required": [
+          "objectKey"
+        ],
+        "title": "CompleteUploadRequest",
+        "type": "object"
+      },
+      "DatasetGrain": {
+        "properties": {
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Dimensions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dimensions"
+        ],
+        "title": "DatasetGrain",
+        "type": "object"
+      },
+      "DatasetProfile": {
+        "properties": {
+          "candidate_grain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Candidate Grain",
+            "type": "array"
+          },
+          "column_count": {
+            "minimum": 0.0,
+            "title": "Column Count",
+            "type": "integer"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnProfile"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "content_sha256": {
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "delimiter": {
+            "title": "Delimiter",
+            "type": "string"
+          },
+          "duplicate_check_is_partial": {
+            "default": false,
+            "title": "Duplicate Check Is Partial",
+            "type": "boolean"
+          },
+          "duplicate_row_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Duplicate Row Count",
+            "type": "integer"
+          },
+          "duplicate_rows_checked": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Duplicate Rows Checked",
+            "type": "integer"
+          },
+          "encoding": {
+            "title": "Encoding",
+            "type": "string"
+          },
+          "file_format": {
+            "$ref": "#/components/schemas/FileFormat"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_size_bytes": {
+            "minimum": 0.0,
+            "title": "File Size Bytes",
+            "type": "integer"
+          },
+          "geography_coverage": {
+            "$ref": "#/components/schemas/GeographyCoverage",
+            "default": {
+              "district_count": 0,
+              "recognized_district_count": 0,
+              "unknown_values": []
+            }
+          },
+          "row_count": {
+            "minimum": 0.0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "source_path": {
+            "format": "path",
+            "title": "Source Path",
+            "type": "string"
+          },
+          "time_coverage": {
+            "$ref": "#/components/schemas/TimeCoverage",
+            "default": {
+              "months": [],
+              "months_by_gregorian_year": {}
+            }
+          },
+          "truncated_by_max_rows": {
+            "default": false,
+            "title": "Truncated By Max Rows",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_path",
+          "file_name",
+          "file_format",
+          "encoding",
+          "delimiter",
+          "file_size_bytes",
+          "content_sha256",
+          "row_count",
+          "column_count",
+          "columns"
+        ],
+        "title": "DatasetProfile",
+        "type": "object"
+      },
+      "DatasetResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "datasetRole": {
+            "title": "Datasetrole",
+            "type": "string"
+          },
+          "grain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Grain",
+            "type": "array"
+          },
+          "populationScope": {
+            "title": "Populationscope",
+            "type": "string"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "qualityScore": {
+            "title": "Qualityscore",
+            "type": "number"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetId",
+          "version",
+          "topic",
+          "status",
+          "datasetRole",
+          "grain",
+          "populationScope",
+          "qualityScore",
+          "createdAt",
+          "publishedAt"
+        ],
+        "title": "DatasetResponse",
+        "type": "object"
+      },
+      "DatasetRole": {
+        "enum": [
+          "fact",
+          "context",
+          "dimension",
+          "unknown"
+        ],
+        "title": "DatasetRole",
+        "type": "string"
+      },
+      "DecisionRequest": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "decidedBy": {
+            "minLength": 1,
+            "title": "Decidedby",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "decidedBy"
+        ],
+        "title": "DecisionRequest",
+        "type": "object"
+      },
+      "DistrictCompareRequest": {
+        "properties": {
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "districtCodes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Districtcodes",
+            "type": "array"
+          },
+          "metricCode": {
+            "title": "Metriccode",
+            "type": "string"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          }
+        },
+        "required": [
+          "datasetId",
+          "districtCodes",
+          "metricCode"
+        ],
+        "title": "DistrictCompareRequest",
+        "type": "object"
+      },
+      "DistrictMetricResponse": {
+        "properties": {
+          "districtCode": {
+            "title": "Districtcode",
+            "type": "string"
+          },
+          "districtName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Districtname"
+          },
+          "estimatedValue": {
+            "title": "Estimatedvalue",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "districtCode",
+          "districtName",
+          "value",
+          "estimatedValue"
+        ],
+        "title": "DistrictMetricResponse",
+        "type": "object"
+      },
+      "DistrictProfileResponse": {
+        "properties": {
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "datasetVersion": {
+            "title": "Datasetversion",
+            "type": "string"
+          },
+          "districts": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictMetricResponse"
+            },
+            "title": "Districts",
+            "type": "array"
+          },
+          "metricCode": {
+            "title": "Metriccode",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "populationScope": {
+            "title": "Populationscope",
+            "type": "string"
+          },
+          "qualityScore": {
+            "title": "Qualityscore",
+            "type": "number"
+          },
+          "unitCode": {
+            "title": "Unitcode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetId",
+          "datasetVersion",
+          "metricCode",
+          "period",
+          "unitCode",
+          "populationScope",
+          "qualityScore",
+          "districts"
+        ],
+        "title": "DistrictProfileResponse",
+        "type": "object"
+      },
+      "FileFormat": {
+        "enum": [
+          "csv",
+          "excel",
+          "json",
+          "pdf"
+        ],
+        "title": "FileFormat",
+        "type": "string"
+      },
+      "GeographyCoverage": {
+        "properties": {
+          "district_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "District Count",
+            "type": "integer"
+          },
+          "recognized_district_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Recognized District Count",
+            "type": "integer"
+          },
+          "unknown_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Values",
+            "type": "array"
+          }
+        },
+        "title": "GeographyCoverage",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "Lifecycle of an ingestion job.",
+        "enum": [
+          "pending",
+          "running",
+          "awaiting_approval",
+          "published",
+          "quarantined",
+          "rejected",
+          "failed"
+        ],
+        "title": "JobStatus",
+        "type": "string"
+      },
+      "JobStatusResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "currentStep": {
+            "title": "Currentstep",
+            "type": "string"
+          },
+          "datasetId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datasetid"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "qualityScore": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualityscore"
+          },
+          "sourceFormat": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "currentStep",
+          "createdAt"
+        ],
+        "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "LineageResponse": {
+        "properties": {
+          "approvedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approvedby"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "datasetVersion": {
+            "title": "Datasetversion",
+            "type": "string"
+          },
+          "mappingVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mappingversion"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "sourceSha256": {
+            "title": "Sourcesha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetId",
+          "datasetVersion",
+          "sourceSha256",
+          "mappingVersion",
+          "approvedBy",
+          "createdAt",
+          "publishedAt"
+        ],
+        "title": "LineageResponse",
+        "type": "object"
+      },
+      "MappingAnalysis": {
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/DatasetProfile"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/MappingProposal"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/MappingValidationReport"
+          }
+        },
+        "required": [
+          "profile",
+          "proposal",
+          "validation"
+        ],
+        "title": "MappingAnalysis",
+        "type": "object"
+      },
+      "MappingProposal": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnMapping"
+            },
+            "minItems": 1,
+            "title": "Columns",
+            "type": "array"
+          },
+          "dataset_role": {
+            "$ref": "#/components/schemas/DatasetRole"
+          },
+          "grain": {
+            "$ref": "#/components/schemas/DatasetGrain"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricMapping"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "overall_confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Overall Confidence",
+            "type": "number"
+          },
+          "requires_human_approval": {
+            "default": true,
+            "title": "Requires Human Approval",
+            "type": "boolean"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "topic",
+          "dataset_role",
+          "grain",
+          "columns",
+          "overall_confidence"
+        ],
+        "title": "MappingProposal",
+        "type": "object"
+      },
+      "MappingValidationIssue": {
+        "properties": {
+          "blocking": {
+            "default": false,
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/WarningSeverity"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "severity"
+        ],
+        "title": "MappingValidationIssue",
+        "type": "object"
+      },
+      "MappingValidationReport": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/MappingValidationIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "overall_confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Overall Confidence",
+            "type": "number"
+          },
+          "requires_human_approval": {
+            "title": "Requires Human Approval",
+            "type": "boolean"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "overall_confidence",
+          "requires_human_approval"
+        ],
+        "title": "MappingValidationReport",
+        "type": "object"
+      },
+      "MetricMapping": {
+        "properties": {
+          "aggregation_method": {
+            "title": "Aggregation Method",
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "metric_code": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "population_scope": {
+            "$ref": "#/components/schemas/PopulationScope"
+          },
+          "source_column": {
+            "title": "Source Column",
+            "type": "string"
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Code"
+          }
+        },
+        "required": [
+          "source_column",
+          "metric_code",
+          "population_scope",
+          "aggregation_method",
+          "confidence",
+          "evidence"
+        ],
+        "title": "MetricMapping",
+        "type": "object"
+      },
+      "PopulationScope": {
+        "enum": [
+          "youth_specific",
+          "district_context",
+          "general_population",
+          "unknown"
+        ],
+        "title": "PopulationScope",
+        "type": "string"
+      },
+      "PrimitiveType": {
+        "enum": [
+          "empty",
+          "boolean",
+          "integer",
+          "float",
+          "date",
+          "string"
+        ],
+        "title": "PrimitiveType",
+        "type": "string"
+      },
+      "ProfileWarning": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/WarningSeverity",
+            "default": "warning"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ProfileWarning",
+        "type": "object"
+      },
+      "QualityIssue": {
+        "properties": {
+          "blocking": {
+            "default": false,
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/WarningSeverity"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "severity"
+        ],
+        "title": "QualityIssue",
+        "type": "object"
+      },
+      "QualityReport": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/QualityIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "quality_score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Quality Score",
+            "type": "number"
+          },
+          "rows_accepted": {
+            "minimum": 0.0,
+            "title": "Rows Accepted",
+            "type": "integer"
+          },
+          "rows_received": {
+            "minimum": 0.0,
+            "title": "Rows Received",
+            "type": "integer"
+          },
+          "rows_rejected": {
+            "minimum": 0.0,
+            "title": "Rows Rejected",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QualityStatus"
+          }
+        },
+        "required": [
+          "status",
+          "quality_score",
+          "rows_received",
+          "rows_accepted",
+          "rows_rejected"
+        ],
+        "title": "QualityReport",
+        "type": "object"
+      },
+      "QualityResponse": {
+        "properties": {
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "datasetVersion": {
+            "title": "Datasetversion",
+            "type": "string"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "publicationStatus": {
+            "title": "Publicationstatus",
+            "type": "string"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/QualityReport"
+          }
+        },
+        "required": [
+          "jobId",
+          "datasetId",
+          "datasetVersion",
+          "publicationStatus",
+          "quality"
+        ],
+        "title": "QualityResponse",
+        "type": "object"
+      },
+      "QualityStatus": {
+        "enum": [
+          "valid",
+          "warning",
+          "needs_review",
+          "rejected"
+        ],
+        "title": "QualityStatus",
+        "type": "string"
+      },
+      "SemanticRole": {
+        "enum": [
+          "year",
+          "month",
+          "district_code",
+          "district_name",
+          "age_label",
+          "age_lower",
+          "age_upper",
+          "gender",
+          "metric",
+          "dimension",
+          "unknown"
+        ],
+        "title": "SemanticRole",
+        "type": "string"
+      },
+      "StartedIngestionResponse": {
+        "description": "Portable reference to the workflow started for an uploaded object.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "createdAt",
+          "links"
+        ],
+        "title": "StartedIngestionResponse",
+        "type": "object"
+      },
+      "TimeCoverage": {
+        "properties": {
+          "months": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "months_by_gregorian_year": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Months By Gregorian Year",
+            "type": "object"
+          },
+          "source_year_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Year System"
+          },
+          "year_gregorian_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Gregorian Max"
+          },
+          "year_gregorian_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Gregorian Min"
+          }
+        },
+        "title": "TimeCoverage",
+        "type": "object"
+      },
+      "UploadRequest": {
+        "description": "A request for a presigned upload URL.",
+        "properties": {
+          "contentType": {
+            "examples": [
+              "text/csv"
+            ],
+            "title": "Contenttype",
+            "type": "string"
+          },
+          "originalFilename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "employment_2024.csv"
+            ],
+            "title": "Originalfilename"
+          },
+          "submittedBy": {
+            "examples": [
+              "steward@ntpc.gov.tw"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Submittedby",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contentType",
+          "submittedBy"
+        ],
+        "title": "UploadRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WarningSeverity": {
+        "enum": [
+          "info",
+          "warning",
+          "error"
+        ],
+        "title": "WarningSeverity",
+        "type": "string"
+      },
+      "apps__api__schemas__UploadResponse": {
+        "properties": {
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "links"
+        ],
+        "title": "UploadResponse",
+        "type": "object"
+      },
+      "apps__api__uploads__UploadResponse": {
+        "description": "A presigned POST the browser submits the file to.",
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "maxBytes": {
+            "title": "Maxbytes",
+            "type": "integer"
+          },
+          "objectKey": {
+            "title": "Objectkey",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "fields",
+          "jobId",
+          "objectKey",
+          "status",
+          "expiresAt",
+          "maxBytes",
+          "links"
+        ],
+        "title": "UploadResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "New Taipei Youth Compass API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/city/summary": {
+      "get": {
+        "operationId": "city_summary_api_v1_city_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "datasetId",
+            "required": true,
+            "schema": {
+              "title": "Datasetid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metricCode",
+            "required": true,
+            "schema": {
+              "title": "Metriccode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CitySummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "City Summary",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/datasets": {
+      "get": {
+        "operationId": "list_datasets_api_v1_datasets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DatasetResponse"
+                  },
+                  "title": "Response List Datasets Api V1 Datasets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Datasets",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/datasets/upload": {
+      "post": {
+        "operationId": "upload_dataset_api_v1_datasets_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_dataset_api_v1_datasets_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__schemas__UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Dataset",
+        "tags": [
+          "reviewer"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}": {
+      "get": {
+        "operationId": "get_dataset_api_v1_datasets__dataset_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Dataset",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/lineage": {
+      "get": {
+        "operationId": "get_lineage_api_v1_datasets__dataset_id__lineage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Lineage",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/versions": {
+      "get": {
+        "operationId": "get_dataset_versions_api_v1_datasets__dataset_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DatasetResponse"
+                  },
+                  "title": "Response Get Dataset Versions Api V1 Datasets  Dataset Id  Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Dataset Versions",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/districts": {
+      "get": {
+        "operationId": "list_districts_api_v1_districts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "datasetId",
+            "required": true,
+            "schema": {
+              "title": "Datasetid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metricCode",
+            "required": true,
+            "schema": {
+              "title": "Metriccode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistrictProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Districts",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/districts/compare": {
+      "post": {
+        "operationId": "compare_districts_api_v1_districts_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DistrictCompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistrictProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare Districts",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/districts/{district_code}/profile": {
+      "get": {
+        "operationId": "district_profile_api_v1_districts__district_code__profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "district_code",
+            "required": true,
+            "schema": {
+              "title": "District Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "datasetId",
+            "required": true,
+            "schema": {
+              "title": "Datasetid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metricCode",
+            "required": true,
+            "schema": {
+              "title": "Metriccode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistrictProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "District Profile",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/ingestion-jobs/{job_id}": {
+      "get": {
+        "operationId": "get_ingestion_job_api_v1_ingestion_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Ingestion Job",
+        "tags": [
+          "reviewer"
+        ]
+      }
+    },
+    "/api/v1/ingestion-jobs/{job_id}/decision": {
+      "post": {
+        "operationId": "decide_ingestion_api_v1_ingestion_jobs__job_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Ingestion",
+        "tags": [
+          "reviewer"
+        ]
+      }
+    },
+    "/api/v1/ingestion-jobs/{job_id}/mapping": {
+      "get": {
+        "operationId": "get_mapping_api_v1_ingestion_jobs__job_id__mapping_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MappingAnalysis"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Mapping",
+        "tags": [
+          "reviewer"
+        ]
+      }
+    },
+    "/api/v1/ingestion-jobs/{job_id}/quality-report": {
+      "get": {
+        "operationId": "get_quality_report_api_v1_ingestion_jobs__job_id__quality_report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Quality Report",
+        "tags": [
+          "reviewer"
+        ]
+      }
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "description": "Issue a presigned POST for one file upload into the incoming zone.",
+        "operationId": "create_upload_api_v1_uploads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__uploads__UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Upload",
+        "tags": [
+          "uploads"
+        ]
+      }
+    },
+    "/api/v1/uploads/{job_id}/complete": {
+      "post": {
+        "description": "Verify the S3 object and start one idempotently named workflow.",
+        "operationId": "complete_upload_api_v1_uploads__job_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedIngestionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Upload",
+        "tags": [
+          "uploads"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "operations"
+        ]
+      }
+    }
+  }
+}

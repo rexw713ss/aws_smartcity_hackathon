@@ -58,6 +58,8 @@ class TransformOptions:
     batch_size: int = 10_000
     max_rejection_rate: float = 0.01
     transformation_version: str = "canonical-v1"
+    source_uri: str | None = None
+    source_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if not self.approved_by.strip():
@@ -72,6 +74,8 @@ class TransformOptions:
             raise ValueError("max_rejection_rate must be between 0 and 1")
         if not self.transformation_version.strip():
             raise ValueError("transformation_version must not be empty")
+        if self.source_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", self.source_sha256):
+            raise ValueError("source_sha256 must contain 64 lowercase hexadecimal characters")
 
 
 def run_csv_transformation(source: Path, options: TransformOptions) -> PublicationManifest:
@@ -87,8 +91,9 @@ def run_csv_transformation(source: Path, options: TransformOptions) -> Publicati
 
     dataset_id = options.dataset_id or _default_dataset_id(analysis.proposal.topic)
     mapping_version = _mapping_version(analysis.proposal)
+    source_sha256 = options.source_sha256 or profile.content_sha256
     dataset_version = _dataset_version(
-        profile.content_sha256,
+        source_sha256,
         mapping_version,
         options.transformation_version,
         options.max_rows,
@@ -97,7 +102,7 @@ def run_csv_transformation(source: Path, options: TransformOptions) -> Publicati
     quarantine_final = options.quarantine_root.resolve() / dataset_id / f"version={dataset_version}"
     existing = _find_existing_manifest(
         (curated_final, quarantine_final),
-        source_sha256=profile.content_sha256,
+        source_sha256=source_sha256,
         mapping_version=mapping_version,
         transformation_version=options.transformation_version,
         is_sample=options.max_rows is not None,
@@ -142,8 +147,8 @@ def run_csv_transformation(source: Path, options: TransformOptions) -> Publicati
             dataset_id=dataset_id,
             dataset_version=dataset_version,
             topic=analysis.proposal.topic,
-            source_uri=str(profile.source_path),
-            source_sha256=profile.content_sha256,
+            source_uri=options.source_uri or str(profile.source_path),
+            source_sha256=source_sha256,
             mapping_version=mapping_version,
             transformation_version=options.transformation_version,
             approved_by=options.approved_by.strip(),

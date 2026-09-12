@@ -134,7 +134,11 @@ Review canonical schema, metric scope, and weighting assumptions.
 
 Estimated effort: 2-3 days.
 
-Current status: profiling, mapping, deterministic transformation, Parquet verification, quality/quarantine gates, lineage manifests, and idempotent version paths are implemented. The SQLite catalog, persisted approval pause/resume, and published-version pointer remain for the next backend slice.
+Current status: profiling, mapping, deterministic transformation, Parquet verification,
+quality/quarantine gates, lineage manifests, idempotent version paths, local object
+storage, SQLite catalog, durable approval pause/resume, audit history, and a safe
+published-version pointer are implemented. Held-out fixture expansion and a reviewer
+HTTP/UI surface remain before Approval gate C.
 
 ### Tasks
 
@@ -172,6 +176,12 @@ Demo held-out ingestion, review UI payload, and curated output before analytics 
 ## 6. Phase 3 - Curated analytics and backend API
 
 Estimated effort: 1.5-2 days.
+
+Current status: the safe DuckDB `QueryEngine`, reviewer workflow API, dataset and
+lineage endpoints, city summary, district profile/comparison, stable error
+envelope, and generated OpenAPI contract are implemented. Population mart
+bootstrapping from all source files, trend/ranking pre-aggregations, pagination,
+and caching remain before Approval gate D.
 
 ### Tasks
 
@@ -391,7 +401,7 @@ AWS D starts after Phase 5 agent contract
 
 ### P2 - Stretch
 
-- XLSX/API connectors;
+- API connectors;
 - scanned PDF/Textract;
 - scheduled source refresh;
 - advanced RAG over policy documents;
@@ -415,7 +425,8 @@ AWS D starts after Phase 5 agent contract
 
 Approved by the owner on 2026-08-31:
 
-1. MVP supports CSV only; XLSX/API/PDF are deferred.
+1. MVP supports CSV, modern Excel (`.xlsx`/`.xlsm`), JSON, JSONL, NDJSON, and
+   text-based PDF tables; API ingestion and scanned-PDF OCR/Textract remain deferred.
 2. Python + FastAPI + LangGraph + Pydantic is the backend/agent stack.
 3. Parquet + DuckDB is the offline analytical layer.
 4. Ollama is optional; deterministic and fake providers remain first-class.

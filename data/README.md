@@ -5,6 +5,7 @@ All project data lives under this directory. Existing cleaned datasets were move
 | Directory | Purpose | Git policy |
 |---|---|---|
 | `source/` | Existing provided datasets and lookup tables | Tracked, read-only input |
+| `samples/` | Small tracked files for deterministic local demos | Tracked test input |
 | `incoming/` | Newly uploaded files or API snapshots | Generated, ignored |
 | `quarantined/` | Sources that fail or await review | Generated, ignored |
 | `standardized/` | Source-shaped outputs with canonical dimensions | Generated, ignored |
