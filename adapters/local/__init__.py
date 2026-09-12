@@ -12,6 +12,7 @@ from adapters.local.observation_feature_builder import (
     CanonicalObservationFeatureBuilder,
     FeatureBuildError,
 )
+from adapters.local.precomputed_forecast import PrecomputedParquetForecastService
 from adapters.local.source_adapter import LocalTabularSourceAdapter
 from adapters.local.sqlite_catalog import SQLiteCatalog
 from adapters.local.sqlite_checkpoint import SQLiteCheckpointStore
@@ -34,6 +35,7 @@ __all__ = [
     "FeatureParquetMaterializer",
     "FileSystemObjectStore",
     "LocalTabularSourceAdapter",
+    "PrecomputedParquetForecastService",
     "SQLiteCatalog",
     "SQLiteCheckpointStore",
     "SQLiteFeatureCatalog",

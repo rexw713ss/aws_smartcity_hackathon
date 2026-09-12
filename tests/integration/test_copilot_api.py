@@ -131,6 +131,26 @@ def _write_population_observations(data_root: Path) -> DatasetMetadata:
     )
 
 
+def _write_population_forecast(data_root: Path) -> None:
+    destination = data_root / "forecasts" / "current.parquet"
+    destination.parent.mkdir(parents=True)
+    pq.write_table(
+        pa.table(
+            {
+                "metric_code": ["population_count"] * 4,
+                "district_code": ["banqiao", "banqiao", "linkou", "linkou"],
+                "year_gregorian": [2027, 2028, 2027, 2028],
+                "value": [121.0, 122.0, 71.0, 70.0],
+                "lower": [115.0, 116.0, 65.0, 64.0],
+                "upper": [127.0, 128.0, 77.0, 76.0],
+                "model_version": ["seasonal-naive-v1"] * 4,
+                "generated_at": [datetime(2026, 9, 1, tzinfo=UTC)] * 4,
+            }
+        ),
+        destination,
+    )
+
+
 def test_copilot_query_returns_grounded_ranking(tmp_path: Path) -> None:
     _write_home_features(tmp_path)
     client = TestClient(create_app(tmp_path))
@@ -211,6 +231,7 @@ def test_copilot_capabilities_are_discoverable(tmp_path: Path) -> None:
         "inspect_dataset",
         "query_observations",
         "compare_entities",
+        "forecast_metric",
     }
 
 
@@ -271,3 +292,36 @@ def test_copilot_fails_closed_when_requested_entity_is_missing(tmp_path: Path) -
     assert response.status_code == 200
     assert response.json()["status"] == "insufficient_data"
     assert "unknown-district" in response.json()["warnings"][0]
+
+
+def test_copilot_returns_published_forecast_with_intervals(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    app.state.runtime.catalog.register(_write_population_observations(tmp_path))
+    _write_population_forecast(tmp_path)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/copilot/query",
+        json={
+            "question": "Forecast youth population for the next 2 years",
+            "entityIds": ["banqiao", "linkou"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "answered"
+    assert body["forecast_result"]["model_version"] == "seasonal-naive-v1"
+    assert len(body["forecast_result"]["points"]) == 4
+    assert body["routed_plan"]["missing_operations"] == []
+    assert [item["tool"] for item in body["tool_trace"]] == [
+        "query_decomposer",
+        "search_catalog",
+        "inspect_dataset",
+        "forecast_metric",
+        "explain_lineage",
+        "answer_composer",
+        "visualization_builder",
+    ]
+    assert body["visualizations"][0]["rows"][0]["lower"] == 115.0
+    assert "source_uri" not in response.text

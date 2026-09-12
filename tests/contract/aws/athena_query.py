@@ -72,6 +72,7 @@ def _athena_query_engine() -> Iterator[AthenaQueryEngine]:
             region=_REGION,
             allowed_tables={_TABLE},
             allowed_metrics={"youth_population"},
+            allowed_dimensions={"district_code"},
         )
 
         with (

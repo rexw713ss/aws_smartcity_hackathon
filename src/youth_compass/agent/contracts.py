@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from youth_compass.ports import DataRequirement, SourceCandidate
+from youth_compass.ports import DataRequirement, ForecastResult, SourceCandidate
 
 
 class CopilotStatus(StrEnum):
@@ -261,7 +261,7 @@ class AnswerCompositionContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     question: str = Field(min_length=3)
-    analysis_type: Literal["decision", "dataset_inspection", "observation_comparison"]
+    analysis_type: Literal["decision", "dataset_inspection", "observation_comparison", "forecast"]
     grounded_facts_json: str = Field(min_length=2)
     allowed_citation_ids: tuple[str, ...] = ()
     fallback_answer: str = Field(min_length=1)
@@ -325,6 +325,7 @@ class CopilotResponse(BaseModel):
     dataset_inspection: DatasetInspection | None = None
     observation_series: ObservationSeries | None = None
     comparison: EntityComparison | None = None
+    forecast_result: ForecastResult | None = None
     candidates: tuple[CandidateInsight, ...] = ()
     citations: tuple[EvidenceCitation, ...] = ()
     tool_trace: tuple[ToolTrace, ...] = ()

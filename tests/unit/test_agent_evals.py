@@ -11,6 +11,7 @@ from youth_compass.agent import (
     SmartToolRouter,
     default_decision_capabilities,
     load_eval_cases,
+    register_forecast_capabilities,
     register_observation_capabilities,
 )
 
@@ -18,6 +19,7 @@ from youth_compass.agent import (
 def _harness() -> AgentEvalHarness:
     capabilities = default_decision_capabilities()
     register_observation_capabilities(capabilities)
+    register_forecast_capabilities(capabilities)
     return AgentEvalHarness(DeterministicQueryDecomposer(), SmartToolRouter(capabilities))
 
 

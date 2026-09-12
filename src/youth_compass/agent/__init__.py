@@ -56,6 +56,7 @@ from youth_compass.agent.planning import (
     ToolCapabilityRegistry,
     default_decision_capabilities,
     register_acquisition_capabilities,
+    register_forecast_capabilities,
     register_observation_capabilities,
 )
 from youth_compass.agent.service import (
@@ -119,5 +120,6 @@ __all__ = [
     "default_decision_capabilities",
     "load_eval_cases",
     "register_acquisition_capabilities",
+    "register_forecast_capabilities",
     "register_observation_capabilities",
 ]

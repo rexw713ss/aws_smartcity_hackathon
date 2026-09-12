@@ -22,12 +22,13 @@ alter structured results. `ModelAnswerComposer` rejects unknown citation IDs and
 values absent from the grounded payload; any model-boundary failure falls back to the
 deterministic answer. Local storage URIs are deliberately omitted from the public response.
 
-The current runtime advertises `search_catalog`, `inspect_dataset`, `query_observations`,
-`compare_entities`, `get_features`, `rank_candidates`, and `explain_lineage` through
+The local runtime advertises `search_catalog`, `inspect_dataset`, `query_observations`,
+`compare_entities`, `forecast_metric`, `get_features`, `rank_candidates`, and
+`explain_lineage` through
 `GET /api/v1/copilot/capabilities`. It can inspect published canonical datasets and answer
-grounded trend/comparison questions without a use-case-specific feature mart. Forecast and
-source-acquisition requests are decomposed, but the router returns their missing operations
-and refuses to manufacture a partial answer until those tools are registered.
+grounded trend/comparison questions without a use-case-specific feature mart. It retrieves
+published local forecasts with uncertainty and model lineage. A runtime without a configured
+forecast adapter returns the missing operation and refuses to manufacture a partial answer.
 
 The observation tools execute only typed `QuerySpec` requests against allowlisted canonical
 fields. They enforce dataset quality, entity and time scope, compatible units and population

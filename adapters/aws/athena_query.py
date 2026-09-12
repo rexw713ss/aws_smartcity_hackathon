@@ -7,7 +7,11 @@ crosses the port boundary. Enforces metric/dimension allowlists, max_rows,
 query timeout, and a scanned-bytes cap.
 """
 
+import math
+import re
 import time
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 import boto3
 import botocore.exceptions
@@ -17,40 +21,9 @@ from youth_compass.ports.query_engine import CellValue, QueryResult, QuerySpec
 
 _DEFAULT_TIMEOUT_S = 60
 _DEFAULT_SCAN_LIMIT = 100 * 1024 * 1024  # 100 MiB
-
-# Athena/Hive scalar type names -> the CellValue kind to coerce to. Athena
-# reports these in each column's ResultSetMetadata; anything not listed
-# (varchar, date, timestamp, …) stays a string.
-_INTEGER_TYPES = frozenset({"tinyint", "smallint", "integer", "int", "bigint"})
-_FLOAT_TYPES = frozenset({"float", "double", "real", "decimal"})
-
-
-def _coerce(value: str | None, column_type: str) -> CellValue:
-    """Turn an Athena string cell into the native type its column declares.
-
-    Athena serialises every value as a string; the QueryEngine contract returns
-    native types, so consumers (the analytics layer) can treat DuckDB and Athena
-    identically. A value that does not parse is left as the original string
-    rather than raising, so one malformed cell cannot fail a whole query.
-    """
-    if value is None:
-        return None
-    kind = column_type.split("(", 1)[0].strip().lower()
-    if kind in _INTEGER_TYPES:
-        try:
-            return int(value)
-        except ValueError:
-            return value
-    if kind in _FLOAT_TYPES:
-        try:
-            return float(value)
-        except ValueError:
-            return value
-    if kind == "boolean":
-        if value in ("true", "false"):
-            return value == "true"
-        return value
-    return value
+_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
+_INTEGER_TYPES = {"bigint", "integer", "smallint", "tinyint"}
+_FLOAT_TYPES = {"double", "float", "real"}
 
 
 class AthenaQueryEngine:
@@ -69,13 +42,21 @@ class AthenaQueryEngine:
         timeout_seconds: int = _DEFAULT_TIMEOUT_S,
         scan_limit_bytes: int = _DEFAULT_SCAN_LIMIT,
     ) -> None:
+        if not allowed_tables or not allowed_metrics or not allowed_dimensions:
+            raise ValueError("Athena allowlists must not be empty")
+        identifiers = {*allowed_tables, *allowed_metrics, *allowed_dimensions, database}
+        invalid = sorted(value for value in identifiers if not _IDENTIFIER.fullmatch(value))
+        if invalid:
+            raise ValueError(f"invalid canonical identifiers: {invalid}")
+        if timeout_seconds <= 0 or scan_limit_bytes <= 0:
+            raise ValueError("Athena timeout and scan limit must be positive")
         self._database = database
         self._workgroup = workgroup
         self._output = f"s3://{output_bucket}/athena-results/"
         self._client = boto3.client("athena", region_name=region)
-        self._allowed_tables = allowed_tables or set()
-        self._allowed_metrics = allowed_metrics or set()
-        self._allowed_dimensions = allowed_dimensions or set()
+        self._allowed_tables = frozenset(allowed_tables)
+        self._allowed_metrics = frozenset(allowed_metrics)
+        self._allowed_dimensions = frozenset(allowed_dimensions)
         self._timeout = timeout_seconds
         self._scan_limit = scan_limit_bytes
 
@@ -89,16 +70,27 @@ class AthenaQueryEngine:
             raise QueryExecutionError(str(exc)[:200]) from exc
 
     def _check_allowlist(self, query: QuerySpec) -> None:
-        if self._allowed_tables and query.table not in self._allowed_tables:
+        if query.table not in self._allowed_tables:
             raise QueryNotPermittedError(f"table {query.table!r} is not in the query allowlist")
-        if self._allowed_metrics:
-            bad = [m for m in query.metrics if m not in self._allowed_metrics]
-            if bad:
-                raise QueryNotPermittedError(f"metrics not allowed: {bad}")
-        if self._allowed_dimensions:
-            bad = [d for d in query.dimensions if d not in self._allowed_dimensions]
-            if bad:
-                raise QueryNotPermittedError(f"dimensions not allowed: {bad}")
+        bad_metrics = sorted(set(query.metrics) - self._allowed_metrics)
+        bad_dimensions = sorted(set(query.dimensions) - self._allowed_dimensions)
+        bad_filters = sorted(set(query.filters) - self._allowed_metrics - self._allowed_dimensions)
+        selected = set(query.metrics) | set(query.dimensions)
+        bad_order = sorted(set(query.order_by) - selected)
+        identifiers = {
+            query.table,
+            *query.metrics,
+            *query.dimensions,
+            *query.filters,
+            *query.order_by,
+        }
+        invalid = sorted(value for value in identifiers if not _IDENTIFIER.fullmatch(value))
+        if bad_metrics or bad_dimensions or bad_filters or bad_order or invalid:
+            raise QueryNotPermittedError(
+                "query fields are not permitted: "
+                f"metrics={bad_metrics}, dimensions={bad_dimensions}, "
+                f"filters={bad_filters}, order_by={bad_order}, identifiers={invalid}"
+            )
 
     def _render_sql(self, query: QuerySpec) -> str:
         columns = [*query.dimensions, *query.metrics]
@@ -114,16 +106,14 @@ class AthenaQueryEngine:
         if query.filters:
             clauses = []
             for key, value in query.filters.items():
-                if isinstance(value, str):
-                    clauses.append(f"\"{key}\" = '{value}'")
-                else:
-                    clauses.append(f'"{key}" = {value}')
+                clauses.append(f'"{key}" = {_literal(value)}')
             sql += " WHERE " + " AND ".join(clauses)
         if query.group_by_dimensions and query.dimensions:
             sql += " GROUP BY " + ", ".join(f'"{c}"' for c in query.dimensions)
-        if query.order_by:
-            sql += " ORDER BY " + ", ".join(f'"{c}"' for c in query.order_by)
-        sql += f" LIMIT {query.max_rows}"
+        order_by = query.order_by or (query.dimensions if query.group_by_dimensions else columns)
+        sql += " ORDER BY " + ", ".join(f'"{c}"' for c in order_by)
+        # Fetch one sentinel row so QueryResult.truncated is truthful.
+        sql += f" LIMIT {query.max_rows + 1}"
         return sql
 
     def _submit_and_poll(self, sql: str, max_rows: int) -> QueryResult:
@@ -144,6 +134,7 @@ class AthenaQueryEngine:
                 reason = status["QueryExecution"]["Status"].get("StateChangeReason", state)
                 raise QueryExecutionError(f"Athena query {state}: {reason}"[:200])
             if time.monotonic() > deadline:
+                self._client.stop_query_execution(QueryExecutionId=execution_id)
                 raise QueryExecutionError(f"Athena query timed out after {self._timeout}s")
             time.sleep(0.5)
 
@@ -151,28 +142,80 @@ class AthenaQueryEngine:
         if scanned >= self._scan_limit:
             raise QueryExecutionError(f"scanned {scanned} bytes >= limit {self._scan_limit}")
 
-        results = self._client.get_query_results(QueryExecutionId=execution_id)
-        column_info = results["ResultSet"]["ResultSetMetadata"]["ColumnInfo"]
-        columns: list[str] = [col["Name"] for col in column_info]
-        # Athena returns every cell as a string; the QueryEngine contract (and
-        # the analytics layer that consumes it) expects native types, matching
-        # the DuckDB engine. Coerce per column using Athena's declared types.
-        column_types: list[str] = [str(col.get("Type", "varchar")) for col in column_info]
-        raw_rows = results["ResultSet"]["Rows"]
-        # First row is the header in Athena results; skip it.
+        columns: list[str] = []
+        column_types: list[str] = []
         data_rows: list[list[CellValue]] = []
-        for row in raw_rows[1 : max_rows + 1]:
-            data_rows.append(
-                [
-                    _coerce(datum.get("VarCharValue"), column_types[index])
-                    for index, datum in enumerate(row["Data"])
-                ]
-            )
+        token: str | None = None
+        first_page = True
+        while True:
+            kwargs: dict[str, Any] = {"QueryExecutionId": execution_id, "MaxResults": 1000}
+            if token:
+                kwargs["NextToken"] = token
+            results = self._client.get_query_results(**kwargs)
+            info = results["ResultSet"]["ResultSetMetadata"]["ColumnInfo"]
+            if first_page:
+                columns = [col["Name"] for col in info]
+                column_types = [str(col.get("Type", "varchar")).lower() for col in info]
+            raw_rows = results["ResultSet"]["Rows"]
+            rows = raw_rows[1:] if first_page else raw_rows
+            for row in rows:
+                values = row.get("Data", [])
+                data_rows.append(
+                    [
+                        _cell(values[index].get("VarCharValue"), column_types[index])
+                        if index < len(values)
+                        else None
+                        for index in range(len(columns))
+                    ]
+                )
+                if len(data_rows) > max_rows:
+                    break
+            if len(data_rows) > max_rows:
+                break
+            token = results.get("NextToken")
+            if not token:
+                break
+            first_page = False
+
+        truncated = len(data_rows) > max_rows
+        data_rows = data_rows[:max_rows]
 
         return QueryResult(
             columns=columns,
             rows=data_rows,
             row_count=len(data_rows),
             scanned_bytes=scanned,
-            truncated=len(raw_rows) - 1 > max_rows,
+            truncated=truncated,
         )
+
+
+def _literal(value: str | int | float | bool) -> str:
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, float) and not math.isfinite(value):
+        raise QueryNotPermittedError("non-finite filter values are not permitted")
+    return str(value)
+
+
+def _cell(value: str | None, column_type: str) -> CellValue:
+    if value is None:
+        return None
+    try:
+        if column_type in _INTEGER_TYPES:
+            return int(value)
+        if column_type in _FLOAT_TYPES or column_type.startswith("decimal"):
+            number = Decimal(value)
+            if not number.is_finite():
+                raise ValueError("non-finite number")
+            return float(number)
+        if column_type == "boolean":
+            if value.casefold() in {"true", "false"}:
+                return value.casefold() == "true"
+            raise ValueError("invalid boolean")
+    except (InvalidOperation, ValueError) as exc:
+        raise QueryExecutionError(
+            f"Athena returned {value!r} for typed column {column_type!r}"
+        ) from exc
+    return value

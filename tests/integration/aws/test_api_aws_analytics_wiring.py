@@ -1,16 +1,17 @@
-"""The API composition root selects Glue+Athena when the AWS profile is active.
+"""The API composition root selects Glue+Athena for the dashboard read path.
 
-Feature: real-data analytics loop. LocalRuntime stays SQLite+DuckDB offline, but
-under an AWS profile (catalog: glue, query: athena) it must build the boto3
-adapters and pass their required configuration.
+Feature: real-data analytics loop. A teammate's test_aws_agent_runtime.py covers
+the *agent* observation backend; this covers the *dashboard* path — the catalog
+and analytics() query engine — so /datasets, /city/summary, and /districts read
+the published data through Glue+Athena when the AWS profile is active, and stay
+on SQLite+DuckDB offline.
 """
 
 from pathlib import Path
 
-import pytest
-
 from adapters.aws.athena_query import AthenaQueryEngine
 from adapters.aws.glue_catalog import GlueCatalog
+from adapters.local import DuckDBQueryEngine, SQLiteCatalog
 from apps.api.dependencies import LocalRuntime
 from youth_compass.config import (
     AppSettings,
@@ -32,16 +33,24 @@ from youth_compass.domain.contracts import (
     DatasetStatus,
     PopulationScope,
 )
-from youth_compass.domain.errors import ConfigurationError
 
 
 def _aws_settings() -> AppSettings:
     # A non-local environment must supply every provider key.
     return AppSettings(
         environment="aws",
+        region="us-east-1",
         storage=StorageSettings(provider=StorageProvider.S3, bucket="curated-bkt"),
-        catalog=CatalogSettings(provider=CatalogProvider.GLUE, database="youth_compass_test"),
-        query=QuerySettings(provider=QueryProvider.ATHENA, workgroup="wg-analytics"),
+        catalog=CatalogSettings(
+            provider=CatalogProvider.GLUE,
+            database="youth_compass_test",
+            table_name="metadata-table",
+        ),
+        query=QuerySettings(
+            provider=QueryProvider.ATHENA,
+            workgroup="wg-analytics",
+            output_bucket="metadata-bkt",
+        ),
         model=ModelSettings(provider=ModelProviderName.BEDROCK, model_id="amazon.nova-lite-v1:0"),
         forecast=ForecastSettings(provider=ForecastProvider.LOCAL),
     )
@@ -62,44 +71,21 @@ def _published(dataset_id: str = "population") -> DatasetMetadata:
     )
 
 
-class TestAwsAnalyticsWiring:
-    def test_glue_catalog_is_selected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("YOUTH_COMPASS_METADATA_TABLE", "youthcompass-metadata")
-        monkeypatch.setenv("YOUTH_COMPASS_REGION", "us-east-1")
-
+class TestDashboardAnalyticsWiring:
+    def test_catalog_is_glue_under_the_aws_profile(self, tmp_path: Path) -> None:
         runtime = LocalRuntime(tmp_path / "data", settings=_aws_settings())
 
         assert isinstance(runtime.catalog, GlueCatalog)
 
-    def test_athena_engine_is_built_for_a_published_dataset(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("YOUTH_COMPASS_METADATA_TABLE", "youthcompass-metadata")
-        monkeypatch.setenv("YOUTH_COMPASS_ATHENA_RESULTS_BUCKET", "youthcompass-metadata-bkt")
-        monkeypatch.setenv("YOUTH_COMPASS_REGION", "us-east-1")
+    def test_dashboard_query_engine_is_athena_under_the_aws_profile(self, tmp_path: Path) -> None:
         runtime = LocalRuntime(tmp_path / "data", settings=_aws_settings())
 
         engine = runtime._observation_query_engine(_published())
 
         assert isinstance(engine, AthenaQueryEngine)
 
-    def test_athena_without_a_results_bucket_is_a_configuration_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("YOUTH_COMPASS_METADATA_TABLE", "youthcompass-metadata")
-        monkeypatch.delenv("YOUTH_COMPASS_ATHENA_RESULTS_BUCKET", raising=False)
-        runtime = LocalRuntime(tmp_path / "data", settings=_aws_settings())
-
-        with pytest.raises(ConfigurationError, match=r"(?i)results_bucket"):
-            runtime._observation_query_engine(_published())
-
-    def test_local_profile_still_uses_duckdb_and_sqlite(self, tmp_path: Path) -> None:
-        from adapters.local import DuckDBQueryEngine, SQLiteCatalog
-
+    def test_local_profile_stays_on_sqlite_and_duckdb(self, tmp_path: Path) -> None:
         runtime = LocalRuntime(tmp_path / "data", settings=AppSettings(environment="local"))
 
         assert isinstance(runtime.catalog, SQLiteCatalog)
-        engine = runtime._observation_query_engine(_published())
-        assert isinstance(engine, DuckDBQueryEngine)
+        assert isinstance(runtime._observation_query_engine(_published()), DuckDBQueryEngine)
