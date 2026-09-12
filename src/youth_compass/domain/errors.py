@@ -75,5 +75,12 @@ class SourceAcquisitionError(YouthCompassError):
     """An external source could not be safely discovered or fetched."""
 
 
+class ConversationPersistenceError(YouthCompassError):
+    """Structured conversation context could not be saved or loaded.
+
+    Never fatal to a turn: the question is answered without inherited scope.
+    """
+
+
 class ConfigurationError(YouthCompassError):
     """Configuration is invalid; provider selection failed validation."""

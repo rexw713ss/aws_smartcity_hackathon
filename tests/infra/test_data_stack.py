@@ -66,6 +66,16 @@ class TestCatalogResources:
             {"BillingMode": "PAY_PER_REQUEST"},
         )
 
+    def test_metadata_table_expires_conversation_records_by_ttl(self) -> None:
+        # Conversation-context records set this attribute so an idle session is
+        # deleted without an application sweep. Catalog, checkpoint, and
+        # workflow records omit it and are therefore never expired.
+        template = _synth()
+        template.has_resource_properties(
+            "AWS::DynamoDB::Table",
+            {"TimeToLiveSpecification": {"AttributeName": "expires_at", "Enabled": True}},
+        )
+
 
 class TestIAMRoles:
     def test_copilot_has_explicit_deny_on_curated_write(self) -> None:

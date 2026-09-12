@@ -5,7 +5,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from youth_compass.analytics import CitySummary, DistrictMetric, DistrictProfile
+from youth_compass.analytics import (
+    CitySummary,
+    DistrictBreakdown,
+    DistrictMetric,
+    DistrictOverview,
+    DistrictProfile,
+    DistrictTrendPoint,
+)
 from youth_compass.domain.contracts import DatasetMetadata, QualityReport
 from youth_compass.domain.types import FileFormat
 from youth_compass.ports import JobStatus
@@ -152,4 +159,56 @@ class DistrictProfileResponse(ApiModel):
         return cls(
             **payload,
             districts=[DistrictMetricResponse.from_result(item) for item in result.districts],
+        )
+
+
+class DistrictTrendPointResponse(ApiModel):
+    period: str
+    value: float
+
+    @classmethod
+    def from_result(cls, result: DistrictTrendPoint) -> "DistrictTrendPointResponse":
+        return cls.model_validate(result.model_dump())
+
+
+class DistrictBreakdownResponse(ApiModel):
+    key: str
+    label: str
+    value: float
+    share_percent: float
+
+    @classmethod
+    def from_result(cls, result: DistrictBreakdown) -> "DistrictBreakdownResponse":
+        return cls.model_validate(result.model_dump())
+
+
+class DistrictOverviewResponse(ApiModel):
+    dataset_id: str
+    dataset_version: str
+    district_code: str
+    district_name: str | None
+    period: str
+    unit_code: str
+    population_scope: str
+    quality_score: float
+    total: float
+    previous_period: str | None
+    absolute_change: float | None
+    percent_change: float | None
+    trend: list[DistrictTrendPointResponse]
+    age_distribution: list[DistrictBreakdownResponse]
+    gender_distribution: list[DistrictBreakdownResponse]
+
+    @classmethod
+    def from_result(cls, result: DistrictOverview) -> "DistrictOverviewResponse":
+        payload = result.model_dump(exclude={"trend", "age_distribution", "gender_distribution"})
+        return cls(
+            **payload,
+            trend=[DistrictTrendPointResponse.from_result(item) for item in result.trend],
+            age_distribution=[
+                DistrictBreakdownResponse.from_result(item) for item in result.age_distribution
+            ],
+            gender_distribution=[
+                DistrictBreakdownResponse.from_result(item) for item in result.gender_distribution
+            ],
         )

@@ -26,6 +26,7 @@ try:
     # Imported for their registration side effects (register_* decorators).
     import tests.contract.aws
     import tests.contract.aws.athena_query
+    import tests.contract.aws.conversation_context_store
     import tests.contract.aws.dynamodb_checkpoint
     import tests.contract.aws.eventbridge_bus
     import tests.contract.aws.glue_catalog
@@ -37,6 +38,7 @@ from tests.contract.registry import (
     CATALOG_FACTORIES,
     CHECKPOINT_STORE_FACTORIES,
     CLOCK_FACTORIES,
+    CONVERSATION_STORE_FACTORIES,
     EVENT_BUS_FACTORIES,
     FORECAST_SERVICE_FACTORIES,
     MODEL_PROVIDER_FACTORIES,
@@ -105,3 +107,4 @@ workflow_runner = _make_fixture(WORKFLOW_RUNNER_FACTORIES, "workflowrunner")  # 
 checkpoint_store = _make_fixture(CHECKPOINT_STORE_FACTORIES, "checkpointstore")  # type: ignore[arg-type]
 event_bus = _make_fixture(EVENT_BUS_FACTORIES, "eventbus")  # type: ignore[arg-type]
 clock = _make_fixture(CLOCK_FACTORIES, "clock")  # type: ignore[arg-type]
+conversation_store = _make_fixture(CONVERSATION_STORE_FACTORIES, "conversationstore")  # type: ignore[arg-type]

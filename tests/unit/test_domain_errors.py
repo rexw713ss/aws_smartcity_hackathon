@@ -10,6 +10,7 @@ EXPECTED_SUBCLASSES = (
     "AnalyticsNotAvailableError",
     "CatalogOperationError",
     "ConfigurationError",
+    "ConversationPersistenceError",
     "DatasetNotFoundError",
     "ForecastNotAvailableError",
     "ModelInvocationError",

@@ -177,6 +177,7 @@ class FeatureContribution(BaseModel):
     """An auditable component of a candidate's final score."""
 
     feature_code: str
+    feature_name: str | None = None
     feature_version: str
     raw_value: float
     normalized_value: float = Field(ge=0.0, le=1.0)

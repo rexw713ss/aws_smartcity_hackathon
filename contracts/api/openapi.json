@@ -30,19 +30,67 @@
         "title": "AcquisitionStart",
         "type": "object"
       },
+      "AnalysisFilters": {
+        "description": "Allowlisted analytical filters that may persist across conversation turns.\n\nEvery field maps to one canonical column. Adding a filter is a deliberate\nact: an unbounded filter set would let a follow-up narrow an answer along a\ndimension no tool validates.",
+        "properties": {
+          "age_lower": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Lower"
+          },
+          "age_upper": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Upper"
+          },
+          "gender_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenderCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "AnalysisFilters",
+        "type": "object"
+      },
       "AnalysisOperation": {
         "description": "Generic operations that may be routed to registered tools.",
         "enum": [
           "search_catalog",
+          "search_tools",
           "discover_sources",
           "inspect_dataset",
           "acquire_source",
           "query_observations",
+          "join_observations",
           "get_features",
           "compose_features",
           "compare_entities",
           "rank_candidates",
           "forecast_metric",
+          "simulate_scenario",
+          "assess_capacity",
+          "recommend_investment",
           "explain_lineage"
         ],
         "title": "AnalysisOperation",
@@ -400,6 +448,18 @@
             "minLength": 3,
             "title": "Question",
             "type": "string"
+          },
+          "sessionId": {
+            "anyOf": [
+              {
+                "pattern": "^ses_[a-f0-9]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessionid"
           }
         },
         "required": [
@@ -494,6 +554,36 @@
             "title": "Generated At",
             "type": "string"
           },
+          "impact_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImpactAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limitations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataLimitations"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multi_dataset_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MultiDatasetAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "observation_series": {
             "anyOf": [
               {
@@ -523,6 +613,18 @@
                 "type": "null"
               }
             ]
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "pattern": "^ses_[a-f0-9]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
           },
           "source_candidates": {
             "default": [],
@@ -578,6 +680,126 @@
         ],
         "title": "CopilotStatus",
         "type": "string"
+      },
+      "CoverageGap": {
+        "description": "Which entities the requested boundary set expected but the answer lacks.",
+        "properties": {
+          "expected_entity_count": {
+            "minimum": 0.0,
+            "title": "Expected Entity Count",
+            "type": "integer"
+          },
+          "missing_entity_names": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Entity Names",
+            "type": "array"
+          },
+          "observed_entity_count": {
+            "minimum": 0.0,
+            "title": "Observed Entity Count",
+            "type": "integer"
+          },
+          "region_scheme": {
+            "$ref": "#/components/schemas/RegionScheme"
+          },
+          "unmapped_entity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Unmapped Entity Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "region_scheme",
+          "expected_entity_count",
+          "observed_entity_count"
+        ],
+        "title": "CoverageGap",
+        "type": "object"
+      },
+      "DataFreshness": {
+        "description": "How old the evidence behind one citation was when the answer was built.",
+        "properties": {
+          "age_days": {
+            "minimum": 0.0,
+            "title": "Age Days",
+            "type": "integer"
+          },
+          "citation_id": {
+            "title": "Citation Id",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "citation_id",
+          "dataset_id",
+          "dataset_version",
+          "published_at",
+          "age_days"
+        ],
+        "title": "DataFreshness",
+        "type": "object"
+      },
+      "DataLimitations": {
+        "description": "Reader-facing audit of freshness, coverage, and definitional basis.\n\nEvery field is derived from evidence the answer already used. Nothing here\nis estimated, interpolated, or inferred from a topic name.",
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoverageGap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "freshness": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DataFreshness"
+            },
+            "title": "Freshness",
+            "type": "array"
+          },
+          "notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "registration_basis": {
+            "$ref": "#/components/schemas/RegistrationBasis",
+            "default": "unknown"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "title": "DataLimitations",
+        "type": "object"
       },
       "DataRequirement": {
         "description": "A bounded description of data missing from the published catalog.",
@@ -1012,6 +1234,10 @@
             "title": "Entity Ids",
             "type": "array"
           },
+          "filters": {
+            "$ref": "#/components/schemas/AnalysisFilters",
+            "default": {}
+          },
           "metric_terms": {
             "default": [],
             "items": {
@@ -1071,6 +1297,34 @@
           "operations"
         ],
         "title": "DecomposedQuery",
+        "type": "object"
+      },
+      "DistrictBreakdownResponse": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sharePercent": {
+            "title": "Sharepercent",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "value",
+          "sharePercent"
+        ],
+        "title": "DistrictBreakdownResponse",
         "type": "object"
       },
       "DistrictCompareRequest": {
@@ -1147,6 +1401,126 @@
         "title": "DistrictMetricResponse",
         "type": "object"
       },
+      "DistrictOverviewResponse": {
+        "properties": {
+          "absoluteChange": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absolutechange"
+          },
+          "ageDistribution": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictBreakdownResponse"
+            },
+            "title": "Agedistribution",
+            "type": "array"
+          },
+          "datasetId": {
+            "title": "Datasetid",
+            "type": "string"
+          },
+          "datasetVersion": {
+            "title": "Datasetversion",
+            "type": "string"
+          },
+          "districtCode": {
+            "title": "Districtcode",
+            "type": "string"
+          },
+          "districtName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Districtname"
+          },
+          "genderDistribution": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictBreakdownResponse"
+            },
+            "title": "Genderdistribution",
+            "type": "array"
+          },
+          "percentChange": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentchange"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "populationScope": {
+            "title": "Populationscope",
+            "type": "string"
+          },
+          "previousPeriod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previousperiod"
+          },
+          "qualityScore": {
+            "title": "Qualityscore",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictTrendPointResponse"
+            },
+            "title": "Trend",
+            "type": "array"
+          },
+          "unitCode": {
+            "title": "Unitcode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetId",
+          "datasetVersion",
+          "districtCode",
+          "districtName",
+          "period",
+          "unitCode",
+          "populationScope",
+          "qualityScore",
+          "total",
+          "previousPeriod",
+          "absoluteChange",
+          "percentChange",
+          "trend",
+          "ageDistribution",
+          "genderDistribution"
+        ],
+        "title": "DistrictOverviewResponse",
+        "type": "object"
+      },
       "DistrictProfileResponse": {
         "properties": {
           "datasetId": {
@@ -1196,6 +1570,111 @@
           "districts"
         ],
         "title": "DistrictProfileResponse",
+        "type": "object"
+      },
+      "DistrictScenarioResult": {
+        "description": "Before/after result for one canonical district.",
+        "properties": {
+          "absolute_delta": {
+            "title": "Absolute Delta",
+            "type": "integer"
+          },
+          "baseline_rank": {
+            "minimum": 1.0,
+            "title": "Baseline Rank",
+            "type": "integer"
+          },
+          "baseline_value": {
+            "minimum": 0.0,
+            "title": "Baseline Value",
+            "type": "integer"
+          },
+          "district_code": {
+            "title": "District Code",
+            "type": "string"
+          },
+          "district_name": {
+            "title": "District Name",
+            "type": "string"
+          },
+          "historical_retention_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historical Retention Rate"
+          },
+          "percent_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent Delta"
+          },
+          "rank_change": {
+            "title": "Rank Change",
+            "type": "integer"
+          },
+          "scenario_rank": {
+            "minimum": 1.0,
+            "title": "Scenario Rank",
+            "type": "integer"
+          },
+          "scenario_retention_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario Retention Rate"
+          },
+          "scenario_value": {
+            "minimum": 0.0,
+            "title": "Scenario Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "district_code",
+          "district_name",
+          "baseline_value",
+          "scenario_value",
+          "absolute_delta",
+          "percent_delta",
+          "baseline_rank",
+          "scenario_rank",
+          "rank_change"
+        ],
+        "title": "DistrictScenarioResult",
+        "type": "object"
+      },
+      "DistrictTrendPointResponse": {
+        "properties": {
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "period",
+          "value"
+        ],
+        "title": "DistrictTrendPointResponse",
         "type": "object"
       },
       "EntityChange": {
@@ -1312,6 +1791,15 @@
             "title": "Dataset Version",
             "type": "string"
           },
+          "excerpt": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EvidenceExcerptRow"
+            },
+            "maxItems": 100,
+            "title": "Excerpt",
+            "type": "array"
+          },
           "quality_score": {
             "maximum": 1.0,
             "minimum": 0.0,
@@ -1334,6 +1822,73 @@
         "title": "EvidenceCitation",
         "type": "object"
       },
+      "EvidenceExcerptRow": {
+        "description": "One row actually used from a cited published snapshot.\n\nThis is intentionally a bounded public projection, not a storage URI. It\nlets a reader verify the value and locate it by canonical keys without\nexposing filesystem paths, S3 bucket names, or credentials.",
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "title": "Entity Name",
+            "type": "string"
+          },
+          "metric_code": {
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "metric_name": {
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_name",
+          "metric_code",
+          "metric_name",
+          "value"
+        ],
+        "title": "EvidenceExcerptRow",
+        "type": "object"
+      },
+      "EvidenceKind": {
+        "description": "Origin of a number shown in a scenario response.",
+        "enum": [
+          "official",
+          "derived",
+          "user_assumption"
+        ],
+        "title": "EvidenceKind",
+        "type": "string"
+      },
       "FeatureContributionInsight": {
         "description": "Public explanation of one feature's score contribution.",
         "properties": {
@@ -1351,6 +1906,17 @@
           "feature_code": {
             "title": "Feature Code",
             "type": "string"
+          },
+          "feature_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Name"
           },
           "points": {
             "title": "Points",
@@ -1449,6 +2015,15 @@
         "title": "ForecastResult",
         "type": "object"
       },
+      "GenderCode": {
+        "enum": [
+          "male",
+          "female",
+          "other",
+          "unknown"
+        ],
+        "type": "string"
+      },
       "GeographyCoverage": {
         "properties": {
           "district_count": {
@@ -1485,6 +2060,225 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImpactAnalysis": {
+        "description": "Auditable scenario-to-impact-to-recommendation chain.",
+        "properties": {
+          "confidence": {
+            "enum": [
+              "insufficient",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "data_gaps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ImpactDataGap"
+            },
+            "title": "Data Gaps",
+            "type": "array"
+          },
+          "district_code": {
+            "title": "District Code",
+            "type": "string"
+          },
+          "district_name": {
+            "title": "District Name",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "observed_period": {
+            "title": "Observed Period",
+            "type": "string"
+          },
+          "recommendations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/InvestmentRecommendation"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "shock_people": {
+            "title": "Shock People",
+            "type": "integer"
+          },
+          "target_year": {
+            "title": "Target Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "district_code",
+          "district_name",
+          "observed_period",
+          "target_year",
+          "shock_people",
+          "findings",
+          "confidence"
+        ],
+        "title": "ImpactAnalysis",
+        "type": "object"
+      },
+      "ImpactDataGap": {
+        "description": "Evidence required before one downstream impact may be estimated.",
+        "properties": {
+          "domain": {
+            "enum": [
+              "housing",
+              "transport",
+              "public_services"
+            ],
+            "title": "Domain",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "required_metrics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Metrics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "domain",
+          "required_metrics",
+          "reason"
+        ],
+        "title": "ImpactDataGap",
+        "type": "object"
+      },
+      "ImpactFinding": {
+        "description": "One measured or derived link in an impact chain.",
+        "properties": {
+          "absolute_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absolute Delta"
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Value"
+          },
+          "evidence_kind": {
+            "enum": [
+              "official",
+              "derived",
+              "user_assumption"
+            ],
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "scenario_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario Value"
+          },
+          "stage": {
+            "enum": [
+              "population",
+              "housing",
+              "transport",
+              "public_services"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "label",
+          "unit",
+          "evidence_kind"
+        ],
+        "title": "ImpactFinding",
+        "type": "object"
+      },
+      "InvestmentRecommendation": {
+        "description": "A recommendation emitted only when its capacity evidence is complete.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "domain": {
+            "enum": [
+              "housing",
+              "transport",
+              "public_services"
+            ],
+            "title": "Domain",
+            "type": "string"
+          },
+          "priority": {
+            "minimum": 1.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "priority",
+          "domain",
+          "action",
+          "rationale",
+          "confidence"
+        ],
+        "title": "InvestmentRecommendation",
         "type": "object"
       },
       "JobStatus": {
@@ -1573,6 +2367,45 @@
           "createdAt"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "JoinedObservationRow": {
+        "description": "One exact entity-period intersection across multiple published datasets.",
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "minProperties": 2,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "entity_id",
+          "period",
+          "values"
+        ],
+        "title": "JoinedObservationRow",
         "type": "object"
       },
       "LineageResponse": {
@@ -1838,6 +2671,49 @@
         "title": "MetricMapping",
         "type": "object"
       },
+      "MultiDatasetAnalysis": {
+        "description": "Validated one-to-one join of already aggregated observation series.",
+        "properties": {
+          "dataset_metrics": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "minProperties": 2,
+            "title": "Dataset Metrics",
+            "type": "object"
+          },
+          "join_dimensions": {
+            "default": [
+              "entity_id",
+              "period"
+            ],
+            "items": {
+              "enum": [
+                "entity_id",
+                "period"
+              ],
+              "type": "string"
+            },
+            "title": "Join Dimensions",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/JoinedObservationRow"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset_metrics",
+          "rows"
+        ],
+        "title": "MultiDatasetAnalysis",
+        "type": "object"
+      },
       "ObservationPoint": {
         "description": "One safely aggregated metric value for an entity and period.",
         "properties": {
@@ -1920,6 +2796,15 @@
         ],
         "title": "ObservationSeries",
         "type": "object"
+      },
+      "PopulationBalanceMode": {
+        "description": "Whether a change alters the city total or redistributes it.",
+        "enum": [
+          "open",
+          "redistribute"
+        ],
+        "title": "PopulationBalanceMode",
+        "type": "string"
       },
       "PopulationScope": {
         "enum": [
@@ -2112,6 +2997,24 @@
         "title": "QualityStatus",
         "type": "string"
       },
+      "RegionScheme": {
+        "description": "Boundary set a choropleth's region field is keyed against.\n\nThe spec names the scheme instead of shipping geometry. A renderer joins the\nrows to whichever boundary file it already has for that scheme, so the\nbackend never sends a megabyte of coordinates through the answer contract.",
+        "enum": [
+          "new_taipei_district"
+        ],
+        "title": "RegionScheme",
+        "type": "string"
+      },
+      "RegistrationBasis": {
+        "description": "Which population a metric counts.",
+        "enum": [
+          "registered_household",
+          "resident",
+          "unknown"
+        ],
+        "title": "RegistrationBasis",
+        "type": "string"
+      },
       "RoutedToolPlan": {
         "description": "Router result including explicit gaps for unavailable capabilities.",
         "properties": {
@@ -2166,6 +3069,125 @@
           "tool_name"
         ],
         "title": "RoutedToolStep",
+        "type": "object"
+      },
+      "ScenarioAdjustmentRequest": {
+        "description": "A user-supplied scenario assumption, never presented as observed data.",
+        "properties": {
+          "districtId": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Districtid",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ScenarioOperation"
+          },
+          "sourceDistrictId": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcedistrictid"
+          },
+          "value": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "districtId",
+          "operation"
+        ],
+        "title": "ScenarioAdjustmentRequest",
+        "type": "object"
+      },
+      "ScenarioEvidence": {
+        "description": "A source or assumption disclosed by the calculation.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvidenceKind"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "detail"
+        ],
+        "title": "ScenarioEvidence",
+        "type": "object"
+      },
+      "ScenarioOperation": {
+        "description": "Allowlisted transformations of one district population.",
+        "enum": [
+          "absolute_change",
+          "percent_change",
+          "transfer",
+          "annual_net_migration",
+          "retention_rate_change",
+          "match_city_retention",
+          "match_top_quartile_retention"
+        ],
+        "title": "ScenarioOperation",
+        "type": "string"
+      },
+      "ScenarioTrajectoryPoint": {
+        "description": "City-wide projected totals at one year.",
+        "properties": {
+          "absolute_delta": {
+            "title": "Absolute Delta",
+            "type": "integer"
+          },
+          "baseline_value": {
+            "minimum": 0.0,
+            "title": "Baseline Value",
+            "type": "integer"
+          },
+          "scenario_value": {
+            "minimum": 0.0,
+            "title": "Scenario Value",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "baseline_value",
+          "scenario_value",
+          "absolute_delta"
+        ],
+        "title": "ScenarioTrajectoryPoint",
         "type": "object"
       },
       "SemanticRole": {
@@ -2657,6 +3679,28 @@
             ],
             "title": "Description"
           },
+          "region_field": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region Field"
+          },
+          "region_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "rows": {
             "default": [],
             "items": {
@@ -2741,6 +3785,7 @@
           "comparison_bar",
           "ranking_bar",
           "contribution_bar",
+          "choropleth",
           "data_table"
         ],
         "title": "VisualizationType",
@@ -2773,6 +3818,153 @@
         ],
         "title": "WarningSeverity",
         "type": "string"
+      },
+      "YouthPopulationScenarioRequest": {
+        "description": "A bounded cohort projection from the latest complete district snapshot.",
+        "properties": {
+          "adjustments": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioAdjustmentRequest"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Adjustments",
+            "type": "array"
+          },
+          "balanceMode": {
+            "$ref": "#/components/schemas/PopulationBalanceMode",
+            "default": "open"
+          },
+          "targetYear": {
+            "anyOf": [
+              {
+                "maximum": 2043.0,
+                "minimum": 2026.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targetyear"
+          }
+        },
+        "required": [
+          "adjustments"
+        ],
+        "title": "YouthPopulationScenarioRequest",
+        "type": "object"
+      },
+      "YouthPopulationScenarioResult": {
+        "description": "A deterministic comparison with enough context to audit every number.",
+        "properties": {
+          "age_lower": {
+            "default": 18,
+            "title": "Age Lower",
+            "type": "integer"
+          },
+          "age_upper": {
+            "default": 35,
+            "title": "Age Upper",
+            "type": "integer"
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "balance_mode": {
+            "$ref": "#/components/schemas/PopulationBalanceMode"
+          },
+          "baseline_method": {
+            "title": "Baseline Method",
+            "type": "string"
+          },
+          "baseline_total": {
+            "minimum": 0.0,
+            "title": "Baseline Total",
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "metric_code": {
+            "default": "youth_population_18_35",
+            "title": "Metric Code",
+            "type": "string"
+          },
+          "observed_period": {
+            "title": "Observed Period",
+            "type": "string"
+          },
+          "population_conserved": {
+            "title": "Population Conserved",
+            "type": "boolean"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictScenarioResult"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scenario_total": {
+            "minimum": 0.0,
+            "title": "Scenario Total",
+            "type": "integer"
+          },
+          "target_year": {
+            "title": "Target Year",
+            "type": "integer"
+          },
+          "total_delta": {
+            "title": "Total Delta",
+            "type": "integer"
+          },
+          "trajectory": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioTrajectoryPoint"
+            },
+            "title": "Trajectory",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "observed_period",
+          "target_year",
+          "baseline_method",
+          "balance_mode",
+          "baseline_total",
+          "scenario_total",
+          "total_delta",
+          "population_conserved",
+          "rows",
+          "trajectory",
+          "evidence",
+          "assumptions",
+          "warnings",
+          "generated_at"
+        ],
+        "title": "YouthPopulationScenarioResult",
+        "type": "object"
       },
       "apps__api__schemas__UploadResponse": {
         "properties": {
@@ -3034,6 +4226,48 @@
           }
         },
         "summary": "Query Copilot",
+        "tags": [
+          "copilot"
+        ]
+      }
+    },
+    "/api/v1/copilot/what-if": {
+      "post": {
+        "description": "Compare observed district youth population with explicit user assumptions.",
+        "operationId": "run_youth_population_scenario_api_v1_copilot_what_if_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/YouthPopulationScenarioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouthPopulationScenarioResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Youth Population Scenario",
         "tags": [
           "copilot"
         ]
@@ -3338,6 +4572,68 @@
           }
         },
         "summary": "Compare Districts",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/districts/{district_code}/overview": {
+      "get": {
+        "operationId": "district_overview_api_v1_districts__district_code__overview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "district_code",
+            "required": true,
+            "schema": {
+              "title": "District Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "datasetId",
+            "required": false,
+            "schema": {
+              "default": "population",
+              "title": "Datasetid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metricCode",
+            "required": false,
+            "schema": {
+              "default": "population_count",
+              "title": "Metriccode",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistrictOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "District Overview",
         "tags": [
           "dashboard"
         ]

@@ -88,6 +88,17 @@ def _card(label: str, value: str, note: str) -> None:
     )
 
 
+def _formal_label(value: object) -> str:
+    """Render a machine identifier as UI copy without changing its stored value."""
+
+    words = [word for word in str(value or "").replace("-", "_").split("_") if word]
+    acronyms = {"ai": "AI", "api": "API", "ev": "EV", "id": "ID", "ntd": "NTD"}
+    return " ".join(
+        acronyms.get(word.casefold(), word.capitalize() if index == 0 else word.casefold())
+        for index, word in enumerate(words)
+    )
+
+
 def _default_metric(dataset: dict[str, Any]) -> str:
     topic = str(dataset.get("topic", "")).lower()
     dataset_id = str(dataset.get("datasetId", "")).lower()
@@ -108,6 +119,7 @@ _state("api_url", os.getenv("YOUTH_COMPASS_API_URL", "http://127.0.0.1:8000"))
 _state("active_job_id", None)
 _state("reviewer", "reviewer@newtaipei.gov.tw")
 _state("copilot_result", None)
+_state("copilot_session_id", None)
 
 with st.sidebar:
     st.markdown("## 🧭 Youth Compass")
@@ -283,9 +295,11 @@ with copilot_tab:
             question,
             entity_ids=[item.strip() for item in entity_scope.split(",") if item.strip()],
             min_quality_score=minimum_quality,
+            session_id=st.session_state.copilot_session_id,
         )
         if result:
             st.session_state.copilot_result = result
+            st.session_state.copilot_session_id = result.get("session_id")
 
     copilot_result = st.session_state.copilot_result
     if copilot_result:
@@ -304,9 +318,11 @@ with copilot_tab:
                         [
                             {
                                 "Step": step.get("step_id"),
-                                "Operation": step.get("operation"),
-                                "Tool": step.get("tool_name"),
-                                "Depends on": ", ".join(step.get("depends_on", [])),
+                                "Operation": _formal_label(step.get("operation")),
+                                "Tool": _formal_label(step.get("tool_name")),
+                                "Depends on": ", ".join(
+                                    _formal_label(item) for item in step.get("depends_on", [])
+                                ),
                             }
                             for step in routed_plan.get("steps", [])
                         ]
@@ -316,7 +332,10 @@ with copilot_tab:
                 )
                 missing_operations = routed_plan.get("missing_operations", [])
                 if missing_operations:
-                    st.warning("Missing tools: " + ", ".join(missing_operations))
+                    st.warning(
+                        "Missing tools: "
+                        + ", ".join(_formal_label(item) for item in missing_operations)
+                    )
         plan = copilot_result.get("plan") or {}
         if plan:
             st.caption(
@@ -333,7 +352,10 @@ with copilot_tab:
                             "Candidate": item.get("entity_name") or item.get("entity_id"),
                             "Eligible": item.get("eligible"),
                             "Score": item.get("score"),
-                            "Missing": ", ".join(item.get("missing_required_features", [])),
+                            "Missing": ", ".join(
+                                _formal_label(value)
+                                for value in item.get("missing_required_features", [])
+                            ),
                         }
                         for item in candidates
                     ]

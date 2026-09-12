@@ -17,6 +17,9 @@ from youth_compass.domain.contracts import (
 from youth_compass.domain.errors import AnalyticsNotAvailableError
 
 _DIMENSIONS = {
+    "age_lower",
+    "age_upper",
+    "gender_code",
     "year_gregorian",
     "month",
     "district_code",
@@ -41,6 +44,9 @@ def _service(tmp_path: Path) -> CuratedAnalyticsService:
                 "unit_code": ["persons"] * 4,
                 "population_scope": ["youth_specific"] * 4,
                 "is_estimated": [False, False, True, False],
+                "age_lower": [18, 18, 21, 18],
+                "age_upper": [18, 18, 21, 18],
+                "gender_code": ["male", "male", "female", "female"],
                 "metric_value": [90.0, 100.0, 40.0, 80.0],
             }
         ),
@@ -97,3 +103,22 @@ def test_analytics_rejects_bad_period_and_missing_district(tmp_path: Path) -> No
         service.city_summary("population_count", period="2025/01")
     with pytest.raises(AnalyticsNotAvailableError, match="district codes"):
         service.district_profile("population_count", district_codes=["99"])
+
+
+def test_district_overview_returns_chart_ready_trend_and_shares(tmp_path: Path) -> None:
+    overview = _service(tmp_path).district_overview("01")
+
+    assert overview.period == "2025-01"
+    assert overview.total == 140
+    assert overview.previous_period == "2024-12"
+    assert overview.absolute_change == 50
+    assert overview.percent_change == 55.56
+    assert [point.value for point in overview.trend] == [90, 140]
+    assert [(item.label, item.share_percent) for item in overview.age_distribution] == [
+        ("18-20", 71.4),
+        ("21-24", 28.6),
+    ]
+    assert [(item.label, item.share_percent) for item in overview.gender_distribution] == [
+        ("Male", 71.4),
+        ("Female", 28.6),
+    ]

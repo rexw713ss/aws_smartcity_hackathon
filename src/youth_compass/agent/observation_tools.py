@@ -14,8 +14,9 @@ from youth_compass.agent.contracts import (
 )
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import QueryExecutionError
+from youth_compass.ontology import resolve_district_name
 from youth_compass.ports import QueryEngine, QuerySpec
-from youth_compass.ports.query_engine import CellValue
+from youth_compass.ports.query_engine import CellValue, FilterValue
 
 _INSPECTION_DIMENSIONS = [
     "year_gregorian",
@@ -29,6 +30,9 @@ _INSPECTION_DIMENSIONS = [
     "population_scope",
     "is_estimated",
 ]
+# Added to the projection only when a filter needs them, so an unfiltered
+# query keeps the narrower grain it already scanned.
+_AGE_DIMENSIONS = ["age_lower", "age_upper"]
 _TOKEN = re.compile(r"[\w]+", re.UNICODE)
 _YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _LAST_YEARS = re.compile(
@@ -70,6 +74,30 @@ class InspectDatasetTool:
             if item.status is DatasetStatus.PUBLISHED and item.quality_score >= min_quality_score
         ]
         metadata = _select_dataset(candidates, decomposition)
+        return self._inspect(metadata, decomposition)
+
+    def execute_for_dataset(
+        self,
+        decomposition: DecomposedQuery,
+        dataset_id: str,
+        *,
+        min_quality_score: float = 0.0,
+    ) -> DatasetInspection:
+        """Inspect one explicitly requested immutable published dataset."""
+
+        metadata = self._catalog.get(dataset_id)
+        if (
+            metadata.status is not DatasetStatus.PUBLISHED
+            or metadata.quality_score < min_quality_score
+        ):
+            raise QueryExecutionError(
+                f"dataset {dataset_id!r} is not published at the requested quality"
+            )
+        return self._inspect(metadata, decomposition)
+
+    def _inspect(
+        self, metadata: DatasetMetadata, decomposition: DecomposedQuery
+    ) -> DatasetInspection:
         result = self._query_engine_factory(metadata).execute(
             QuerySpec(
                 table=metadata.dataset_id,
@@ -126,12 +154,22 @@ class QueryObservationsTool:
             raise QueryExecutionError(
                 "observation query requires the inspected published dataset version"
             )
+        filters = decomposition.filters
+        dimensions = [*_INSPECTION_DIMENSIONS]
+        if filters.age_lower is not None or filters.age_upper is not None:
+            dimensions.extend(_AGE_DIMENSIONS)
+        query_filters: dict[str, FilterValue] = {"metric_code": inspection.metric_code}
+        if filters.gender_code is not None:
+            # Pushed into the engine instead of projected. Adding gender to the
+            # grouping multiplies the returned rows and trips the row guard on a
+            # real dataset, while the engine can drop them before grouping.
+            query_filters["gender_code"] = filters.gender_code
         result = self._query_engine_factory(metadata).execute(
             QuerySpec(
                 table=inspection.dataset_id,
-                dimensions=_INSPECTION_DIMENSIONS,
+                dimensions=dimensions,
                 metrics=["metric_value"],
-                filters={"metric_code": inspection.metric_code},
+                filters=query_filters,
                 # Same reason as inspection. The per-entity, per-period summing below
                 # is unchanged and stays correct: summing already-summed groups is
                 # the same total.
@@ -142,15 +180,30 @@ class QueryObservationsTool:
         if result.truncated:
             raise QueryExecutionError("observation query exceeded the safe 100000-row query limit")
         records = _records(result.columns, result.rows)
-        requested = set(decomposition.entity_ids)
+        if not records and filters.gender_code is not None:
+            # The canonical gender column is nullable, so a row that is not
+            # broken down by gender cannot be attributed to one.
+            raise QueryExecutionError("the dataset has no rows broken down by the requested gender")
+        # Match on canonical district identity rather than on the literal
+        # string, so a question about Tamsui, 淡水區, or Đạm Thủy reaches rows
+        # keyed "12". Identifiers that are not districts compare as themselves.
+        requested = {_entity_key(item): item for item in decomposition.entity_ids}
         if requested:
-            records = [row for row in records if _entity_id(row) in requested]
-            found = {_entity_id(row) for row in records}
-            if missing := requested - found:
+            records = [row for row in records if _entity_key(_entity_id(row)) in requested]
+            found = {_entity_key(_entity_id(row)) for row in records}
+            if missing := set(requested) - found:
                 raise QueryExecutionError(
-                    "no observations for requested entities: " + ", ".join(sorted(missing))
+                    "no observations for requested entities: "
+                    + ", ".join(sorted(requested[key] for key in missing))
                 )
-        records = _filter_period(records, decomposition.time_expression)
+        # A wider band cannot be split without inventing numbers, so containment
+        # is required and the filter names itself when it removes every row.
+        by_age = _filter_age(records, filters.age_lower, filters.age_upper)
+        if records and not by_age:
+            raise QueryExecutionError(
+                "the dataset has no age band contained in the requested age scope"
+            )
+        records = _filter_period(by_age, decomposition.time_expression)
         if not records:
             raise QueryExecutionError("no observations match the requested scope")
         units = {str(row["unit_code"]) for row in records}
@@ -183,6 +236,7 @@ class QueryObservationsTool:
                 }
             )
         points = tuple(grouped[key] for key in sorted(grouped, key=lambda item: (item[0], item[1])))
+        points = _drop_structural_zero_sentinels(points, inspection.metric_code)
         if not points:
             raise QueryExecutionError("no entity-level observations are available")
         return ObservationSeries(
@@ -195,21 +249,53 @@ class QueryObservationsTool:
         )
 
 
+def _drop_structural_zero_sentinels(
+    points: tuple[ObservationPoint, ...], metric_code: str
+) -> tuple[ObservationPoint, ...]:
+    """Remove isolated zero placeholders from count series.
+
+    A real population count cannot fall from tens of thousands to zero for one
+    month and immediately recover. Some published files nevertheless encode a
+    missing monthly sheet as zero in every component row. Only a zero strictly
+    bracketed by positive observations for the same entity is removed; genuine
+    leading, trailing, and sustained zero counts remain data.
+    """
+
+    if not metric_code.endswith("_count"):
+        return points
+    grouped: dict[str, list[ObservationPoint]] = {}
+    for point in points:
+        grouped.setdefault(point.entity_id, []).append(point)
+    omitted: set[tuple[str, str]] = set()
+    for entity_id, entity_points in grouped.items():
+        ordered = sorted(entity_points, key=lambda point: point.period)
+        for previous, current, following in zip(ordered, ordered[1:], ordered[2:], strict=False):
+            if current.value == 0 and previous.value > 0 and following.value > 0:
+                omitted.add((entity_id, current.period))
+    return tuple(point for point in points if (point.entity_id, point.period) not in omitted)
+
+
 class CompareEntitiesTool:
-    """Calculate first-to-last changes without asking a model to do arithmetic."""
+    """Calculate changes over one shared time window without model arithmetic."""
 
     def execute(self, series: ObservationSeries) -> EntityComparison:
         grouped: dict[str, list[ObservationPoint]] = {}
         for point in series.points:
             grouped.setdefault(point.entity_id, []).append(point)
+        if not grouped:
+            raise QueryExecutionError("at least one entity is required for comparison")
+        common_periods = set.intersection(
+            *({point.period for point in points} for points in grouped.values())
+        )
+        if len(common_periods) < 2:
+            raise QueryExecutionError(
+                "at least two common periods are required to compare entities safely"
+            )
+        first_period, last_period = min(common_periods), max(common_periods)
         changes: list[EntityChange] = []
         for entity_id in sorted(grouped):
-            points = sorted(grouped[entity_id], key=lambda item: item.period)
-            if len(points) < 2:
-                raise QueryExecutionError(
-                    f"at least two periods are required to compare entity {entity_id!r}"
-                )
-            first, last = points[0], points[-1]
+            by_period = {point.period: point for point in grouped[entity_id]}
+            first, last = by_period[first_period], by_period[last_period]
             absolute = round(last.value - first.value, 4)
             percent = None if first.value == 0 else round(absolute / first.value * 100, 2)
             direction = "increased" if absolute > 0 else "decreased" if absolute < 0 else "flat"
@@ -224,7 +310,7 @@ class CompareEntitiesTool:
                     absolute_change=absolute,
                     percent_change=percent,
                     direction=direction,
-                    observation_count=len(points),
+                    observation_count=2,
                 )
             )
         return EntityComparison(
@@ -313,6 +399,13 @@ def _entity_id(row: dict[str, object]) -> str:
     return str(row["district_code"] or row["city_code"] or "")
 
 
+def _entity_key(value: str) -> str:
+    """Collapse every spelling of one district onto a single comparison key."""
+
+    district = resolve_district_name(value).district
+    return district.code if district is not None else value.casefold()
+
+
 def _entity_name(row: dict[str, object]) -> str | None:
     value = row["district_name"] or row["city_name"]
     return str(value) if value else None
@@ -339,6 +432,29 @@ def _filter_period(
         latest = max(_year(row) for row in records)
         return [row for row in records if _year(row) > latest - count]
     return records
+
+
+def _filter_age(
+    records: list[dict[str, object]], lower: int | None, upper: int | None
+) -> list[dict[str, object]]:
+    if lower is None and upper is None:
+        return records
+    requested_lower = lower if lower is not None else 0
+    requested_upper = upper if upper is not None else 120
+    selected: list[dict[str, object]] = []
+    for row in records:
+        row_lower = row.get("age_lower")
+        row_upper = row.get("age_upper")
+        if (
+            isinstance(row_lower, int)
+            and not isinstance(row_lower, bool)
+            and isinstance(row_upper, int)
+            and not isinstance(row_upper, bool)
+            and row_lower >= requested_lower
+            and row_upper <= requested_upper
+        ):
+            selected.append(row)
+    return selected
 
 
 def _year(row: dict[str, object]) -> int:

@@ -125,6 +125,7 @@ class YouthCompassApi:
         *,
         entity_ids: list[str] | None = None,
         min_quality_score: float = 0.0,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """Ask the grounded copilot to execute an allowlisted decision plan."""
 
@@ -137,6 +138,7 @@ class YouthCompassApi:
                     "question": question,
                     "entityIds": entity_ids or [],
                     "minQualityScore": min_quality_score,
+                    "sessionId": session_id,
                 },
             ),
         )

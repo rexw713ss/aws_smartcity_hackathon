@@ -52,6 +52,7 @@ def test_copilot_client_uses_camel_case_api_contract() -> None:
             "Where should I buy a home?",
             entity_ids=["banqiao", "linkou"],
             min_quality_score=0.8,
+            session_id="ses_0123456789abcdef0123456789abcdef",
         )
 
     assert result == {"status": "answered"}
@@ -62,5 +63,6 @@ def test_copilot_client_uses_camel_case_api_contract() -> None:
             "question": "Where should I buy a home?",
             "entityIds": ["banqiao", "linkou"],
             "minQualityScore": 0.8,
+            "sessionId": "ses_0123456789abcdef0123456789abcdef",
         },
     )

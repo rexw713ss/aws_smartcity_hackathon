@@ -51,6 +51,17 @@ from youth_compass.decisioning.location_resolver import (
 )
 from youth_compass.decisioning.provider import FeatureProvider, FeatureQuery, FeatureSet
 from youth_compass.decisioning.registry import DecisionProfileRegistry, FeatureRegistry
+from youth_compass.decisioning.scenarios import (
+    DistrictScenarioResult,
+    EvidenceKind,
+    PopulationBalanceMode,
+    ScenarioAdjustment,
+    ScenarioEvidence,
+    ScenarioOperation,
+    ScenarioTrajectoryPoint,
+    YouthPopulationScenarioResult,
+    YouthPopulationScenarioService,
+)
 from youth_compass.decisioning.scoring import DecisionScoringEngine
 
 __all__ = [
@@ -71,7 +82,9 @@ __all__ = [
     "DecisionProfileRegistry",
     "DecisionResult",
     "DecisionScoringEngine",
+    "DistrictScenarioResult",
     "EntityType",
+    "EvidenceKind",
     "FeatureAggregation",
     "FeatureCatalogEntry",
     "FeatureCompositionError",
@@ -97,8 +110,15 @@ __all__ = [
     "OptimizationDirection",
     "PlanValidationIssue",
     "PlanValidationReport",
+    "PopulationBalanceMode",
     "PreAggregation",
     "RatioFeatureBuildSpec",
+    "ScenarioAdjustment",
+    "ScenarioEvidence",
+    "ScenarioOperation",
+    "ScenarioTrajectoryPoint",
     "SemanticFeatureCatalog",
+    "YouthPopulationScenarioResult",
+    "YouthPopulationScenarioService",
     "ZeroDenominatorPolicy",
 ]

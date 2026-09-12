@@ -9,10 +9,41 @@ transform:
   max_rejection_rate: 0.01
   transformation_version: canonical-v1
 acquisition:
-  enabled: false
+  enabled: true
   connector_id: configured_http
-  allowed_hosts: []
+  allowed_hosts:
+    - data.ntpc.gov.tw
   max_download_bytes: 26214400
   timeout_seconds: 20
   result_limit: 5
-  sources: []
+  sources:
+    - candidate_id: ntpc-building-permits
+      connector_id: configured_http
+      title: New Taipei building permit records
+      publisher: New Taipei City Government Public Works Department
+      download_url: https://data.ntpc.gov.tw/api/datasets/c1487d7b-fff1-43d3-a2ce-4716eab4d286/csv/file
+      file_name: ntpc-building-permits.csv
+      source_format: csv
+      topic_terms: [housing, infrastructure]
+      metric_codes: [residential_completions, permitted_households]
+      license: OGDL-1.0
+    - candidate_id: ntpc-bus-stops
+      connector_id: configured_http
+      title: New Taipei bus stop and route information
+      publisher: New Taipei City Government Transportation Department
+      download_url: https://data.ntpc.gov.tw/api/datasets/34b402a8-53d9-483d-9406-24a682c2d6dc/csv/file
+      file_name: ntpc-bus-stops.csv
+      source_format: csv
+      topic_terms: [transport, infrastructure]
+      metric_codes: [transit_stop_coverage]
+      license: OGDL-1.0
+    - candidate_id: ntpc-hospitals
+      connector_id: configured_http
+      title: New Taipei hospital directory
+      publisher: New Taipei City Government Department of Health
+      download_url: https://data.ntpc.gov.tw/api/datasets/85bfcaa8-9932-4d06-a2ec-731171191883/csv/file
+      file_name: ntpc-hospitals.csv
+      source_format: csv
+      topic_terms: [public_services, healthcare, infrastructure]
+      metric_codes: [service_facility_count]
+      license: OGDL-1.0

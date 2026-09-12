@@ -4,13 +4,15 @@ import {
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import type { VisualizationSpec, VisualizationValue } from '../lib/copilot'
-import { colorFor, compact, formatCell, formatNumber } from '../lib/format'
+import { colorFor, compactFor, formatCell, formatNumber, formatUnit } from '../lib/format'
+import { useI18n } from '../lib/i18n'
 import ChartMotion from './ChartMotion'
 
 const tick = { fill: 'var(--chart-muted)', fontSize: 12 }
 const axisLabel = { fill: 'var(--chart-muted)', fontSize: 11 }
 
 function Tip({ active, payload, label, unit }: any) {
+  const { language } = useI18n()
   if (!active || !payload?.length) return null
   return (
     <div className="mono-tooltip">
@@ -19,10 +21,10 @@ function Tip({ active, payload, label, unit }: any) {
         <span key={item.dataKey} className="tooltip-row">
           <i className="tooltip-swatch" style={{ background: item.color }} />
           {item.name}
-          <strong>{formatNumber(Number(item.value))}</strong>
+          <strong>{formatNumber(Number(item.value), language)}</strong>
         </span>
       ))}
-      {unit ? <span className="tooltip-unit">{unit}</span> : null}
+      {unit ? <span className="tooltip-unit">{formatUnit(unit, language)}</span> : null}
     </div>
   )
 }
@@ -46,6 +48,8 @@ function barFill(
  * quantitative encoding sits on y renders vertically. That single rule covers
  * ranking, contribution, and comparison bars without per-type branching. */
 function BarView({ spec }: { spec: VisualizationSpec }) {
+  const { language } = useI18n()
+  const compact = compactFor(language)
   const horizontal = spec.x?.data_type === 'quantitative'
   const value = horizontal ? spec.x! : spec.y!
   const category = horizontal ? spec.y! : spec.x!
@@ -56,11 +60,13 @@ function BarView({ spec }: { spec: VisualizationSpec }) {
   return (
     <div className="mono-chart" style={{ height: Math.max(240, horizontal ? rows.length * 38 + 70 : 260) }}>
       <ChartMotion motionKey={spec.visualization_id + rows.length} direction={horizontal ? 'horizontal' : 'vertical'}>
+        {/* The top margin holds the value label of the tallest bar, which
+            Recharts prints above a bar that reaches the top of the plot. */}
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={rows}
             layout={horizontal ? 'vertical' : 'horizontal'}
-            margin={{ top: 12, right: horizontal ? 52 : 16, bottom: 24, left: 4 }}
+            margin={{ top: horizontal ? 12 : 26, right: horizontal ? 52 : 16, bottom: 24, left: 4 }}
           >
             <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="2 3" vertical={horizontal} horizontal={!horizontal} />
             <XAxis
@@ -121,6 +127,8 @@ function BarView({ spec }: { spec: VisualizationSpec }) {
 /** Rows arrive in long format (one row per period per entity). Pivot by the x
  * field without aggregating: the backend already produced final values. */
 function LineView({ spec }: { spec: VisualizationSpec }) {
+  const { language } = useI18n()
+  const compact = compactFor(language)
   const x = spec.x!
   const y = spec.y!
   const seriesField = spec.series_field
@@ -138,6 +146,20 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
     byX.set(key, bucket)
   }
   const data = [...byX.values()]
+  const values = data.flatMap(row =>
+    seriesNames
+      .map(name => row[name])
+      .filter((value): value is number => typeof value === 'number'),
+  )
+  const yDomain: [number, number] | ['auto', 'auto'] = values.length
+    ? (() => {
+        const minimum = Math.min(...values)
+        const maximum = Math.max(...values)
+        const span = maximum - minimum
+        const padding = Math.max(span * 0.12, Math.abs(maximum) * 0.01, 1)
+        return [Math.max(0, minimum - padding), maximum + padding]
+      })()
+    : ['auto', 'auto']
 
   return (
     <div className="mono-chart" style={{ height: 280 }}>
@@ -159,6 +181,8 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
               tickLine={false}
               tick={tick}
               width={54}
+              domain={yDomain}
+              allowDataOverflow={false}
               tickFormatter={v => compact.format(Number(v))}
             />
             <Tooltip content={<Tip unit={y.unit} />} cursor={{ stroke: 'var(--chart-cursor)', strokeDasharray: '3 3' }} />
@@ -188,6 +212,7 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
 }
 
 function TableView({ spec }: { spec: VisualizationSpec }) {
+  const { language } = useI18n()
   // Columns are declared by the backend; fall back to the row keys only when a
   // spec arrives without them so a new table type still renders something exact.
   const columns = spec.columns.length
@@ -202,7 +227,7 @@ function TableView({ spec }: { spec: VisualizationSpec }) {
             {columns.map(column => (
               <th key={column.field} scope="col">
                 {column.label}
-                {column.unit ? <span className="unit">{column.unit}</span> : null}
+                {column.unit ? <span className="unit">{formatUnit(column.unit, language)}</span> : null}
               </th>
             ))}
           </tr>
@@ -213,9 +238,12 @@ function TableView({ spec }: { spec: VisualizationSpec }) {
               {columns.map(column => (
                 <td
                   key={column.field}
-                  className={typeof row[column.field] === 'number' ? 'numeric' : undefined}
+                  className={[
+                    typeof row[column.field] === 'number' ? 'numeric' : '',
+                    `field-${column.field.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+                  ].filter(Boolean).join(' ')}
                 >
-                  {formatCell(row[column.field] ?? null)}
+                  {formatCell(row[column.field] ?? null, language)}
                 </td>
               ))}
             </tr>
@@ -235,7 +263,10 @@ export default function ChartView({ spec }: { spec: VisualizationSpec }) {
 
   if (!renderable) return <TableView spec={spec} />
   if (spec.type === 'line') return <LineView spec={spec} />
-  if (spec.type === 'data_table') return <TableView spec={spec} />
+  // A choropleth is drawn by DistrictMap, which owns the boundary geometry.
+  // Anywhere else it degrades to its exact table rather than to a bar chart,
+  // whose category axis would read the region key as an ordinary label.
+  if (spec.type === 'data_table' || spec.type === 'choropleth') return <TableView spec={spec} />
   return <BarView spec={spec} />
 }
 

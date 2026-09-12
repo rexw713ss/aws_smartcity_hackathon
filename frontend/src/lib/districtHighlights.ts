@@ -36,7 +36,9 @@ function readingField(spec: VisualizationSpec): { field: string; label: string; 
 }
 
 const districtFor = (row: Record<string, VisualizationValue>) => {
-  const id = row.entity_id ?? row.district_code ?? null
+  // `district_code` is the declared region key on a choropleth; `entity_id` is
+  // what every other spec carries. Prefer the declared key when both exist.
+  const id = row.district_code ?? row.entity_id ?? null
   const label = row.entity_name ?? row.district_name ?? null
   const district =
     resolveDistrict(typeof id === 'string' ? id : null) ??
@@ -54,8 +56,13 @@ const districtFor = (row: Record<string, VisualizationValue>) => {
  * Exactly one visualization drives the map. A single answer can carry several
  * with different quantities — a trend returns population per month alongside
  * absolute change per district, and the change values are negative — so merging
- * them would paint one colour scale from two incompatible units. The spec
- * covering the most districts wins, and the readout names it. */
+ * them would paint one colour scale from two incompatible units.
+ *
+ * A `choropleth` spec wins outright when the backend sends one: it already
+ * states which field is the region key, which boundary set it belongs to, and
+ * which single period it describes. Only when no such spec arrives does this
+ * fall back to inferring the driving spec, which is why the fallback keeps its
+ * own rule — the spec covering the most districts wins. */
 export function districtHighlights(response: CopilotResponse | null): HighlightSet {
   const empty: HighlightSet = { byCode: new Map(), unplaceable: [], minimum: 0, maximum: 0 }
   if (!response) return empty
@@ -63,6 +70,10 @@ export function districtHighlights(response: CopilotResponse | null): HighlightS
   const unplaceable = new Set<string>()
   let best: { spec: VisualizationSpec; rows: Map<string, Record<string, VisualizationValue>> } | null = null
 
+  // The backend drops non-district entities from a choropleth, so unplaceable
+  // ones are gathered from every spec; only the driving spec is restricted.
+  const declared = response.visualizations.filter(spec => spec.type === 'choropleth')
+  const driving = declared.length ? declared : response.visualizations
   for (const spec of response.visualizations) {
     const rows = new Map<string, Record<string, VisualizationValue>>()
     for (const row of spec.rows) {
@@ -74,6 +85,7 @@ export function districtHighlights(response: CopilotResponse | null): HighlightS
       // Keep the first row per district: a trend carries one row per period.
       if (!rows.has(district.code)) rows.set(district.code, row)
     }
+    if (!driving.includes(spec)) continue
     if (!best || rows.size > best.rows.size) best = { spec, rows }
   }
 

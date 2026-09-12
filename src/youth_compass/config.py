@@ -63,6 +63,11 @@ class ForecastProvider(StrEnum):
     SAGEMAKER = "sagemaker"
 
 
+class ConversationProvider(StrEnum):
+    MEMORY = "memory"
+    DYNAMODB = "dynamodb"
+
+
 class StorageSettings(BaseModel):
     provider: StorageProvider = StorageProvider.FILESYSTEM
     root: str | None = None
@@ -106,6 +111,30 @@ class ModelSettings(BaseModel):
 
 class ForecastSettings(BaseModel):
     provider: ForecastProvider = ForecastProvider.LOCAL
+
+
+class ConversationSettings(BaseModel):
+    """Bounds on the structured follow-up session memory.
+
+    The default ``memory`` provider is process-local, so a follow-up served by a
+    different API instance loses its scope and is answered as a first turn. A
+    multi-instance deployment must select ``dynamodb`` and name the table that
+    holds the session records.
+    """
+
+    provider: ConversationProvider = ConversationProvider.MEMORY
+    # Long enough for a real follow-up, short enough that a stale scope cannot
+    # silently narrow an answer the user has forgotten about.
+    ttl_minutes: int = Field(default=30, ge=1, le=1_440)
+    # Only bounds the in-memory provider; DynamoDB expires records by TTL.
+    max_sessions: int = Field(default=1_000, ge=1, le=1_000_000)
+    table_name: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_durable_provider(self) -> Self:
+        if self.provider is ConversationProvider.DYNAMODB and not self.table_name:
+            raise ValueError("conversation provider 'dynamodb' requires table_name")
+        return self
 
 
 class AcquisitionSettings(BaseModel):
@@ -212,6 +241,9 @@ class AppSettings(BaseSettings):
     transform: TransformSettings = TransformSettings()
     acquisition: AcquisitionSettings = AcquisitionSettings()
     api: ApiSettings = ApiSettings()
+    # Not a provider-selection key: a non-local environment that omits it keeps
+    # the safe process-local default rather than failing to load.
+    conversation: ConversationSettings = ConversationSettings()
 
     storage: StorageSettings | None = None
     catalog: CatalogSettings | None = None

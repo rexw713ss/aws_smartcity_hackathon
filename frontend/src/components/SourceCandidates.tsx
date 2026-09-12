@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import type { SourceCandidate } from '../lib/copilot'
+import { useI18n } from '../lib/i18n'
 
 const hostOf = (url: string): string => {
   try {
@@ -9,7 +10,10 @@ const hostOf = (url: string): string => {
   }
 }
 
-/** The reviewer submits a configured candidateId, never a URL. Nothing is
+/** The assistant's own turn in the conversation: it asks for the one thing it
+ * is missing, in the thread where the question was asked.
+ *
+ * The reviewer submits a configured candidateId, never a URL. Nothing is
  * fetched or published from here: the snapshot enters the approval-gated
  * ingestion workflow and still needs mapping and quality review. */
 export default function SourceCandidates({
@@ -21,6 +25,7 @@ export default function SourceCandidates({
   onAcquire: (candidateId: string, submittedBy: string) => Promise<string>
   busy: boolean
 }) {
+  const { t } = useI18n()
   const [selected, setSelected] = useState<string>(candidates[0]?.candidate_id ?? '')
   const [reviewer, setReviewer] = useState('')
   const [started, setStarted] = useState<{ jobId: string; candidateId: string } | null>(null)
@@ -33,19 +38,15 @@ export default function SourceCandidates({
       const jobId = await onAcquire(selected, reviewer.trim())
       setStarted({ jobId, candidateId: selected })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Submission failed. Try again.')
+      setError(cause instanceof Error ? cause.message : t('submissionFailed'))
     }
   }
 
   return (
-    <section className="acquire" aria-label="Available source candidates">
+    <section className="acquire" aria-label={t('sourceCandidatesLabel')}>
       <header>
-        <h3>Source candidates</h3>
-        <p>
-          The catalog is missing the data this question needs. These sources are pre-configured in the
-          connector allowlist. A submitted snapshot goes through exactly the same mapping, quality, and
-          approval steps as a manual upload.
-        </p>
+        <p className="acquire-ask">{t('askForSource')}</p>
+        <p>{t('sourceCandidatesIntro')}</p>
       </header>
 
       <form onSubmit={submit}>
@@ -69,8 +70,8 @@ export default function SourceCandidates({
                   <span className="candidate-meta">
                     {candidate.period_start || candidate.period_end
                       ? `${candidate.period_start ?? '—'} to ${candidate.period_end ?? '—'}`
-                      : 'Period not stated'}
-                    {candidate.license ? ` · ${candidate.license}` : ' · licence not stated'}
+                      : t('periodNotStated')}
+                    {candidate.license ? ` · ${candidate.license}` : ` · ${t('licenceNotStated')}`}
                   </span>
                   <code>{candidate.candidate_id}</code>
                 </span>
@@ -81,13 +82,12 @@ export default function SourceCandidates({
 
         {started ? (
           <p className="acquire-done" role="status">
-            Submitted <code>{started.candidateId}</code>. Ingestion job <code>{started.jobId}</code> is
-            awaiting approval. Review the field mapping and quality report before approving publication.
+            {t('submitted', { candidate: started.candidateId, job: started.jobId })}
           </p>
         ) : (
           <div className="acquire-actions">
             <label className="acquire-field">
-              Reviewer identity
+              {t('reviewerIdentity')}
               <input
                 type="text"
                 value={reviewer}
@@ -100,7 +100,7 @@ export default function SourceCandidates({
               />
             </label>
             <button type="submit" className="primary" disabled={busy || !selected || !reviewer.trim()}>
-              {busy ? 'Submitting…' : 'Fetch snapshot and submit for review'}
+              {busy ? t('submitting') : t('submitSource')}
             </button>
           </div>
         )}

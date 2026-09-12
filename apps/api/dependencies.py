@@ -1,5 +1,6 @@
 """Local composition root for API dependencies."""
 
+from datetime import timedelta
 from pathlib import Path
 
 from adapters.local import (
@@ -15,15 +16,18 @@ from adapters.local import (
 )
 from youth_compass.acquisition import DataAcquisitionService
 from youth_compass.agent import (
+    ConversationContextStore,
     DeterministicQueryDecomposer,
     FallbackQueryDecomposer,
     GroundedCopilotService,
+    InMemoryConversationContextStore,
     ModelAnswerComposer,
     ModelQueryDecomposer,
     ObservationToolSuite,
     default_decision_capabilities,
     register_acquisition_capabilities,
     register_forecast_capabilities,
+    register_impact_capabilities,
     register_observation_capabilities,
 )
 from youth_compass.agent.observation_tools import DatasetCatalogReader, QueryEngineFactory
@@ -32,6 +36,7 @@ from youth_compass.application import LocalIngestionWorkflow, LocalWorkflowOptio
 from youth_compass.config import (
     AppSettings,
     CatalogProvider,
+    ConversationProvider,
     ForecastProvider,
     ModelProviderName,
     QueryProvider,
@@ -42,6 +47,7 @@ from youth_compass.decisioning import (
     DEFAULT_FEATURES,
     DecisionProfileRegistry,
     FeatureRegistry,
+    YouthPopulationScenarioService,
 )
 from youth_compass.domain.canonical import CANONICAL_FIELDS
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
@@ -69,6 +75,8 @@ class LocalRuntime:
         self.feature_registry = FeatureRegistry(DEFAULT_FEATURES)
         self.profile_registry = DecisionProfileRegistry(DEFAULT_DECISION_PROFILES)
         self._copilot_service: GroundedCopilotService | None = None
+        self._scenario_service: YouthPopulationScenarioService | None = None
+        self.conversation_store = self._build_conversation_store()
         self.workflow = LocalIngestionWorkflow(
             object_store=FileSystemObjectStore(self.data_root / "incoming"),
             catalog=self.catalog,
@@ -151,6 +159,32 @@ class LocalRuntime:
             allowed_dimensions=set(CANONICAL_FIELDS) - {"metric_value"},
         )
 
+    def _build_conversation_store(self) -> ConversationContextStore:
+        """Select follow-up session storage from configuration.
+
+        The in-memory default is process-local, which is correct for the CLI,
+        the test suite, and a single-instance server. A multi-instance API must
+        select the durable provider, or a follow-up handled by another instance
+        loses the scope it should inherit.
+        """
+
+        conversation = self.settings.conversation
+        ttl = timedelta(minutes=conversation.ttl_minutes)
+        if conversation.provider is ConversationProvider.MEMORY:
+            return InMemoryConversationContextStore(ttl=ttl, max_sessions=conversation.max_sessions)
+        if not conversation.table_name:
+            raise ConfigurationError(
+                "conversation.table_name is required when the DynamoDB provider is selected"
+            )
+
+        from adapters.aws.conversation_context_store import DynamoDbConversationContextStore
+
+        return DynamoDbConversationContextStore(
+            table_name=conversation.table_name,
+            region=self.settings.region,
+            ttl_seconds=int(ttl.total_seconds()),
+        )
+
     def _configure_agent_observation_backend(self) -> None:
         """Select Athena only for Agent observation tools in an AWS runtime."""
 
@@ -231,6 +265,7 @@ class LocalRuntime:
                 capabilities = default_decision_capabilities()
                 register_observation_capabilities(capabilities)
                 register_acquisition_capabilities(capabilities)
+                register_impact_capabilities(capabilities)
                 if forecast_service is not None:
                     register_forecast_capabilities(capabilities)
                 decomposer = FallbackQueryDecomposer(
@@ -253,5 +288,16 @@ class LocalRuntime:
             ),
             forecast_service=forecast_service,
             acquisition=self.acquisition,
+            conversation_store=self.conversation_store,
+            scenario_service=self.scenarios(),
         )
         return self._copilot_service
+
+    def scenarios(self) -> YouthPopulationScenarioService:
+        """Build the local, read-only youth population scenario engine."""
+
+        if self._scenario_service is None:
+            self._scenario_service = YouthPopulationScenarioService(
+                self.data_root / "source" / "01_人口" / "_全部年度_全區.csv"
+            )
+        return self._scenario_service

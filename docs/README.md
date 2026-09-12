@@ -48,6 +48,10 @@ The system has three core capabilities:
 | [23-answer-visualizations.md](./23-answer-visualizations.md) | Versioned chart/table contract, deterministic visualization builders, and frontend handoff |
 | [24-athena-agent-runtime.md](./24-athena-agent-runtime.md) | Glue published-pointer lookup, Athena Agent wiring, security guardrails, and activation contract |
 | [25-precomputed-forecast-agent.md](./25-precomputed-forecast-agent.md) | Retrieval-only forecast tool, Parquet contract, and Agent flow |
+| [26-conversation-context.md](./26-conversation-context.md) | Structured session memory, deterministic follow-up resolution, filter scopes, and durable session storage |
+| [27-ontology-and-limitations.md](./27-ontology-and-limitations.md) | Multilingual district resolution, registered-versus-resident population basis, and the per-answer freshness and coverage audit |
+| [28-youth-population-what-if.md](./28-youth-population-what-if.md) | Grounded 18-35 district population scenarios, balance rules, evidence labels, and API contract |
+| [29-multi-dataset-analysis.md](./29-multi-dataset-analysis.md) | Multi-table joins, the multilingual subject vocabulary, period alignment, and fail-closed reasons |
 | [aws-architecture.md](./aws-architecture.md) | Full AWS architecture diagram: all services, data flow, security boundary |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 

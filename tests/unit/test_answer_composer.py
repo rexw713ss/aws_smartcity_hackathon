@@ -51,7 +51,7 @@ def test_model_composer_accepts_only_grounded_numbers_and_citations() -> None:
     prompt = json.loads(provider.requests[0].prompt)
     assert prompt["safe_answer_template"] == _context().fallback_answer
     assert set(prompt["allowed_number_strings"]) == {"100", "120", "20", "+20"}
-    assert prompt["response_language"] == "the same language as the user's question"
+    assert prompt["response_language"] == "Vietnamese"
     assert "Do not calculate differences" in provider.requests[0].system
 
 

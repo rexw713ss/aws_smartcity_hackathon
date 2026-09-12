@@ -12,6 +12,7 @@ single contract class, with the class body untouched.
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 
+from youth_compass.agent import ConversationContextStore
 from youth_compass.ports import (
     CheckpointStore,
     Clock,
@@ -35,6 +36,7 @@ WORKFLOW_RUNNER_FACTORIES: dict[str, Factory[WorkflowRunner]] = {}
 CHECKPOINT_STORE_FACTORIES: dict[str, Factory[CheckpointStore]] = {}
 EVENT_BUS_FACTORIES: dict[str, Factory[EventBus]] = {}
 CLOCK_FACTORIES: dict[str, Factory[Clock]] = {}
+CONVERSATION_STORE_FACTORIES: dict[str, Factory[ConversationContextStore]] = {}
 
 
 def _registrar[T](
@@ -61,3 +63,4 @@ register_workflow_runner = _registrar(WORKFLOW_RUNNER_FACTORIES)
 register_checkpoint_store = _registrar(CHECKPOINT_STORE_FACTORIES)
 register_event_bus = _registrar(EVENT_BUS_FACTORIES)
 register_clock = _registrar(CLOCK_FACTORIES)
+register_conversation_store = _registrar(CONVERSATION_STORE_FACTORIES)

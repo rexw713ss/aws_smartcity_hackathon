@@ -7,6 +7,7 @@ import duckdb
 from pydantic import ValidationError
 
 from youth_compass.domain.errors import ForecastNotAvailableError, TrainingRejectedError
+from youth_compass.ontology import district_spellings, resolve_district_name
 from youth_compass.ports import (
     ForecastPoint,
     ForecastRequest,
@@ -29,11 +30,14 @@ class PrecomputedParquetForecastService:
             )
         clauses = ["metric_code = ?"]
         parameters: list[object] = [str(self._artifact), request.metric_code]
-        if request.district_codes:
-            clauses.append(
-                "district_code IN (" + ", ".join("?" for _ in request.district_codes) + ")"
-            )
-            parameters.extend(request.district_codes)
+        # A published artifact may key districts by canonical code or by the
+        # identifier its source used, and a caller may ask in Chinese, English,
+        # or Vietnamese. Widen the filter to every spelling of the same
+        # district; completeness is still judged per requested district below.
+        requested = _district_filter(request.district_codes)
+        if requested:
+            clauses.append("district_code IN (" + ", ".join("?" for _ in requested) + ")")
+            parameters.extend(requested)
         if request.as_of is not None:
             clauses.append("generated_at <= ?")
             parameters.append(datetime.combine(request.as_of, time.max))
@@ -88,8 +92,12 @@ class PrecomputedParquetForecastService:
             raise ForecastNotAvailableError(
                 f"no published forecast exists for metric {request.metric_code!r}"
             )
-        available_districts = {str(row[0]) for row in rows}
-        missing_districts = sorted(set(request.district_codes) - available_districts)
+        available_districts = {_district_key(str(row[0])) for row in rows}
+        missing_districts = sorted(
+            code
+            for code in request.district_codes
+            if _district_key(code) not in available_districts
+        )
         if missing_districts:
             raise ForecastNotAvailableError(
                 "no published forecast exists for districts: " + ", ".join(missing_districts)
@@ -126,3 +134,20 @@ class PrecomputedParquetForecastService:
         raise TrainingRejectedError(
             "precomputed forecast adapter is read-only; run the offline forecast pipeline"
         )
+
+
+def _district_key(value: str) -> str:
+    """Collapse every spelling of one district onto a single comparison key."""
+
+    district = resolve_district_name(value).district
+    return district.code if district is not None else value.casefold()
+
+
+def _district_filter(district_codes: list[str]) -> list[str]:
+    """Expand each requested district to every identifier that may denote it."""
+
+    expanded: dict[str, None] = {}
+    for code in district_codes:
+        for spelling in district_spellings(code):
+            expanded[spelling] = None
+    return list(expanded)

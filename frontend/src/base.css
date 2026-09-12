@@ -5,12 +5,13 @@
 /* ============================================================================
    Ventriloc — editorial data observatory on warm paper.
    Source: DESIGN.md. Three documented adaptations, each marked ADAPTED below:
-     1. Dark theme — Ventriloc ships light only; derived here from the Graphite
-        family because the app has a theme toggle.
-     2. Chart series palette — Ember + Brass give two strokes; a multi-series
+     1. Chart series palette — Ember + Brass give two strokes; a multi-series
         line chart needs five. Extended inside the warm/achromatic gamut only.
-     3. Density — Ventriloc's 40px card padding and 80px section gaps are built
+     2. Density — Ventriloc's 40px card padding and 80px section gaps are built
         for a marketing page. Compressed for a two-pane working tool.
+     3. CJK typography — the shell and the data both render Han characters, and
+        no latin display face covers them.
+   The app is light-only, as Ventriloc specifies; there is no dark theme.
    ========================================================================== */
 
 @layer base {
@@ -48,7 +49,7 @@
     --action: var(--graphite);
     --action-ink: var(--canvas-white);
 
-    /* ADAPTED (2): series ramp alternates chromatic warm and achromatic so
+    /* ADAPTED (1): series ramp alternates chromatic warm and achromatic so
        adjacent lines separate by hue AND lightness. Warm gamut only. */
     --chart-primary: var(--ember);
     --chart-secondary: var(--graphite);
@@ -85,8 +86,8 @@
     /* --- Type --- */
     --font-display: 'Space Grotesk', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
     --font-body: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
-    /* ADAPTED (1b): backend labels and district names stay Traditional Chinese
-       when a question is asked in Chinese. No latin display face covers CJK. */
+    /* ADAPTED (3): the shell ships in Traditional Chinese, and backend labels
+       stay Chinese for a Chinese question. No latin display face covers CJK. */
     --font-cjk: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
     --tracking-display: -0.02em;
 
@@ -104,56 +105,13 @@
     --radius-pills: 200px;
     --radius-asymmetric: 6px 0px 0px;
 
-    /* ADAPTED (3): compressed from 40px/80px for a dense two-pane tool. */
+    /* ADAPTED (2): compressed from 40px/80px for a dense two-pane tool. */
     --pad-card: 20px;
     --gap-element: 12px;
     --gap-section: 20px;
 
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  }
-
-  /* ADAPTED (1): dark theme derived from the Graphite family. Ventriloc
-     specifies no dark values; hues and the Ember/Brass roles are preserved,
-     lightness is inverted, and Ember is lifted to hold contrast on dark. */
-  :root.dark {
-    color-scheme: dark;
-    --graphite: #e8e6e3;
-    --canvas-white: #131211;
-    --ash: #232120;
-    --fog: #1a1918;
-    --ivory: #2a2621;
-    --steel: #b4b0ab;
-    --slate: #8a8680;
-    --mist: #302d2b;
-    --ember: #ff7d47;
-    --brass: #c9a227;
-
-    --canvas: #131211;
-    --surface: #1a1918;
-    --surface-raised: #201e1d;
-    --surface-muted: #262322;
-    --surface-wash: #2a2621;
-    --ink: #e8e6e3;
-    --ink-secondary: #b4b0ab;
-    --ink-muted: #8a8680;
-    --separator: #302d2b;
-
-    --accent: var(--ember);
-    --accent-soft: rgba(255, 125, 71, 0.12);
-    --action: #e8e6e3;
-    --action-ink: #131211;
-
-    --chart-secondary: #d8d4d0;
-    --chart-coral: #e2724a;
-    --chart-positive: #d8d4d0;
-    --chart-grid: rgba(232, 230, 227, 0.09);
-    --chart-hover: rgba(232, 230, 227, 0.05);
-    --chart-text: #cfcbc7;
-    --map-base: #2b2826;
-    --map-cited: #332e27;
-    --map-border: #565049;
-    --depth-shadow-deep: rgba(0, 0, 0, 0.5);
   }
 
   html {
@@ -181,7 +139,7 @@
     letter-spacing: var(--tracking-display);
   }
 
-  /* ADAPTED (1b): the tight latin tracking is wrong on Han characters, and any
+  /* ADAPTED (3b): the tight latin tracking is wrong on Han characters, and any
      element carrying backend data may render them. Those opt out. */
   .cjk-safe, .answer-text, .spec-table, .viz-card figcaption h3,
   .candidate-body, .recharts-wrapper {

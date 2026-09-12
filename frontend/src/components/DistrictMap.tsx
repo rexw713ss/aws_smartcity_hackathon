@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import atlas from '../data/district-map.json'
+import type { CoverageGap } from '../lib/copilot'
 import type { HighlightSet } from '../lib/districtHighlights'
 import { resolveDistrict, type District } from '../lib/districts'
-import { formatNumber } from '../lib/format'
+import { districtLabel, formatNumber, formatUnit } from '../lib/format'
+import { useI18n } from '../lib/i18n'
 
 type Camera = { x: number; y: number; scale: number }
 const home: Camera = { x: 0, y: 0, scale: 1 }
@@ -17,15 +19,21 @@ const areas = atlas.districts
 
 export default function DistrictMap({
   highlights,
+  coverage,
   selected,
   onSelect,
-  onAsk,
+  onExplore,
 }: {
   highlights: HighlightSet
+  /** The backend's own coverage audit, so a grey area reads as absent evidence
+   * rather than as a zero. Null when the answer is not district-shaped. */
+  coverage: CoverageGap | null
   selected: string | null
   onSelect: (code: string | null) => void
-  onAsk: (question: string) => void
+  onExplore: (district: District) => void
 }) {
+  const { language, t } = useI18n()
+  const listSeparator = language === 'zh-TW' ? '、' : ', '
   const [camera, setCamera] = useState<Camera>(home)
   const [hovered, setHovered] = useState<string | null>(null)
   const drag = useRef<{ id: number; x: number; y: number; from: Camera; moved: boolean } | null>(null)
@@ -90,7 +98,7 @@ export default function DistrictMap({
   }
 
   return (
-    <section className="district-map" aria-label="New Taipei district map">
+    <section className="district-map" aria-label={t('mapLabel')}>
       <div
         className="map-stage"
         ref={stage}
@@ -132,7 +140,7 @@ export default function DistrictMap({
           className="map-camera"
           style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})` }}
         >
-          <svg viewBox={atlas.viewBox} role="group" aria-label="New Taipei City districts">
+          <svg viewBox={atlas.viewBox} role="group" aria-label={t('mapDistricts')}>
             <g className="map-neighbors" aria-hidden="true">
               {atlas.neighbors.map(area => (
                 <path key={area.name} d={area.path} fillRule="evenodd" />
@@ -154,8 +162,12 @@ export default function DistrictMap({
                   aria-pressed={isSelected}
                   aria-label={
                     hit
-                      ? `${area.district.english} District, ${hit.valueLabel ?? 'value'} ${hit.value === null ? 'not stated' : formatNumber(hit.value)}`
-                      : `${area.district.english} District, not in this answer`
+                      ? t('mapAreaCited', {
+                          name: districtLabel(area.district, language),
+                          label: hit.valueLabel ?? t('value'),
+                          value: hit.value === null ? t('notStated') : formatNumber(hit.value, language),
+                        })
+                      : t('mapAreaPlain', { name: districtLabel(area.district, language) })
                   }
                   data-district={code}
                   className={`map-district${isSelected ? ' is-selected' : ''}${hit ? ' is-cited' : ''}`}
@@ -168,7 +180,7 @@ export default function DistrictMap({
                     onSelect(isSelected ? null : code)
                   }}
                 >
-                  <title>{area.district.name}</title>
+                  <title>{districtLabel(area.district, language)}</title>
                   <path d={area.path} fillRule="evenodd" fill={fillFor(code)} />
                 </g>
               )
@@ -202,13 +214,13 @@ export default function DistrictMap({
           </svg>
         </div>
 
-        <div className="map-controls" role="group" aria-label="Map zoom">
-          <button type="button" aria-label="Zoom out" disabled={camera.scale <= minScale}
+        <div className="map-controls" role="group" aria-label={t('mapZoom')}>
+          <button type="button" aria-label={t('zoomOut')} disabled={camera.scale <= minScale}
             onClick={() => move({ ...camera, scale: camera.scale - 0.5 })}>−</button>
           <output>{Math.round(camera.scale * 100)}%</output>
-          <button type="button" aria-label="Zoom in" disabled={camera.scale >= maxScale}
+          <button type="button" aria-label={t('zoomIn')} disabled={camera.scale >= maxScale}
             onClick={() => move({ ...camera, scale: camera.scale + 0.5 })}>+</button>
-          <button type="button" aria-label="Reset view" onClick={() => move(home)}>↺</button>
+          <button type="button" aria-label={t('resetView')} onClick={() => move(home)}>↺</button>
         </div>
       </div>
 
@@ -216,51 +228,59 @@ export default function DistrictMap({
         {readoutDistrict ? (
           <>
             <div className="map-readout-head">
-              <strong>{readoutDistrict.english}</strong>
-              <span className="cjk-safe">{readoutDistrict.name}</span>
+              <strong>{districtLabel(readoutDistrict, language)}</strong>
+              <span className="cjk-safe">
+                {language === 'zh-TW' ? readoutDistrict.english : readoutDistrict.name}
+              </span>
               <code>{readoutDistrict.code}</code>
             </div>
             {readout ? (
               <>
                 <p className="map-reading">
-                  {readout.valueLabel ?? 'Value'}
-                  <b>{readout.value === null ? '—' : formatNumber(readout.value)}</b>
-                  {readout.unit ? <i>{readout.unit}</i> : null}
-                  {readout.rank !== null ? <span className="map-rank">rank {readout.rank}</span> : null}
+                  {readout.valueLabel ?? t('value')}
+                  <b>{readout.value === null ? '—' : formatNumber(readout.value, language)}</b>
+                  {readout.unit ? <i>{formatUnit(readout.unit, language)}</i> : null}
+                  {readout.rank !== null ? <span className="map-rank">{t('rankLabel', { rank: readout.rank })}</span> : null}
                 </p>
-                <p className="map-source">from “{readout.source}”</p>
+                <p className="map-source">{t('fromSource', { name: readout.source })}</p>
               </>
             ) : (
-              <p className="map-source">Not part of the current answer.</p>
+              <p className="map-source">{t('notInAnswer')}</p>
             )}
             <button
               type="button"
               className="ghost map-ask"
-              onClick={() => onAsk(`What is the youth population trend in ${readoutDistrict.english} District?`)}
+              onClick={() => onExplore(readoutDistrict)}
             >
-              Ask about {readoutDistrict.english}
+              {t('viewOverview', { name: districtLabel(readoutDistrict, language) })}
             </button>
           </>
         ) : (
           <p className="map-source">
             {highlights.byCode.size
-              ? `${highlights.byCode.size} district${highlights.byCode.size === 1 ? '' : 's'} in this answer. Point at an area to read its figure.`
-              : 'Point at a district to read it, or select one to ask about it.'}
+              ? t('mapHintCited', { count: highlights.byCode.size })
+              : t('mapHintEmpty')}
           </p>
         )}
       </div>
 
-      {highlights.unplaceable.length ? (
+      {coverage && coverage.missing_entity_names.length ? (
         <p className="map-note">
-          Not shown on the map: {highlights.unplaceable.join(', ')}. These entities are not New Taipei
-          districts, and placing them would require a spatial join this answer does not provide.
+          {t('mapCoverageNote', {
+            observed: coverage.observed_entity_count,
+            expected: coverage.expected_entity_count,
+            names: coverage.missing_entity_names.join(listSeparator),
+          })}
         </p>
       ) : null}
 
-      <p className="map-attribution">
-        Boundaries: <span>taiwan-atlas {atlas.edition}</span>, simplified. Shading encodes the figure the
-        backend returned for the current answer; grey areas are outside New Taipei City.
-      </p>
+      {highlights.unplaceable.length ? (
+        <p className="map-note">
+          {t('mapUnplaceable', { names: highlights.unplaceable.join(listSeparator) })}
+        </p>
+      ) : null}
+
+      <p className="map-attribution">{t('mapAttribution', { edition: atlas.edition })}</p>
     </section>
   )
 }

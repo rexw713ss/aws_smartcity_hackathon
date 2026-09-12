@@ -66,10 +66,10 @@ Run the versioned English/Traditional Chinese decomposition and routing evaluati
 `make agent-evals`. Use `--provider bedrock` with the eval script to compare the configured
 Bedrock model against the same expected plans.
 
-When a catalog gap is detected, the copilot can now discover configured HTTPS source candidates
-and submit a selected immutable snapshot to the existing approval-gated ingestion workflow. See
-`docs/22-dynamic-data-acquisition.md`; external acquisition remains disabled until verified source
-manifests and hostname allowlists are configured.
+When a catalog gap is detected, the copilot can discover configured HTTPS source candidates and
+submit a selected immutable snapshot to the existing approval-gated ingestion workflow. The
+base demo configuration allowlists selected New Taipei open-data sources; arbitrary user URLs
+remain prohibited. See `docs/22-dynamic-data-acquisition.md`.
 
 Copilot answers also include versioned, frontend-independent chart and table specifications for
 decision rankings, feature contributions, observation trends, comparisons, dataset coverage, and
@@ -78,3 +78,26 @@ source candidates. See `docs/23-answer-visualizations.md`.
 The AWS Agent observation path is wired to a cost-capped Athena workgroup and a Glue/DynamoDB
 published-version catalog. It activates once ingestion publishes canonical Parquet plus the
 metadata pointer contract documented in `docs/24-athena-agent-runtime.md`.
+
+A question naming two subjects is answered from two published tables. The subjects are
+resolved through a curated multilingual vocabulary, so `dân số và thất nghiệp` and `人口與就業`
+reach the same join as the English wording. Tables published on different calendars are
+aligned to each year's closing month and the answer states that alignment. See
+`docs/29-multi-dataset-analysis.md`.
+
+Follow-up questions such as `Còn Linkou thì sao?`, `So với năm ngoái?`, `Chỉ lấy nhóm 20-29
+tuổi.`, and `Chỉ nữ giới.` resolve against a bounded session that stores only the previous
+turn's structured scope, never a transcript or model reasoning. Session storage is selected by
+`conversation.provider`: process-local by default, DynamoDB for the deployed multi-instance
+API. See `docs/26-conversation-context.md`.
+
+A district may be named in any of the languages the project works in — `淡水區`, `Tamsui`, and
+`Đạm Thủy` all reach district `12`. The name may be written in the question itself rather than
+passed as a parameter, so `What is the youth population trend in Sanxia District?` and
+`三峽區的青年人口趨勢如何？` both narrow the analysis to that one district instead of returning all
+29. Every answered response carries a limitation audit stating
+how old each cited source is, how many of the 29 districts it covers, and whether the figures count
+registered household population (戶籍人口) or usual residents (常住人口). Answers about districts
+also return a `choropleth` visualization spec keyed by district code, which the map renders without
+recomputing anything. See `docs/27-ontology-and-limitations.md` and
+`docs/23-answer-visualizations.md`.

@@ -145,6 +145,10 @@ class DataStack(TaggedStack):
             partition_key=dynamodb.Attribute(name="dataset_id", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="version", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            # Conversation-context records set this attribute so DynamoDB
+            # deletes an idle session by itself. Catalog, checkpoint, and
+            # workflow records omit it and are therefore never expired.
+            time_to_live_attribute="expires_at",
             removal_policy=RemovalPolicy.DESTROY,
         )
 

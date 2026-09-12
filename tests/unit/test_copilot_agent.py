@@ -8,6 +8,7 @@ import pytest
 from youth_compass.agent import (
     AnswerCompositionContext,
     ComposedAnswer,
+    ConversationContext,
     CopilotStatus,
     DeterministicCopilotPlanner,
     GroundedCopilotService,
@@ -23,6 +24,7 @@ from youth_compass.decisioning import (
     FeatureSet,
     FeatureValue,
 )
+from youth_compass.domain.errors import ConversationPersistenceError
 from youth_compass.ports import ModelRequest, ModelResponse
 
 
@@ -129,6 +131,15 @@ def test_home_question_ranks_with_citations_and_no_storage_uri_leak() -> None:
     serialized = response.model_dump_json()
     assert "file:///" not in serialized
     assert response.citations
+    assert all(citation.excerpt for citation in response.citations)
+    assert {
+        (row.entity_id, row.metric_code, row.value)
+        for citation in response.citations
+        for row in citation.excerpt
+    } >= {
+        ("banqiao", "property_cost", 80),
+        ("linkou", "property_cost", 60),
+    }
     assert [trace.tool for trace in response.tool_trace] == [
         "query_decomposer",
         "search_catalog",
@@ -137,12 +148,78 @@ def test_home_question_ranks_with_citations_and_no_storage_uri_leak() -> None:
         "explain_lineage",
         "answer_composer",
         "visualization_builder",
+        "audit_limitations",
     ]
+    assert response.limitations is not None
+    assert "Lý do chính là" in response.answer
+    assert "[data-" in response.answer
+    assert "Lâm Khẩu" in response.answer
+    assert "điểm đóng góp" in response.answer
     assert set(provider.queries[0].feature_codes) == {
         "property_cost",
         "transit_accessibility",
         "amenity_accessibility",
         "environmental_risk",
+    }
+
+
+def test_decision_fallback_explains_ranking_without_requiring_a_chart() -> None:
+    service, _ = _service(
+        tuple(
+            _value(entity, feature, value)
+            for entity, readings in {
+                "banqiao": {
+                    "property_cost": 80,
+                    "transit_accessibility": 90,
+                    "amenity_accessibility": 85,
+                    "environmental_risk": 20,
+                },
+                "linkou": {
+                    "property_cost": 60,
+                    "transit_accessibility": 70,
+                    "amenity_accessibility": 65,
+                    "environmental_risk": 40,
+                },
+            }.items()
+            for feature, value in readings.items()
+        )
+    )
+
+    response = asyncio.run(service.answer("Where should I buy a home?"))
+
+    assert "The main reason is" in response.answer
+    assert "runner-up Linkou" in response.answer
+    assert "contribution points" in response.answer
+    assert "[data-" in response.answer
+    assert "Review the feature contributions" not in response.answer
+
+
+def test_a_slug_candidate_is_answered_under_a_readable_name() -> None:
+    values = []
+    for feature, value in {
+        "ev_demand_proxy": 80,
+        "transit_accessibility": 60,
+        "parking_availability": 70,
+        "grid_accessibility": 90,
+        "charger_competition": 20,
+        "site_feasibility": 1,
+    }.items():
+        values.append(_value("site-linkou-center", feature, value))
+    service, _ = _service(tuple(values))
+
+    response = asyncio.run(service.answer("Where should we place an EV charging station?"))
+
+    assert response.status is CopilotStatus.ANSWERED
+    top = response.candidates[0]
+    assert top.entity_id == "site-linkou-center"
+    assert top.entity_name == "Linkou Center"
+    assert "site-linkou-center" not in response.answer
+    assert {item.feature_name for item in top.contributions} == {
+        "EV demand proxy",
+        "Transit accessibility",
+        "Parking availability",
+        "Grid accessibility",
+        "Charger competition",
     }
 
 
@@ -196,9 +273,10 @@ def test_service_composes_only_public_grounded_decision_facts() -> None:
     assert len(composer.contexts) == 1
     assert composer.contexts[0].analysis_type == "decision"
     assert "file:///" not in composer.contexts[0].grounded_facts_json
-    assert response.tool_trace[-2].tool == "answer_composer"
-    assert response.tool_trace[-2].outcome == "model"
-    assert response.tool_trace[-1].tool == "visualization_builder"
+    assert response.tool_trace[-3].tool == "answer_composer"
+    assert response.tool_trace[-3].outcome == "model"
+    assert response.tool_trace[-2].tool == "visualization_builder"
+    assert response.tool_trace[-1].tool == "audit_limitations"
 
 
 def test_unsupported_question_does_not_query_data() -> None:
@@ -271,3 +349,78 @@ def test_deterministic_planner_evaluation_set(question: str, expected: str | Non
     intent = asyncio.run(DeterministicCopilotPlanner().plan(question, ()))
 
     assert (intent.profile_code if intent else None) == expected
+
+
+class FailingConversationStore:
+    """A durable store that is unreachable, as a remote store can be."""
+
+    def __init__(self) -> None:
+        self.writes = 0
+
+    def get(self, session_id: str) -> ConversationContext | None:
+        raise ConversationPersistenceError("cannot read conversation context")
+
+    def put(self, context: ConversationContext) -> None:
+        self.writes += 1
+        raise ConversationPersistenceError("cannot persist conversation context")
+
+
+_HOME_FEATURES = tuple(
+    _value(entity, feature, value)
+    for entity, readings in {
+        "banqiao": {
+            "property_cost": 80,
+            "transit_accessibility": 90,
+            "amenity_accessibility": 85,
+            "environmental_risk": 20,
+        },
+    }.items()
+    for feature, value in readings.items()
+)
+
+
+def test_an_unreachable_conversation_store_never_fails_the_turn() -> None:
+    # Losing inherited scope degrades a follow-up; failing the request would
+    # take down every answer whenever the session table is unavailable. Both
+    # the read and the write are exercised: this question does answer.
+    store = FailingConversationStore()
+    service = GroundedCopilotService(
+        feature_provider=StaticFeatureProvider(_HOME_FEATURES),
+        feature_registry=FeatureRegistry(DEFAULT_FEATURES),
+        profile_registry=DecisionProfileRegistry(DEFAULT_DECISION_PROFILES),
+        conversation_store=store,
+    )
+
+    response = asyncio.run(service.answer("Tôi nên mua nhà ở đâu?"))
+
+    assert response.status is CopilotStatus.ANSWERED
+    assert response.session_id is not None
+    assert store.writes == 1
+
+
+class RecordingConversationStore:
+    def __init__(self) -> None:
+        self.stored: list[ConversationContext] = []
+
+    def get(self, session_id: str) -> ConversationContext | None:
+        return self.stored[-1] if self.stored else None
+
+    def put(self, context: ConversationContext) -> None:
+        self.stored.append(context)
+
+
+def test_a_scope_that_found_no_evidence_is_not_remembered() -> None:
+    # Remembering a failed scope would make every later turn in the session
+    # inherit it, so the session could never answer anything again.
+    store = RecordingConversationStore()
+    service = GroundedCopilotService(
+        feature_provider=StaticFeatureProvider(()),
+        feature_registry=FeatureRegistry(DEFAULT_FEATURES),
+        profile_registry=DecisionProfileRegistry(DEFAULT_DECISION_PROFILES),
+        conversation_store=store,
+    )
+
+    response = asyncio.run(service.answer("Where should I buy a home?"))
+
+    assert response.status is not CopilotStatus.ANSWERED
+    assert store.stored == []

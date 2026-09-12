@@ -154,6 +154,7 @@ class DecisionScoringEngine:
             contributions.append(
                 FeatureContribution(
                     feature_code=criterion.feature_code,
+                    feature_name=definition.display_name,
                     feature_version=feature.feature_version,
                     raw_value=feature.value,
                     normalized_value=round(normalized, 6),

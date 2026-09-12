@@ -18,6 +18,7 @@ from apps.api.schemas import (
     DatasetResponse,
     DecisionRequest,
     DistrictCompareRequest,
+    DistrictOverviewResponse,
     DistrictProfileResponse,
     ErrorBody,
     ErrorEnvelope,
@@ -326,6 +327,24 @@ def create_app(data_root: Path | None = None) -> FastAPI:
             )
         )
         return DistrictProfileResponse.from_result(result)
+
+    @app.get(
+        "/api/v1/districts/{district_code}/overview",
+        response_model=DistrictOverviewResponse,
+        tags=["dashboard"],
+    )
+    def district_overview(
+        district_code: str,
+        request: Request,
+        dataset_id: str = Query(default="population", alias="datasetId"),
+        metric_code: str = Query(default="population_count", alias="metricCode"),
+    ) -> DistrictOverviewResponse:
+        result = (
+            _runtime(request)
+            .analytics(dataset_id)
+            .district_overview(district_code, metric_code=metric_code)
+        )
+        return DistrictOverviewResponse.from_result(result)
 
     @app.post(
         "/api/v1/districts/compare",

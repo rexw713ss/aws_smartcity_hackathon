@@ -22,13 +22,20 @@ alter structured results. `ModelAnswerComposer` rejects unknown citation IDs and
 values absent from the grounded payload; any model-boundary failure falls back to the
 deterministic answer. Local storage URIs are deliberately omitted from the public response.
 
-The local runtime advertises `search_catalog`, `inspect_dataset`, `query_observations`,
-`compare_entities`, `forecast_metric`, `get_features`, `rank_candidates`, and
-`explain_lineage` through
+The local runtime advertises `search_tools`, `search_catalog`, `inspect_dataset`,
+`query_observations`, `compare_entities`, `forecast_metric`, `get_features`,
+`rank_candidates`, `simulate_scenario`, `assess_capacity`, `discover_sources`,
+`recommend_investment`, and `explain_lineage` through
 `GET /api/v1/copilot/capabilities`. It can inspect published canonical datasets and answer
 grounded trend/comparison questions without a use-case-specific feature mart. It retrieves
 published local forecasts with uncertainty and model lineage. A runtime without a configured
 forecast adapter returns the missing operation and refuses to manufacture a partial answer.
+
+For population what-if questions, `search_tools` selects the relevant registered chain before
+execution. The agent projects only the explicit population shock, audits the evidence needed
+for housing, transport, and public-service impacts, and searches configured official sources
+for missing metrics. It withholds investment advice until that capacity evidence is complete.
+See [28-youth-population-what-if.md](./28-youth-population-what-if.md).
 
 The observation tools execute only typed `QuerySpec` requests against allowlisted canonical
 fields. They enforce dataset quality, entity and time scope, compatible units and population
@@ -53,9 +60,14 @@ Content-Type: application/json
 {
   "question": "Nên đặt trụ sạc xe ở đâu?",
   "entityIds": ["site-a", "site-b"],
-  "minQualityScore": 0.7
+  "minQualityScore": 0.7,
+  "sessionId": "ses_0123456789abcdef0123456789abcdef"
 }
 ```
+
+`sessionId` is optional and carries only bounded structured scope between turns, so a
+follow-up question can omit the metric, entities, period, or age band it inherits. See
+[26-conversation-context.md](./26-conversation-context.md).
 
 When evidence is missing, the endpoint returns `insufficient_data` and does not produce
 a recommendation. Unsupported questions return `unsupported_question` without querying

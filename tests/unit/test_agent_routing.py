@@ -11,6 +11,8 @@ from youth_compass.agent import (
     SmartToolRouter,
     ToolCapability,
     default_decision_capabilities,
+    register_acquisition_capabilities,
+    register_impact_capabilities,
 )
 from youth_compass.domain import ModelInvocationError
 from youth_compass.ports import ModelRequest, ModelResponse
@@ -64,6 +66,41 @@ def test_router_exposes_missing_generic_tools_instead_of_guessing() -> None:
         AnalysisOperation.FORECAST_METRIC,
     )
     assert plan.executable is False
+
+
+def test_what_if_question_searches_and_routes_impact_tools_in_dependency_order() -> None:
+    capabilities = default_decision_capabilities()
+    register_acquisition_capabilities(capabilities)
+    register_impact_capabilities(capabilities)
+    decomposition = asyncio.run(
+        DeterministicQueryDecomposer().decompose(
+            "Nếu thêm 2.000 thanh niên chuyển đến Linkou trước 2030, nên đầu tư hạ tầng gì?",
+            ("17",),
+        )
+    )
+
+    plan = SmartToolRouter(capabilities).route(decomposition)
+
+    assert plan.executable is True
+    assert decomposition.operations[0] is AnalysisOperation.SEARCH_TOOLS
+    assert [step.tool_name for step in plan.steps] == [
+        "search_tools",
+        "search_catalog",
+        "simulate_scenario",
+        "assess_capacity",
+        "discover_sources",
+        "recommend_investment",
+        "explain_lineage",
+    ]
+    assert [item.name for item in capabilities.search(decomposition.operations)] == [
+        "assess_capacity",
+        "discover_sources",
+        "explain_lineage",
+        "recommend_investment",
+        "search_catalog",
+        "search_tools",
+        "simulate_scenario",
+    ]
 
 
 def test_new_capabilities_are_discovered_without_router_conditionals() -> None:

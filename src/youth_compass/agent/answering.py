@@ -14,13 +14,13 @@ from youth_compass.agent.contracts import (
     ComposedAnswer,
 )
 from youth_compass.domain.errors import ModelInvocationError
+from youth_compass.ontology import NameLanguage, question_language
 from youth_compass.ports import ModelProvider, ModelRequest
 
 _LOGGER = logging.getLogger(__name__)
 
 _NUMBER = re.compile(r"(?<![\w])[-+]?\d+(?:\.\d+)?")
 _CITATION = re.compile(r"\bdata-\d+\b")
-_HAN = re.compile(r"[\u3400-\u9fff]")
 
 
 class AnswerComposer(Protocol):
@@ -60,12 +60,27 @@ class ModelAnswerComposer:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
-                    "Write a concise answer in RESPONSE_LANGUAGE; that field is authoritative. "
+                    "Write a concise, natural answer in RESPONSE_LANGUAGE; that field is "
+                    "authoritative. Answer the user's actual question directly instead of exposing "
+                    "an analysis template. For an observation comparison, lead with the clearest "
+                    "trend in one conversational sentence, including the place, period, start and "
+                    "end values, and change. For a decision ranking, start with the "
+                    "recommendation, "
+                    "then compare the winner with the runner-up using their feature contributions "
+                    "when both are available. Put the relevant "
+                    "citation ID immediately after every evidence-based claim. The answer must be "
+                    "understandable without looking at a chart or table; visualizations are only "
+                    "supporting material. Avoid mechanical headings, record counts, and redundant "
+                    "source boilerplate. Use short paragraphs; only use bullets when comparing "
+                    "three or more entities. "
+                    "Do not return HTML, Markdown headings, or Markdown tables. "
                     "When it is Taiwan Traditional Chinese, never convert it to Simplified "
                     "Chinese. "
                     "Use only GROUNDED_FACTS. Do not add facts, entities, numbers, causal "
                     "claims, or citation IDs. Do not calculate differences, percentages, or "
-                    "rounded values. Every number in the answer must be copied character-for-"
+                    "rounded values. Name every place by its entity_name and never print an "
+                    "internal identifier such as entity_id, feature_code, or metric_code. "
+                    "Every number in the answer must be copied character-for-"
                     "character from ALLOWED_NUMBER_STRINGS. Use SAFE_ANSWER_TEMPLATE as the "
                     "semantic outline and preserve its limitations. Return only JSON matching "
                     "the provided schema."
@@ -148,8 +163,9 @@ def _without_citations(text: str, citation_ids: tuple[str, ...]) -> str:
 
 
 def _response_language(question: str) -> str:
-    if _HAN.search(question):
+    language = question_language(question)
+    if language is NameLanguage.ZH_HANT:
         return "Taiwan Traditional Chinese (zh-TW)"
-    if question.isascii():
+    if language is NameLanguage.ENGLISH:
         return "English"
-    return "the same language as the user's question"
+    return "Vietnamese"

@@ -239,6 +239,11 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_MODEL__REGION": region,
                 "YOUTH_COMPASS_API__CORS_ALLOWED_ORIGINS": site_origin,
                 "YOUTH_COMPASS_API__WRITE_SECRET": write_secret,
+                # Lambda scales to many concurrent instances, so follow-up
+                # session scope must live in the shared table rather than in one
+                # process. Records expire through the table's TTL attribute.
+                "YOUTH_COMPASS_CONVERSATION__PROVIDER": "dynamodb",
+                "YOUTH_COMPASS_CONVERSATION__TABLE_NAME": metadata_table_name,
             },
         )
 

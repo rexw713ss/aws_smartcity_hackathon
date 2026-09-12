@@ -52,6 +52,38 @@ class DistrictProfile(BaseModel):
     districts: list[DistrictMetric]
 
 
+class DistrictTrendPoint(BaseModel):
+    period: str
+    value: float
+
+
+class DistrictBreakdown(BaseModel):
+    key: str
+    label: str
+    value: float
+    share_percent: float = Field(ge=0, le=100)
+
+
+class DistrictOverview(BaseModel):
+    """A chart-ready district snapshot built without invoking the copilot."""
+
+    dataset_id: str
+    dataset_version: str
+    district_code: str
+    district_name: str | None
+    period: str
+    unit_code: str
+    population_scope: str
+    quality_score: float = Field(ge=0, le=1)
+    total: float
+    previous_period: str | None = None
+    absolute_change: float | None = None
+    percent_change: float | None = None
+    trend: list[DistrictTrendPoint]
+    age_distribution: list[DistrictBreakdown]
+    gender_distribution: list[DistrictBreakdown]
+
+
 class CuratedAnalyticsService:
     """Read one published canonical table through an allowlisted QueryEngine."""
 
@@ -127,6 +159,139 @@ class CuratedAnalyticsService:
             population_scope=scope,
             quality_score=self._metadata.quality_score,
             districts=[grouped[code] for code in sorted(grouped)],
+        )
+
+    def district_overview(
+        self,
+        district_code: str,
+        *,
+        metric_code: str = "population_count",
+    ) -> DistrictOverview:
+        """Return grounded trend and demographic breakdowns for one district.
+
+        The endpoint using this method is a dashboard interaction, not an agent
+        turn. Percentages and changes are calculated here so the browser only
+        renders values from the published snapshot.
+        """
+
+        dimensions = [
+            "year_gregorian",
+            "month",
+            "district_code",
+            "district_name",
+            "age_lower",
+            "age_upper",
+            "gender_code",
+            "unit_code",
+            "population_scope",
+        ]
+        result = self._query.execute(
+            QuerySpec(
+                table=self._metadata.dataset_id,
+                dimensions=dimensions,
+                metrics=["metric_value"],
+                filters={"metric_code": metric_code, "district_code": district_code},
+                max_rows=50_000,
+                group_by_dimensions=True,
+            )
+        )
+        if result.truncated:
+            raise QueryExecutionError("district overview exceeded the safe 50000-row limit")
+        records: list[dict[str, object]] = [
+            dict(zip(result.columns, row, strict=True)) for row in result.rows
+        ]
+        if not records:
+            raise AnalyticsNotAvailableError(f"no observations for district code {district_code!r}")
+
+        unit, scope = _consistent_context(records)
+        by_period: dict[tuple[int, int | None], float] = {}
+        for record in records:
+            period_key = (
+                _integer(record["year_gregorian"]),
+                _optional_integer(record["month"]),
+            )
+            by_period[period_key] = round(
+                by_period.get(period_key, 0) + _number(record["metric_value"]), 4
+            )
+        ordered_periods = sorted(by_period)
+        latest_key = ordered_periods[-1]
+        previous_key = ordered_periods[-2] if len(ordered_periods) > 1 else None
+        latest_total = by_period[latest_key]
+        previous_total = by_period[previous_key] if previous_key else None
+        absolute_change = (
+            round(latest_total - previous_total, 4) if previous_total is not None else None
+        )
+        percent_change = (
+            round(absolute_change / previous_total * 100, 2)
+            if absolute_change is not None and previous_total
+            else None
+        )
+
+        latest_records = [
+            record
+            for record in records
+            if (
+                _integer(record["year_gregorian"]),
+                _optional_integer(record["month"]),
+            )
+            == latest_key
+        ]
+        age_ranges = ((18, 20), (21, 24), (25, 29), (30, 35))
+        age_values: dict[str, float] = {f"{low}-{high}": 0 for low, high in age_ranges}
+        gender_values: dict[str, float] = {}
+        for record in latest_records:
+            value = _number(record["metric_value"])
+            age = _optional_integer(record["age_lower"])
+            if age is not None:
+                for low, high in age_ranges:
+                    if low <= age <= high:
+                        key = f"{low}-{high}"
+                        age_values[key] = round(age_values[key] + value, 4)
+                        break
+            gender = str(record["gender_code"] or "unknown")
+            gender_values[gender] = round(gender_values.get(gender, 0) + value, 4)
+
+        gender_labels = {
+            "male": "Male",
+            "female": "Female",
+            "other": "Other",
+            "unknown": "Unknown",
+        }
+
+        def breakdown(
+            values: dict[str, float], labels: dict[str, str] | None = None
+        ) -> list[DistrictBreakdown]:
+            total = sum(values.values())
+            return [
+                DistrictBreakdown(
+                    key=key,
+                    label=(labels or {}).get(key, key),
+                    value=value,
+                    share_percent=round(value / total * 100, 1) if total else 0,
+                )
+                for key, value in values.items()
+                if value > 0
+            ]
+
+        return DistrictOverview(
+            dataset_id=self._metadata.dataset_id,
+            dataset_version=self._metadata.version,
+            district_code=district_code,
+            district_name=str(records[0]["district_name"] or "") or None,
+            period=_format_period(*latest_key),
+            unit_code=unit,
+            population_scope=scope,
+            quality_score=self._metadata.quality_score,
+            total=latest_total,
+            previous_period=_format_period(*previous_key) if previous_key else None,
+            absolute_change=absolute_change,
+            percent_change=percent_change,
+            trend=[
+                DistrictTrendPoint(period=_format_period(*key), value=by_period[key])
+                for key in ordered_periods[-24:]
+            ],
+            age_distribution=breakdown(age_values),
+            gender_distribution=breakdown(gender_values, gender_labels),
         )
 
     def _records(self, metric_code: str, period: str | None) -> tuple[list[dict[str, object]], str]:

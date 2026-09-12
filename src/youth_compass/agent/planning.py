@@ -83,12 +83,36 @@ class DeterministicQueryDecomposer:
             "資料來源",
             "有哪些資料",
         )
+        scenario = _contains(
+            normalized,
+            "what if",
+            "nếu",
+            "giả sử",
+            "thêm người",
+            "chuyển đến",
+            "move to",
+            "moves to",
+            "搬入",
+            "如果",
+        ) and bool(re.search(r"\d", normalized))
 
         operations: list[AnalysisOperation] = [AnalysisOperation.SEARCH_CATALOG]
         objective = "discover relevant evidence"
         needs_clarification = False
         clarification_question = None
-        if decision:
+        if scenario:
+            objective = "simulate a population shock and assess infrastructure capacity"
+            operations = [AnalysisOperation.SEARCH_TOOLS, AnalysisOperation.SEARCH_CATALOG]
+            operations.extend(
+                (
+                    AnalysisOperation.SIMULATE_SCENARIO,
+                    AnalysisOperation.ASSESS_CAPACITY,
+                    AnalysisOperation.DISCOVER_SOURCES,
+                    AnalysisOperation.RECOMMEND_INVESTMENT,
+                    AnalysisOperation.EXPLAIN_LINEAGE,
+                )
+            )
+        elif decision:
             objective = "rank candidates for a location decision"
             operations.extend(
                 (
@@ -111,6 +135,8 @@ class DeterministicQueryDecomposer:
             operations.extend(
                 (AnalysisOperation.INSPECT_DATASET, AnalysisOperation.QUERY_OBSERVATIONS)
             )
+            if len(_metric_terms(normalized)) > 1:
+                operations.append(AnalysisOperation.JOIN_OBSERVATIONS)
             operations.append(AnalysisOperation.COMPARE_ENTITIES)
             operations.append(AnalysisOperation.EXPLAIN_LINEAGE)
         elif discover:
@@ -166,6 +192,9 @@ class ModelQueryDecomposer:
                     "set it to null. Do not describe why it is unknown.\n"
                     "Start with search_catalog for anything the published catalog may "
                     "already hold; discover_sources is only for data the catalog lacks. "
+                    "For a multi-step what-if question, start with search_tools, then use "
+                    "simulate_scenario and assess_capacity before discover_sources or "
+                    "recommend_investment. "
                     "End with explain_lineage whenever the answer will cite evidence.\n"
                     "Set `needs_clarification` only when the question names no analysable "
                     "subject at all. A question that names a subject and a period is "
@@ -254,6 +283,12 @@ class ToolCapabilityRegistry:
     def list(self) -> tuple[ToolCapability, ...]:
         return tuple(self._by_name[name] for name in sorted(self._by_name))
 
+    def search(self, operations: tuple[AnalysisOperation, ...]) -> tuple[ToolCapability, ...]:
+        """Return only registered tools relevant to the requested operations."""
+
+        requested = set(operations)
+        return tuple(capability for capability in self.list() if capability.operation in requested)
+
 
 class SmartToolRouter:
     """Route validated operations to capabilities and expose every missing tool."""
@@ -290,6 +325,11 @@ def default_decision_capabilities() -> ToolCapabilityRegistry:
 
     return ToolCapabilityRegistry(
         (
+            ToolCapability(
+                name="search_tools",
+                operation=AnalysisOperation.SEARCH_TOOLS,
+                description="Find registered, bounded tools relevant to the analysis goal.",
+            ),
             ToolCapability(
                 name="search_catalog",
                 operation=AnalysisOperation.SEARCH_CATALOG,
@@ -343,6 +383,16 @@ def register_observation_capabilities(registry: ToolCapabilityRegistry) -> None:
             requires=(AnalysisOperation.QUERY_OBSERVATIONS,),
         )
     )
+    registry.register(
+        ToolCapability(
+            name="join_observations",
+            operation=AnalysisOperation.JOIN_OBSERVATIONS,
+            description=(
+                "Safely combine aggregated datasets on exact canonical entity and period keys."
+            ),
+            requires=(AnalysisOperation.QUERY_OBSERVATIONS,),
+        )
+    )
 
 
 def register_forecast_capabilities(registry: ToolCapabilityRegistry) -> None:
@@ -378,6 +428,39 @@ def register_acquisition_capabilities(registry: ToolCapabilityRegistry) -> None:
     )
 
 
+def register_impact_capabilities(registry: ToolCapabilityRegistry) -> None:
+    """Add the population-shock impact-chain tools to a runtime registry."""
+
+    registry.register(
+        ToolCapability(
+            name="simulate_scenario",
+            operation=AnalysisOperation.SIMULATE_SCENARIO,
+            description=(
+                "Project an explicit district youth-population shock against a cohort baseline."
+            ),
+            requires=(AnalysisOperation.SEARCH_CATALOG,),
+        )
+    )
+    registry.register(
+        ToolCapability(
+            name="assess_capacity",
+            operation=AnalysisOperation.ASSESS_CAPACITY,
+            description=(
+                "Test whether published infrastructure capacity metrics support impact estimates."
+            ),
+            requires=(AnalysisOperation.SIMULATE_SCENARIO,),
+        )
+    )
+    registry.register(
+        ToolCapability(
+            name="recommend_investment",
+            operation=AnalysisOperation.RECOMMEND_INVESTMENT,
+            description="Rank investments only when the preceding capacity evidence is complete.",
+            requires=(AnalysisOperation.ASSESS_CAPACITY,),
+        )
+    )
+
+
 def _contains(text: str, *terms: str) -> bool:
     return any(term in text for term in terms)
 
@@ -409,6 +492,7 @@ def _subject_terms(text: str) -> tuple[str, ...]:
 def _metric_terms(text: str) -> tuple[str, ...]:
     aliases = {
         "population_count": ("population", "dân số", "人口", "青年人口"),
+        "employment_count": ("employment", "việc làm", "就業"),
         "unemployment_count": ("unemployment", "thất nghiệp", "失業"),
     }
     return tuple(metric for metric, terms in aliases.items() if any(term in text for term in terms))

@@ -1,14 +1,66 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import type { CopilotResponse, VisualizationSpec } from '../lib/copilot'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import type { CopilotResponse, DistrictOverview as DistrictOverviewData, ImpactAnalysis, VisualizationSpec } from '../lib/copilot'
 import { districtHighlights } from '../lib/districtHighlights'
-import { formatQuality, formatTimestamp } from '../lib/format'
+import type { District } from '../lib/districts'
+import { districtLabel, formatLabel, formatQuality, formatTimestamp } from '../lib/format'
 import ChartView from './ChartView'
 import DistrictMap from './DistrictMap'
-import SourceCandidates from './SourceCandidates'
+import DistrictOverview from './DistrictOverview'
+import { useI18n } from '../lib/i18n'
 
-type Tab = 'charts' | 'map' | 'evidence' | 'trace'
+type Tab = 'charts' | 'map' | 'impact' | 'evidence' | 'trace'
+
+function ImpactChain({ analysis }: { analysis: ImpactAnalysis }) {
+  const { t } = useI18n()
+  return (
+    <section className="impact-chain">
+      <header>
+        <span>{t('impactChain')}</span>
+        <h3>{analysis.district_name} · {analysis.target_year}</h3>
+        <p>{t('confidence')}: {analysis.confidence}</p>
+      </header>
+      <ol>
+        {analysis.findings.map((finding, index) => (
+          <li key={`${finding.stage}-${index}`} data-state="complete">
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <div>
+              <strong>{formatLabel(finding.stage)}</strong>
+              <p>{finding.label}</p>
+              {finding.baseline_value !== null && finding.scenario_value !== null ? (
+                <em>
+                  {finding.baseline_value.toLocaleString()} → {finding.scenario_value.toLocaleString()}
+                  {finding.absolute_delta !== null ? ` (${finding.absolute_delta > 0 ? '+' : ''}${finding.absolute_delta.toLocaleString()} ${finding.unit})` : ''}
+                </em>
+              ) : null}
+            </div>
+          </li>
+        ))}
+        {analysis.data_gaps.map((gap, index) => (
+          <li key={gap.domain} data-state="blocked">
+            <span>{String(analysis.findings.length + index + 1).padStart(2, '0')}</span>
+            <div>
+              <strong>{formatLabel(gap.domain)} {t('capacity')}</strong>
+              <p>{gap.reason}</p>
+              <small>{t('needs')}: {gap.required_metrics.map(formatLabel).join(' · ')}</small>
+            </div>
+          </li>
+        ))}
+        <li data-state={analysis.recommendations.length ? 'complete' : 'withheld'}>
+          <span>{String(analysis.findings.length + analysis.data_gaps.length + 1).padStart(2, '0')}</span>
+          <div>
+            <strong>{t('recommendation')}</strong>
+            {analysis.recommendations.length ? analysis.recommendations.map(item => (
+              <p key={`${item.priority}-${item.domain}`}>{item.priority}. {item.action} — {item.rationale}</p>
+            )) : <p>{t('withheld')}</p>}
+          </div>
+        </li>
+      </ol>
+    </section>
+  )
+}
 
 function VisualizationCard({ spec }: { spec: VisualizationSpec }) {
+  const { t } = useI18n()
   return (
     <figure className="viz-card" data-viz-id={spec.visualization_id} data-viz-type={spec.type}>
       <figcaption>
@@ -18,13 +70,16 @@ function VisualizationCard({ spec }: { spec: VisualizationSpec }) {
       <ChartView spec={spec} />
       <footer>
         {spec.truncated ? (
-          <span className="viz-flag" title="The backend truncated this at 200 rows; the chart is not the full dataset.">
-            Truncated to {spec.rows.length} rows
+          <span
+            className="viz-flag"
+            title={t('showingRows', { count: spec.rows.length })}
+          >
+            {t('showingRows', { count: spec.rows.length })}
           </span>
         ) : null}
         {spec.citation_ids.length ? (
           <span className="viz-cites">
-            Cited
+            {t('cited')}
             {spec.citation_ids.map(id => (
               <code key={id}>{id}</code>
             ))}
@@ -47,36 +102,83 @@ function Empty({ title, detail }: { title: string; detail: string }) {
 export default function InsightPanel({
   response,
   pending,
-  onAcquire,
-  acquiring,
-  onAsk,
+  onExploreDistrict,
+  citationFocus,
 }: {
   response: CopilotResponse | null
   pending: boolean
-  onAcquire: (candidateId: string, submittedBy: string) => Promise<string>
-  acquiring: boolean
-  onAsk: (question: string) => void
+  onExploreDistrict: (districtCode: string) => Promise<DistrictOverviewData>
+  citationFocus: { citationId: string; requestId: number } | null
 }) {
+  const { language, t } = useI18n()
   const [tab, setTab] = useState<Tab>('charts')
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null)
+  const [overview, setOverview] = useState<DistrictOverviewData | null>(null)
+  // The district, not its name: the label follows the language picker.
+  const [overviewDistrict, setOverviewDistrict] = useState<District | null>(null)
+  const [overviewPending, setOverviewPending] = useState(false)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+  const evidenceRefs = useRef(new Map<string, HTMLLIElement>())
   const highlights = useMemo(() => districtHighlights(response), [response])
+  // A choropleth is the map's own spec. Showing it again as a table here would
+  // print the same figures twice, so the Charts tab lists everything else.
+  const charts = useMemo(
+    () => response?.visualizations.filter(spec => spec.type !== 'choropleth') ?? [],
+    [response],
+  )
 
   // A new answer always returns the reader to the charts it produced.
   useEffect(() => {
-    if (response) setTab('charts')
+    if (response) {
+      setOverview(null)
+      setOverviewError(null)
+      setTab(response.impact_analysis ? 'impact' : 'charts')
+    }
   }, [response])
 
+  const exploreDistrict = async (district: District) => {
+    setTab('charts')
+    setOverview(null)
+    setOverviewDistrict(district)
+    setOverviewError(null)
+    setOverviewPending(true)
+    try {
+      setOverview(await onExploreDistrict(district.code))
+    } catch (cause) {
+      setOverviewError(cause instanceof Error ? cause.message : t('overviewUnavailable'))
+    } finally {
+      setOverviewPending(false)
+    }
+  }
+
+  useEffect(() => {
+    if (citationFocus) setTab('evidence')
+  }, [citationFocus])
+
+  useEffect(() => {
+    if (tab !== 'evidence' || !citationFocus) return
+    const frame = window.requestAnimationFrame(() => {
+      const source = evidenceRefs.current.get(citationFocus.citationId)
+      source?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      source?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [tab, citationFocus])
+
+  const overviewName = overviewDistrict ? districtLabel(overviewDistrict, language) : ''
+
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'charts', label: 'Charts', count: response?.visualizations.length ?? 0 },
-    { id: 'map', label: 'Map', count: highlights.byCode.size },
-    { id: 'evidence', label: 'Evidence', count: response?.citations.length ?? 0 },
-    { id: 'trace', label: 'Trace', count: response?.tool_trace.length ?? 0 },
+    { id: 'charts', label: t('charts'), count: overview ? 3 : charts.length },
+    { id: 'map', label: t('map'), count: highlights.byCode.size },
+    { id: 'impact', label: t('impact'), count: response?.impact_analysis ? 1 : 0 },
+    { id: 'evidence', label: t('evidence'), count: response?.citations.length ?? 0 },
+    { id: 'trace', label: t('trace'), count: response?.tool_trace.length ?? 0 },
   ]
 
   return (
-    <section className="insight-panel" aria-label="Supporting insight">
+    <section className="insight-panel" aria-label={t('supportingInsight')}>
       <header className="panel-head">
-        <div className="panel-tabs" role="tablist" aria-label="Insight views">
+        <div className="panel-tabs" role="tablist" aria-label={t('insightViews')}>
           {tabs.map(item => (
             <button
               key={item.id}
@@ -94,32 +196,35 @@ export default function InsightPanel({
           ))}
         </div>
         {response ? (
-          <p className="panel-stamp">Generated {formatTimestamp(response.generated_at)}</p>
+          <p className="panel-stamp">{t('generated')} {formatTimestamp(response.generated_at, language)}</p>
         ) : null}
       </header>
 
       <div className="panel-body" id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
-        {pending && !response ? <div className="panel-loading" aria-live="polite">Calculating from published data…</div> : null}
+        {pending && !response ? <div className="panel-loading" aria-live="polite">{t('calculating')}</div> : null}
 
         {tab === 'charts' ? (
-          response?.visualizations.length ? (
+          overviewPending ? (
+            <div className="panel-loading" aria-live="polite">{t('loadingOverview', { name: overviewName })}</div>
+          ) : overviewError ? (
+            <Empty title={t('overviewUnavailable')} detail={overviewError} />
+          ) : overview ? (
+            <DistrictOverview overview={overview} displayName={overviewName} />
+          ) : charts.length ? (
             <>
-              {response.visualizations.map(spec => (
+              {charts.map(spec => (
                 <VisualizationCard key={spec.visualization_id} spec={spec} />
               ))}
-              <p className="panel-note">
-                The backend decides the chart type, the fields, and every value. This panel only draws
-                them; it never recalculates a ranking, a change, or a percentage.
-              </p>
+              <p className="panel-note">{t('chartNote')}</p>
             </>
           ) : (
             !pending && (
               <Empty
-                title="No charts yet"
+                title={t('noCharts')}
                 detail={
                   response
-                    ? 'This answer produced no visualization. Insufficient-evidence and unsupported answers deliberately return none.'
-                    : 'Ask a question on the left. Charts and tables returned by the backend appear here.'
+                    ? t('noChartsAnswer')
+                    : t('noChartsPrompt')
                 }
               />
             )
@@ -129,30 +234,91 @@ export default function InsightPanel({
         {tab === 'map' ? (
           <DistrictMap
             highlights={highlights}
+            coverage={response?.limitations?.coverage ?? null}
             selected={selectedDistrict}
             onSelect={setSelectedDistrict}
-            onAsk={onAsk}
+            onExplore={exploreDistrict}
           />
+        ) : null}
+
+        {tab === 'impact' ? (
+          response?.impact_analysis
+            ? <ImpactChain analysis={response.impact_analysis} />
+            : !pending && <Empty title={t('noImpact')} detail={t('noImpactDetail')} />
         ) : null}
 
         {tab === 'evidence' ? (
           response?.citations.length ? (
             <ul className="evidence-list">
-              {response.citations.map(citation => (
-                <li key={citation.citation_id}>
-                  <code>{citation.citation_id}</code>
+              {response.citations.map((citation, index) => (
+                <li
+                  key={citation.citation_id}
+                  ref={element => {
+                    if (element) evidenceRefs.current.set(citation.citation_id, element)
+                    else evidenceRefs.current.delete(citation.citation_id)
+                  }}
+                  tabIndex={-1}
+                  className={citationFocus?.citationId === citation.citation_id ? 'is-focused' : undefined}
+                  data-citation-id={citation.citation_id}
+                >
+                  <code aria-label={`Source ${index + 1}`}>[{index + 1}]</code>
                   <div>
-                    <strong>{citation.dataset_id}</strong>
+                    <strong>{formatLabel(citation.dataset_id)}</strong>
                     <span className="evidence-meta">
-                      Version {citation.dataset_version} · quality {formatQuality(citation.quality_score)} · retrieved{' '}
-                      {formatTimestamp(citation.retrieved_at)}
+                      {t('version')} {citation.dataset_version} · {t('quality').toLowerCase()} {formatQuality(citation.quality_score, language)} · {t('retrieved')}{' '}
+                      {formatTimestamp(citation.retrieved_at, language)}
                     </span>
+                    <details
+                      className="evidence-excerpt"
+                      open={citationFocus?.citationId === citation.citation_id || undefined}
+                    >
+                      <summary>
+                        {citation.excerpt.length
+                          ? `${t('dataUsed')} · ${t('relevantRows', { count: citation.excerpt.length })}`
+                          : t('dataUsed')}
+                      </summary>
+                      {citation.excerpt.length ? (
+                        <div className="evidence-table-scroll">
+                          <p>{t('excerptHelp')}</p>
+                          <table className="evidence-table">
+                            <thead>
+                              <tr>
+                                <th>{t('location')}</th>
+                                <th>{t('field')}</th>
+                                <th>{t('observed')}</th>
+                                <th>{t('value')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {citation.excerpt.map((row, rowIndex) => (
+                                <tr key={`${row.entity_id}-${row.metric_code}-${row.period ?? row.observed_at ?? 'snapshot'}-${rowIndex}`}>
+                                  <td>
+                                    {row.entity_name}
+                                    <code>{row.entity_id}</code>
+                                  </td>
+                                  <td>
+                                    {row.metric_name}
+                                    <code>{row.metric_code}</code>
+                                  </td>
+                                  <td>
+                                    {row.period ?? (row.observed_at ? formatTimestamp(row.observed_at, language) : t('snapshot'))}
+                                  </td>
+                                  <td className="numeric">{row.value.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="evidence-unavailable">{t('noExcerpt')}</p>
+                      )}
+                    </details>
                   </div>
                 </li>
               ))}
             </ul>
           ) : (
-            !pending && <Empty title="No citations" detail="Citations appear only when an answer is drawn from published datasets." />
+            !pending && <Empty title={t('noCitations')} detail={t('noCitationsDetail')} />
           )
         ) : null}
 
@@ -161,19 +327,15 @@ export default function InsightPanel({
             <ol className="trace-list">
               {response.tool_trace.map((step, index) => (
                 <li key={`${step.tool}-${index}`} data-outcome={step.outcome}>
-                  <span className="trace-tool">{step.tool}</span>
-                  <span className="trace-outcome">{step.outcome}</span>
+                  <span className="trace-tool">{formatLabel(step.tool)}</span>
+                  <span className="trace-outcome">{formatLabel(step.outcome)}</span>
                   <p>{step.summary}</p>
                 </li>
               ))}
             </ol>
           ) : (
-            !pending && <Empty title="No trace" detail="This lists the tools the system actually called and what each returned." />
+            !pending && <Empty title={t('noTrace')} detail={t('noTraceDetail')} />
           )
-        ) : null}
-
-        {response?.source_candidates.length ? (
-          <SourceCandidates candidates={response.source_candidates} onAcquire={onAcquire} busy={acquiring} />
         ) : null}
       </div>
     </section>

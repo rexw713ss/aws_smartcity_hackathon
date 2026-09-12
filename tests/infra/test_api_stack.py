@@ -311,3 +311,21 @@ def _as_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, str)]
     return []
+
+
+class TestConversationContext:
+    def test_api_lambda_selects_the_durable_session_store(self, template: Template) -> None:
+        # Lambda scales to many concurrent instances, so process-local session
+        # memory would lose a follow-up routed to a different instance.
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "Environment": Match.object_like(
+                    {
+                        "Variables": Match.object_like(
+                            {"YOUTH_COMPASS_CONVERSATION__PROVIDER": "dynamodb"}
+                        )
+                    }
+                )
+            },
+        )
