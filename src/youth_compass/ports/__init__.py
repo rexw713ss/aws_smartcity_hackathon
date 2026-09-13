@@ -36,6 +36,7 @@ from youth_compass.ports.source_connector import (
     SourceCandidate,
     SourceConnector,
 )
+from youth_compass.ports.web_search import WebSearchProvider, WebSearchRequest, WebSearchResult
 from youth_compass.ports.workflow_runner import (
     ApprovalDecision,
     IngestionRequest,
@@ -43,7 +44,6 @@ from youth_compass.ports.workflow_runner import (
     JobStatus,
     WorkflowRunner,
 )
-from youth_compass.ports.web_search import WebSearchProvider, WebSearchRequest, WebSearchResult
 
 __all__ = [
     "AcquiredSource",
@@ -75,9 +75,9 @@ __all__ = [
     "TrainingRequest",
     "TrainingRun",
     "TrainingStatus",
-    "WorkflowCheckpoint",
-    "WorkflowRunner",
     "WebSearchProvider",
     "WebSearchRequest",
     "WebSearchResult",
+    "WorkflowCheckpoint",
+    "WorkflowRunner",
 ]

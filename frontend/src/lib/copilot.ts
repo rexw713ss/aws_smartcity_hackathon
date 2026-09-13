@@ -225,47 +225,8 @@ export type IntakeOptions = {
   maxUploadBytes: number
 }
 
-export const scenarioOperations = [
-  'absolute_change',
-  'percent_change',
-  'transfer',
-  'annual_net_migration',
-  'retention_rate_change',
-  'match_city_retention',
-  'match_top_quartile_retention',
-] as const
-export type ScenarioOperation = (typeof scenarioOperations)[number]
-export const populationBalanceModes = ['open', 'redistribute'] as const
-export type PopulationBalanceMode = (typeof populationBalanceModes)[number]
 export const scenarioEvidenceKinds = ['official', 'derived', 'user_assumption'] as const
 export type ScenarioEvidenceKind = (typeof scenarioEvidenceKinds)[number]
-
-export type ScenarioAdjustment = {
-  districtId: string
-  operation: ScenarioOperation
-  value: number
-  sourceDistrictId?: string
-}
-
-export type YouthPopulationScenarioRequest = {
-  balanceMode: PopulationBalanceMode
-  targetYear?: number
-  adjustments: ScenarioAdjustment[]
-}
-
-export type DistrictScenarioResult = {
-  district_code: string
-  district_name: string
-  baseline_value: number
-  scenario_value: number
-  absolute_delta: number
-  percent_delta: number | null
-  baseline_rank: number
-  scenario_rank: number
-  rank_change: number
-  historical_retention_rate: number | null
-  scenario_retention_rate: number | null
-}
 
 export type DistrictTrendPoint = { period: string; value: number }
 
@@ -292,40 +253,6 @@ export type DistrictOverview = {
   trend: DistrictTrendPoint[]
   ageDistribution: DistrictBreakdown[]
   genderDistribution: DistrictBreakdown[]
-}
-
-export type ScenarioTrajectoryPoint = {
-  year: number
-  baseline_value: number
-  scenario_value: number
-  absolute_delta: number
-}
-
-export type ScenarioEvidence = {
-  kind: ScenarioEvidenceKind
-  label: string
-  detail: string
-  source_url: string | null
-}
-
-export type YouthPopulationScenarioResult = {
-  metric_code: string
-  observed_period: string
-  target_year: number
-  baseline_method: string
-  age_lower: number
-  age_upper: number
-  balance_mode: PopulationBalanceMode
-  baseline_total: number
-  scenario_total: number
-  total_delta: number
-  population_conserved: boolean
-  rows: DistrictScenarioResult[]
-  trajectory: ScenarioTrajectoryPoint[]
-  evidence: ScenarioEvidence[]
-  assumptions: string[]
-  warnings: string[]
-  generated_at: string
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -644,78 +571,6 @@ export function parseCopilotResponse(raw: unknown): CopilotResponse {
   }
 }
 
-function parseScenarioResponse(raw: unknown): YouthPopulationScenarioResult {
-  if (!isObject(raw) || !isText(raw.metric_code, 120) || !isText(raw.observed_period, 20) ||
-      !isText(raw.generated_at, 64) || !populationBalanceModes.includes(raw.balance_mode as PopulationBalanceMode) ||
-      !isNumber(raw.target_year) || !isText(raw.baseline_method, 240) ||
-      !isNumber(raw.age_lower) || !isNumber(raw.age_upper) || !isNumber(raw.baseline_total) ||
-      !isNumber(raw.scenario_total) || !isNumber(raw.total_delta) || typeof raw.population_conserved !== 'boolean') {
-    throw new ContractError()
-  }
-  const rows = array(raw.rows, 29).map(item => {
-    if (!isObject(item) || !isText(item.district_code, 4) || !isText(item.district_name, 120) ||
-        !isNumber(item.baseline_value) || !isNumber(item.scenario_value) || !isNumber(item.absolute_delta) ||
-        !(item.percent_delta === null || isNumber(item.percent_delta)) || !isNumber(item.baseline_rank) ||
-        !isNumber(item.scenario_rank) || !isNumber(item.rank_change) ||
-        !(item.historical_retention_rate === null || isNumber(item.historical_retention_rate)) ||
-        !(item.scenario_retention_rate === null || isNumber(item.scenario_retention_rate))) throw new ContractError()
-    return {
-      district_code: item.district_code,
-      district_name: item.district_name,
-      baseline_value: item.baseline_value,
-      scenario_value: item.scenario_value,
-      absolute_delta: item.absolute_delta,
-      percent_delta: item.percent_delta as number | null,
-      baseline_rank: item.baseline_rank,
-      scenario_rank: item.scenario_rank,
-      rank_change: item.rank_change,
-      historical_retention_rate: item.historical_retention_rate as number | null,
-      scenario_retention_rate: item.scenario_retention_rate as number | null,
-    }
-  })
-  const trajectory = array(raw.trajectory, 11).map(item => {
-    if (!isObject(item) || !isNumber(item.year) || !isNumber(item.baseline_value) ||
-        !isNumber(item.scenario_value) || !isNumber(item.absolute_delta)) throw new ContractError()
-    return {
-      year: item.year,
-      baseline_value: item.baseline_value,
-      scenario_value: item.scenario_value,
-      absolute_delta: item.absolute_delta,
-    }
-  })
-  const evidence = array(raw.evidence, 20).map(item => {
-    if (!isObject(item) || !scenarioEvidenceKinds.includes(item.kind as ScenarioEvidenceKind) ||
-        !isText(item.label, 240) || !isText(item.detail, 2000) || !optionalText(item.source_url, 1000)) {
-      throw new ContractError()
-    }
-    return {
-      kind: item.kind as ScenarioEvidenceKind,
-      label: item.label,
-      detail: item.detail,
-      source_url: (item.source_url as string | undefined) ?? null,
-    }
-  })
-  return {
-    metric_code: raw.metric_code,
-    observed_period: raw.observed_period,
-    target_year: raw.target_year,
-    baseline_method: raw.baseline_method,
-    age_lower: raw.age_lower,
-    age_upper: raw.age_upper,
-    balance_mode: raw.balance_mode as PopulationBalanceMode,
-    baseline_total: raw.baseline_total,
-    scenario_total: raw.scenario_total,
-    total_delta: raw.total_delta,
-    population_conserved: raw.population_conserved,
-    rows,
-    trajectory,
-    evidence,
-    assumptions: textList(raw.assumptions, 20),
-    warnings: textList(raw.warnings, 20),
-    generated_at: raw.generated_at,
-  }
-}
-
 function parseDistrictOverview(raw: unknown): DistrictOverview {
   if (!isObject(raw) || !isText(raw.datasetId, 200) || !isText(raw.datasetVersion, 200) ||
       !isText(raw.districtCode, 4) || !optionalText(raw.districtName, 120) ||
@@ -921,14 +776,6 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         },
       ))
       return parseDistrictOverview(raw)
-    },
-
-    /** POST /copilot/what-if — deterministic baseline/scenario comparison. */
-    async whatIf(
-      request: YouthPopulationScenarioRequest,
-      signal: AbortSignal,
-    ): Promise<YouthPopulationScenarioResult> {
-      return parseScenarioResponse(await send('/copilot/what-if', request, signal))
     },
 
     /** GET /copilot/capabilities — the exact tools this runtime advertises. */

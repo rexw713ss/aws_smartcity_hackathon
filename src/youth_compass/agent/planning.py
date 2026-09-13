@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from youth_compass.agent.contracts import (
     AnalysisOperation,
     DecomposedQuery,
+    Decomposition,
+    DecompositionSource,
     QuestionFocus,
     RoutedToolPlan,
     RoutedToolStep,
@@ -22,8 +24,8 @@ from youth_compass.ports import ModelProvider, ModelRequest
 class QueryDecomposer(Protocol):
     """Turn a question into generic, schema-validated analysis operations."""
 
-    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
-        """Return a decomposition without executing any tool."""
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> Decomposition:
+        """Return a decomposition and its provenance, executing no tool."""
         ...
 
 
@@ -31,30 +33,31 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class DeterministicQueryDecomposer:
-    """Offline decomposition for common discovery, analysis, and decision shapes."""
+    """The keyword-table fallback: recognizes question shapes someone wrote down.
 
-    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
-        normalized = " ".join(question.casefold().split())
-        decision = _contains(
-            normalized,
-            "mua nhà",
-            "nhà ở đâu",
-            "buy a home",
-            "buy house",
-            "home buying",
-            "housing location",
-            "買房",
-            "購屋",
-            "trụ sạc",
-            "trạm sạc",
-            "tru sac",
-            "tram sac",
-            "ev charger",
-            "charging station",
-            "charger placement",
-            "充電站",
-            "充電樁",
+    This is the safety net behind ``ModelQueryDecomposer``, not the primary path.
+    It matches curated cues in English, Vietnamese, and Traditional Chinese, so
+    it answers the shapes it was taught and asks for clarification on everything
+    else. That property is exactly why it cannot be the main route: adding a new
+    question shape means adding cues in three languages, and it is most brittle
+    at the point where phrasing varies most.
+
+    It stays because a decomposer that fails takes the whole turn with it. When
+    the model provider is unavailable, matching keywords is a better answer than
+    an error, and the ``Decomposition.source`` it reports makes the downgrade
+    visible instead of silent.
+    """
+
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> Decomposition:
+        return Decomposition(
+            query=self._decompose(question, entity_ids),
+            source=DecompositionSource.KEYWORD_TABLE,
         )
+
+    def _decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
+        normalized = " ".join(question.casefold().split())
+        decision_profile = _decision_profile(normalized)
+        decision = decision_profile is not None
         compare = _contains(
             normalized, "compare", "so sánh", "khác nhau", "versus", " vs ", "比較", "相比"
         )
@@ -180,9 +183,63 @@ class DeterministicQueryDecomposer:
             time_expression=_time_expression(normalized),
             operations=tuple(operations),
             focus=focus,
+            # Only a plan that actually ranks candidates carries a profile. A web
+            # or scenario question can mention a home without asking for one.
+            decision_profile=(
+                decision_profile if AnalysisOperation.RANK_CANDIDATES in operations else None
+            ),
             needs_clarification=needs_clarification,
             clarification_question=clarification_question,
         )
+
+
+# The decision profiles the keyword table can recognize, and the cues that name
+# them. Ordered, so a question naming both subjects resolves to the first listed
+# rather than to whichever dict iteration happened to reach first.
+_PROFILE_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "home_buying",
+        (
+            "mua nhà",
+            "nha o dau",
+            "nhà ở đâu",
+            "home buying",
+            "buy a home",
+            "buy house",
+            "housing location",
+            "買房",
+            "購屋",
+        ),
+    ),
+    (
+        "ev_charger_placement",
+        (
+            "trụ sạc",
+            "trạm sạc",
+            "tru sac",
+            "tram sac",
+            "ev charger",
+            "charging station",
+            "charger placement",
+            "充電站",
+            "充電樁",
+        ),
+    ),
+)
+
+
+def _decision_profile(normalized: str) -> str | None:
+    """Name the registered decision profile a question asks to run, or None."""
+
+    for profile_code, cues in _PROFILE_CUES:
+        if _contains(normalized, *cues):
+            return profile_code
+    return None
+
+
+#: Profile codes a decomposer may propose. Whether one is registered in a given
+#: runtime is the profile registry's call, not the decomposer's.
+KNOWN_DECISION_PROFILES: tuple[str, ...] = tuple(code for code, _ in _PROFILE_CUES)
 
 
 _OBSERVATION_AUDIT = (
@@ -350,7 +407,11 @@ class ModelQueryDecomposer:
     """Schema-constrained decomposer for a Bedrock-backed ModelProvider."""
 
     def __init__(
-        self, provider: ModelProvider, capabilities: "ToolCapabilityRegistry | None" = None
+        self,
+        provider: ModelProvider,
+        capabilities: "ToolCapabilityRegistry | None" = None,
+        *,
+        allowed_profiles: tuple[str, ...] = KNOWN_DECISION_PROFILES,
     ) -> None:
         self._provider = provider
         # The operation glossary is read from the registry the router will search,
@@ -359,8 +420,9 @@ class ModelQueryDecomposer:
         # discover_sources (external sources) over search_catalog (already
         # published), or omitting explain_lineage entirely.
         self._capabilities = capabilities
+        self._allowed_profiles = frozenset(allowed_profiles)
 
-    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> Decomposition:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
@@ -383,6 +445,11 @@ class ModelQueryDecomposer:
                     "simulate_scenario and assess_capacity before discover_sources or "
                     "recommend_investment. "
                     "End with explain_lineage whenever the answer will cite evidence.\n"
+                    "Set `decision_profile` only when the question asks where to site or "
+                    "choose something and rank_candidates is in `operations`. It must be "
+                    "exactly one of: "
+                    + (", ".join(sorted(self._allowed_profiles)) or "(none registered)")
+                    + ". Never invent a profile name; leave it null when none applies.\n"
                     "Set `needs_clarification` only when the question names no analysable "
                     "subject at all. A question that names a subject and a period is "
                     "answerable: decompose it and let the downstream tools report whatever "
@@ -402,8 +469,23 @@ class ModelQueryDecomposer:
             decomposition = DecomposedQuery.model_validate_json(response.text)
         except ValidationError as exc:
             raise ModelInvocationError("model returned an invalid query decomposition") from exc
-        return decomposition.model_copy(
-            update={"original_question": question, "entity_ids": entity_ids}
+        # An unregistered profile is dropped rather than executed. Naming a
+        # profile is the one field where a plausible invention would otherwise
+        # reach the scoring engine, so the allowlist is enforced here and again
+        # against the live registry before anything is ranked.
+        profile = decomposition.decision_profile
+        if profile is not None and profile not in self._allowed_profiles:
+            _LOGGER.warning("model proposed an unregistered decision profile: %s", profile)
+            profile = None
+        return Decomposition(
+            query=decomposition.model_copy(
+                update={
+                    "original_question": question,
+                    "entity_ids": entity_ids,
+                    "decision_profile": profile,
+                }
+            ),
+            source=DecompositionSource.MODEL,
         )
 
     def _operation_glossary(self) -> str:
@@ -429,20 +511,26 @@ class ModelQueryDecomposer:
 
 
 class FallbackQueryDecomposer:
-    """Use a deterministic decomposer when the configured model is unavailable."""
+    """Use the keyword table only when the primary decomposer cannot answer.
+
+    The fallback records why it fired on the ``Decomposition`` it returns, which
+    is what makes the downgrade auditable. A model provider that is throttled,
+    misconfigured, or returning malformed JSON otherwise looks identical to a
+    working one: the answers stay grounded and correctly cited, they are just
+    planned by keyword matching, and nothing in the response says so.
+    """
 
     def __init__(self, primary: QueryDecomposer, fallback: QueryDecomposer) -> None:
         self._primary = primary
         self._fallback = fallback
 
-    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> DecomposedQuery:
+    async def decompose(self, question: str, entity_ids: tuple[str, ...]) -> Decomposition:
         try:
             return await self._primary.decompose(question, entity_ids)
         except ModelInvocationError as exc:
-            # Visible in the logs as well as the trace: a misconfigured provider
-            # otherwise degrades silently into keyword matching.
-            _LOGGER.warning("query decomposer fell back to the deterministic path: %s", exc)
-            return await self._fallback.decompose(question, entity_ids)
+            _LOGGER.warning("query decomposer fell back to the keyword table: %s", exc)
+            degraded = await self._fallback.decompose(question, entity_ids)
+            return degraded.model_copy(update={"degraded_reason": str(exc)[:300]})
 
 
 class ToolCapabilityRegistry:
@@ -690,13 +778,34 @@ def _subject_terms(text: str) -> tuple[str, ...]:
     )
 
 
+_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
+    "population_count": ("population", "dân số", "人口", "青年人口"),
+    "employment_count": ("employment", "việc làm", "就業"),
+    "unemployment_count": ("unemployment", "thất nghiệp", "失業"),
+}
+
+
 def _metric_terms(text: str) -> tuple[str, ...]:
-    aliases = {
-        "population_count": ("population", "dân số", "人口", "青年人口"),
-        "employment_count": ("employment", "việc làm", "就業"),
-        "unemployment_count": ("unemployment", "thất nghiệp", "失業"),
-    }
-    return tuple(metric for metric, terms in aliases.items() if any(term in text for term in terms))
+    """Name the canonical metrics a question asks for, matching whole words only.
+
+    Substring matching cannot be used here: "employment" sits inside
+    "unemployment", so "youth unemployment by district" claimed both metrics, and
+    a downstream selector offered a choice the question never gave it. Latin
+    aliases therefore need a word boundary on both sides. CJK aliases keep plain
+    containment because those scripts are written without word separators.
+    """
+
+    return tuple(
+        metric
+        for metric, terms in _METRIC_ALIASES.items()
+        if any(_names_metric(text, term) for term in terms)
+    )
+
+
+def _names_metric(text: str, term: str) -> bool:
+    if any("\u3400" <= character <= "\u9fff" for character in term):
+        return term in text
+    return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text) is not None
 
 
 def _time_expression(text: str) -> str | None:

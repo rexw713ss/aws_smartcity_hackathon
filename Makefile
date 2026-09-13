@@ -22,8 +22,8 @@ dashboard:  ## Run the temporary Streamlit dashboard on port 8501
 demo-features:  ## Materialize an offline feature snapshot for the copilot demo
 	uv run python -m scripts.materialize_demo_features
 
-agent-evals:  ## Evaluate query decomposition and smart tool routing offline
-	uv run python -m scripts.run_agent_evals
+agent-evals:  ## Grade planning and answers offline (routing + answer suites)
+	uv run python -m scripts.run_agent_evals --suite all
 
 hackathon-bootstrap:  ## Empty account to verified stack (creds). ASSUME_YES=1 to skip prompt
 	uv run python -m scripts.aws_bootstrap $(if $(ASSUME_YES),--assume-yes,)

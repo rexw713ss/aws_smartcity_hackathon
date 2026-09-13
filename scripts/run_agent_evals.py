@@ -1,4 +1,12 @@
-"""Run routing evals offline or against the configured Bedrock model."""
+"""Run agent evals offline or against the configured Bedrock model.
+
+Two suites, because they answer different questions. `routing` grades the plan:
+did the question decompose into the right operations and reach the right tools.
+`answers` runs the whole agent over the local data root and grades the turn a
+user would actually read — status, numbers, citations, language, caveats, and
+charts. A plan can be perfect and the answer still wrong, so neither suite
+substitutes for the other.
+"""
 
 import argparse
 import asyncio
@@ -6,12 +14,14 @@ from pathlib import Path
 
 from youth_compass.agent import (
     AgentEvalHarness,
+    AnswerEvalHarness,
     DeterministicQueryDecomposer,
     ModelQueryDecomposer,
     QueryDecomposer,
     SmartToolRouter,
     ToolCapabilityRegistry,
     default_decision_capabilities,
+    load_answer_eval_cases,
     load_eval_cases,
     register_acquisition_capabilities,
     register_forecast_capabilities,
@@ -24,16 +34,57 @@ from youth_compass.domain import ConfigurationError
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=Path, default=Path("evals/agent-routing.jsonl"))
+    parser.add_argument("--suite", choices=("routing", "answers", "all"), default="routing")
+    parser.add_argument("--cases", type=Path, default=None)
     parser.add_argument("--provider", choices=("deterministic", "bedrock"), default="deterministic")
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("data"),
+        help="Local data root the answer suite reads published datasets from.",
+    )
     args = parser.parse_args()
-    cases = load_eval_cases(args.cases)
-    registry = _eval_capabilities()
-    decomposer = _decomposer(args.provider, registry)
-    report = asyncio.run(AgentEvalHarness(decomposer, SmartToolRouter(registry)).run(cases))
-    print(report.model_dump_json(indent=2))
-    if report.failed:
+    failed = 0
+    if args.suite in ("routing", "all"):
+        failed += _run_routing(args.cases or Path("evals/agent-routing.jsonl"), args.provider)
+    if args.suite in ("answers", "all"):
+        failed += _run_answers(args.cases or Path("evals/agent-answers.jsonl"), args.data_root)
+    if failed:
         raise SystemExit(1)
+
+
+def _run_routing(cases_path: Path, provider: str) -> int:
+    cases = load_eval_cases(cases_path)
+    registry = _eval_capabilities()
+    decomposer = _decomposer(provider, registry)
+    report = asyncio.run(AgentEvalHarness(decomposer, SmartToolRouter(registry)).run(cases))
+    print("== routing ==")
+    print(report.model_dump_json(indent=2))
+    return report.failed
+
+
+def _run_answers(cases_path: Path, data_root: Path) -> int:
+    """Run every case through the same service the API serves."""
+
+    # Imported here so the routing suite stays runnable without the API layer.
+    from apps.api.dependencies import LocalRuntime
+
+    cases = load_answer_eval_cases(cases_path)
+    runtime = LocalRuntime(data_root)
+    report = asyncio.run(AnswerEvalHarness(runtime.copilot()).run(cases))
+    print("== answers ==")
+    for result in report.results:
+        mark = "PASS" if result.passed else "FAIL"
+        print(f"  [{mark}] {result.case_id}")
+        if result.error:
+            print(f"         crashed: {result.error}")
+        for failure in result.failures:
+            print(f"         {failure}")
+    print(
+        f"  {report.passed}/{report.total} passed"
+        + (f"; weakest: {', '.join(report.failing_dimensions)}" if report.failed else "")
+    )
+    return report.failed
 
 
 def _eval_capabilities() -> ToolCapabilityRegistry:

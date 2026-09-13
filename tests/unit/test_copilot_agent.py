@@ -8,13 +8,14 @@ import pytest
 
 from youth_compass.acquisition import DataAcquisitionService
 from youth_compass.agent import (
+    AnalysisOperation,
     AnswerCompositionContext,
     ComposedAnswer,
     ConversationContext,
     CopilotStatus,
-    DeterministicCopilotPlanner,
+    DeterministicQueryDecomposer,
     GroundedCopilotService,
-    ModelCopilotPlanner,
+    ModelQueryDecomposer,
 )
 from youth_compass.decisioning import (
     DEFAULT_DECISION_PROFILES,
@@ -144,6 +145,10 @@ def test_home_question_ranks_with_citations_and_no_storage_uri_leak() -> None:
     }
     assert [trace.tool for trace in response.tool_trace] == [
         "query_decomposer",
+        # The single classifier proposes a profile name; the registry decides
+        # whether this runtime has it. That check is recorded because it is the
+        # step that can refuse an otherwise well-formed decision question.
+        "resolve_decision_profile",
         "search_catalog",
         "get_features",
         "rank_candidates",
@@ -301,25 +306,80 @@ def test_missing_or_low_quality_data_refuses_to_rank() -> None:
     assert provider.queries[0].min_quality_score == 0.8
 
 
-def test_model_planner_is_schema_constrained_and_profile_allowlisted() -> None:
-    provider = StaticModelProvider('{"profile_code":"home_buying","entity_ids":["model-invented"]}')
-    planner = ModelCopilotPlanner(provider)
+def test_a_decision_profile_this_runtime_lacks_is_refused_not_ranked() -> None:
+    """The registry is the last word on which profiles exist.
 
-    intent = asyncio.run(planner.plan("Help me choose a home", ("banqiao",)))
+    A single classifier means the profile name arrives with the plan rather than
+    from a second model call that already checked an allowlist. The runtime must
+    therefore still verify it, and say so: a deployment that registered no
+    charger profile has to refuse a charger question rather than rank it with
+    whatever profile it does have.
+    """
 
-    assert intent is not None
-    assert intent.profile_code == "home_buying"
-    assert intent.entity_ids == ("banqiao",)
+    provider = StaticFeatureProvider(())
+    service = GroundedCopilotService(
+        feature_provider=provider,
+        feature_registry=FeatureRegistry(DEFAULT_FEATURES),
+        profile_registry=DecisionProfileRegistry(
+            tuple(
+                item
+                for item in DEFAULT_DECISION_PROFILES
+                if item.profile_code != "ev_charger_placement"
+            )
+        ),
+    )
+
+    response = asyncio.run(service.answer("Nên đặt trụ sạc xe ở đâu?"))
+
+    assert response.status is CopilotStatus.UNSUPPORTED_QUESTION
+    assert response.decomposition is not None
+    assert response.decomposition.decision_profile == "ev_charger_placement"
+    assert response.candidates == ()
+    assert provider.queries == [], "no feature was retrieved for an unrunnable profile"
+    refusal = next(item for item in response.tool_trace if item.tool == "resolve_decision_profile")
+    assert refusal.outcome == "unsupported"
+    assert "ev_charger_placement" in refusal.summary
+    assert "home_buying" in refusal.summary
+
+
+def test_the_decomposer_classifies_the_decision_profile_and_keeps_user_scope() -> None:
+    """One classifier names the profile, and it cannot overwrite the caller's scope."""
+
+    provider = StaticModelProvider(
+        """{
+          "original_question": "model rewrite",
+          "objective": "rank candidates for a location decision",
+          "operations": ["search_catalog", "get_features", "rank_candidates"],
+          "decision_profile": "home_buying",
+          "entity_ids": ["model-invented"]
+        }"""
+    )
+
+    planned = asyncio.run(
+        ModelQueryDecomposer(provider).decompose("Help me choose a home", ("banqiao",))
+    )
+
+    assert planned.query.decision_profile == "home_buying"
+    assert planned.query.entity_ids == ("banqiao",)
     assert provider.requests[0].temperature == 0
     assert provider.requests[0].response_schema is not None
 
 
-def test_model_planner_rejects_unregistered_profile() -> None:
-    provider = StaticModelProvider('{"profile_code":"secret_admin_tool","entity_ids":[]}')
+def test_the_decomposer_drops_a_decision_profile_outside_the_allowlist() -> None:
+    """A profile name is the one field where a plausible invention would execute."""
 
-    intent = asyncio.run(ModelCopilotPlanner(provider).plan("Do something", ()))
+    provider = StaticModelProvider(
+        """{
+          "original_question": "ignored",
+          "objective": "rank candidates",
+          "operations": ["search_catalog", "get_features", "rank_candidates"],
+          "decision_profile": "secret_admin_tool"
+        }"""
+    )
 
-    assert intent is None
+    planned = asyncio.run(ModelQueryDecomposer(provider).decompose("Do something", ()))
+
+    assert planned.query.decision_profile is None
 
 
 @pytest.mark.parametrize(
@@ -347,10 +407,17 @@ def test_model_planner_rejects_unregistered_profile() -> None:
         ("Write arbitrary SQL", None),
     ],
 )
-def test_deterministic_planner_evaluation_set(question: str, expected: str | None) -> None:
-    intent = asyncio.run(DeterministicCopilotPlanner().plan(question, ()))
+def test_keyword_decomposer_decision_profile_evaluation_set(
+    question: str, expected: str | None
+) -> None:
+    """The profile now rides on the decomposition instead of a parallel intent."""
 
-    assert (intent.profile_code if intent else None) == expected
+    decomposition = asyncio.run(DeterministicQueryDecomposer().decompose(question, ())).query
+
+    assert decomposition.decision_profile == expected
+    # A profile and a ranking plan must agree: the profile is what the ranking
+    # executes, so one without the other is a plan nothing can run.
+    assert (AnalysisOperation.RANK_CANDIDATES in decomposition.operations) is (expected is not None)
 
 
 class FailingConversationStore:

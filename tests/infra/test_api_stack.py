@@ -227,17 +227,19 @@ class TestStreamingFunctionUrl:
             },
         )
 
-    def test_the_default_stage_is_throttled(self, template: Template) -> None:
-        # The copilot route is public and each call can invoke Bedrock twice,
-        # so a burst must be rejected at the edge rather than billed.
+    def test_concurrency_is_capped_because_a_function_url_has_no_edge_throttle(
+        self, template: Template
+    ) -> None:
+        # The copilot route is public and each call can invoke Bedrock twice, so
+        # unbounded parallelism spends real money before the budget alarm fires.
+        # A Function URL has no stage and therefore no request-rate throttle, so
+        # reserved concurrency is the only cap available here. Asserting it keeps
+        # someone from removing the cap while assuming an edge limit still exists.
         template.has_resource_properties(
-            "AWS::ApiGatewayV2::Stage",
-            {
-                "DefaultRouteSettings": {
-                    "ThrottlingBurstLimit": api_module._API_THROTTLE_BURST,
-                    "ThrottlingRateLimit": api_module._API_THROTTLE_RATE_PER_SECOND,
-                }
-            },
+            "AWS::Lambda::Function",
+            Match.object_like(
+                {"ReservedConcurrentExecutions": api_module._API_RESERVED_CONCURRENCY}
+            ),
         )
 
     def test_publishes_the_base_url_and_site_url(self, template: Template) -> None:

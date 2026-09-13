@@ -24,6 +24,18 @@ ACCESS_KEY = re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")
 _GENERATED_DIRECTORIES = ("cdk.out", "build", "__pycache__")
 
 
+# AWS-owned accounts that publish public managed layers. These are documented
+# addresses of someone else's account, not ours: they are how a layer ARN is
+# constructed at all, they carry no access to this deployment, and pulling them
+# into configuration would only move a published constant somewhere less
+# reviewable. The guard exists to stop *our* account id from being committed, so
+# each of these is allowlisted individually with the layer it identifies.
+_PUBLIC_AWS_LAYER_ACCOUNTS = {
+    # awslabs/aws-lambda-web-adapter, us-east-1 layer publisher.
+    "753240598075",
+}
+
+
 def _is_generated(path: Path) -> bool:
     return any(part in _GENERATED_DIRECTORIES for part in path.parts)
 
@@ -41,7 +53,8 @@ def test_no_twelve_digit_account_id_under_scripts_and_infra() -> None:
     findings: list[str] = []
     for path in _py_files("scripts", "infra"):
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if ACCOUNT_ID.search(line):
+            found = set(ACCOUNT_ID.findall(line))
+            if found - _PUBLIC_AWS_LAYER_ACCOUNTS:
                 findings.append(f"{path.relative_to(ROOT)}:{lineno}")
     assert not findings, "12-digit account ids found at:\n" + "\n".join(findings)
 

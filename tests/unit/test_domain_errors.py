@@ -21,6 +21,7 @@ EXPECTED_SUBCLASSES = (
     "SourceAcquisitionError",
     "SourceNormalizationError",
     "TrainingRejectedError",
+    "WebSearchError",
     "WorkflowNotFoundError",
     "WorkflowPersistenceError",
     "WorkflowStateError",

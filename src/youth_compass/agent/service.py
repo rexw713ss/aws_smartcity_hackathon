@@ -29,6 +29,8 @@ from youth_compass.agent.contracts import (
     CopilotResponse,
     CopilotStatus,
     DecomposedQuery,
+    Decomposition,
+    DecompositionSource,
     RoutedToolPlan,
     ToolCapability,
     ToolTrace,
@@ -41,14 +43,11 @@ from youth_compass.agent.conversation import (
     new_session_id,
 )
 from youth_compass.agent.decision_answering import DecisionAnswering
+from youth_compass.agent.grounding import quarantine
 from youth_compass.agent.impact import answer_impact_scenario
 from youth_compass.agent.limitations import DataLimitationsBuilder
 from youth_compass.agent.observation_answering import ObservationAnswering
 from youth_compass.agent.observation_tools import ObservationToolSuite
-from youth_compass.agent.planner import (
-    CopilotPlanner,
-    DeterministicCopilotPlanner,
-)
 from youth_compass.agent.planning import (
     DeterministicQueryDecomposer,
     QueryDecomposer,
@@ -96,7 +95,6 @@ class GroundedCopilotService:
         feature_provider: FeatureProvider,
         feature_registry: FeatureRegistry,
         profile_registry: DecisionProfileRegistry,
-        planner: CopilotPlanner | None = None,
         decomposer: QueryDecomposer | None = None,
         capabilities: ToolCapabilityRegistry | None = None,
         observation_tools: ObservationToolSuite | None = None,
@@ -113,8 +111,8 @@ class GroundedCopilotService:
     ) -> None:
         if not 1 <= web_search_result_limit <= 10:
             raise ValueError("web_search_result_limit must be between 1 and 10")
-        self._planner = planner or DeterministicCopilotPlanner()
         self._decomposer = decomposer or DeterministicQueryDecomposer()
+        self._profiles = profile_registry
         self._conversation_store = conversation_store
         self._conversation_resolver = conversation_resolver or ConversationContextResolver()
         self._scenario_service = scenario_service
@@ -184,19 +182,19 @@ class GroundedCopilotService:
         if self._conversation_store is not None:
             active_session_id = active_session_id or new_session_id()
             previous = self._read_context(active_session_id)
-        initial = await self._decomposer.decompose(question, requested_entities)
+        planned = await self._decomposer.decompose(question, requested_entities)
         # Scope from the question before session scope is applied: a district
         # the person just named must win over the one carried by the session.
-        initial, question_scope = _scope_from_question(question, initial)
+        initial, question_scope = _scope_from_question(question, planned.query)
         decomposition, context_applied = self._conversation_resolver.resolve(
             question, initial, previous
         )
         response = await self._execute(
             question,
             now=now,
-            requested_entities=decomposition.entity_ids,
             min_quality_score=min_quality_score,
             decomposition=decomposition,
+            provenance=planned,
             context_applied=context_applied,
             question_scope=question_scope,
             on_text=on_text,
@@ -247,9 +245,9 @@ class GroundedCopilotService:
         question: str,
         *,
         now: datetime,
-        requested_entities: tuple[str, ...],
         min_quality_score: float,
         decomposition: DecomposedQuery,
+        provenance: Decomposition | None = None,
         context_applied: bool,
         question_scope: tuple[str, ...] = (),
         on_text: Callable[[str], Awaitable[None]] | None = None,
@@ -257,17 +255,32 @@ class GroundedCopilotService:
         """Execute one already-resolved decomposition without reading session state."""
 
         routed_plan = self._router.route(decomposition)
-        intent = await self._planner.plan(question, requested_entities)
+        source = (
+            provenance.source.value if provenance is not None else DecompositionSource.MODEL.value
+        )
         trace = [
             ToolTrace(
                 tool="query_decomposer",
                 outcome="clarification" if decomposition.needs_clarification else "decomposed",
                 summary=(
-                    f"{decomposition.objective}: "
+                    f"planned by {source} — {decomposition.objective}: "
                     f"{', '.join(item.value for item in decomposition.operations)}"
                 ),
             )
         ]
+        # A plan produced by the fallback is a different plan, so the reason the
+        # primary decomposer was skipped belongs in the audit trail beside it.
+        if provenance is not None and provenance.degraded_reason is not None:
+            trace.append(
+                ToolTrace(
+                    tool="query_decomposer",
+                    outcome="degraded",
+                    summary=(
+                        "the primary decomposer was unavailable and the keyword table "
+                        f"planned this turn instead: {provenance.degraded_reason}"
+                    ),
+                )
+            )
         if AnalysisOperation.SEARCH_TOOLS in decomposition.operations:
             matched_tools = self._capabilities.search(decomposition.operations)
             trace.append(
@@ -295,86 +308,120 @@ class GroundedCopilotService:
                     summary="filled omitted scope from the previous structured turn",
                 )
             )
-        if (
-            AnalysisOperation.SEARCH_WEB in decomposition.operations
-            and self._web_search is not None
-            and routed_plan.executable
-        ):
-            return await self._answer_web_search(
-                now,
-                decomposition,
-                routed_plan,
-                trace,
-                on_text=on_text,
-            )
-        if intent is None:
-            if AnalysisOperation.SIMULATE_SCENARIO in decomposition.operations:
-                return answer_impact_scenario(
-                    now,
-                    decomposition,
-                    routed_plan,
-                    trace,
-                    scenarios=self._scenario_service,
-                    support=self._support,
-                )
-            missing_capabilities = tuple(item.value for item in routed_plan.missing_operations)
-            if decomposition.needs_clarification:
-                answer = decomposition.clarification_question or "Please clarify the analysis goal."
-                response_status = CopilotStatus.UNSUPPORTED_QUESTION
-                response_warnings = ("No data tool was executed before clarification.",)
-            elif missing_capabilities:
-                answer = (
-                    "I understood the requested analysis, but this runtime is missing the "
-                    f"following validated capabilities: {', '.join(missing_capabilities)}."
-                )
-                response_status = CopilotStatus.INSUFFICIENT_DATA
-                response_warnings = (
-                    "The router failed closed; no partial conclusion was produced.",
-                )
-            elif (
-                self._observations is not None
-                and AnalysisOperation.INSPECT_DATASET in decomposition.operations
-            ):
-                return await self._observations.answer(
-                    now,
-                    decomposition,
-                    routed_plan,
-                    trace,
-                    min_quality_score=min_quality_score,
-                    on_text=on_text,
-                )
-            else:
-                answer = "No registered decision profile can safely execute this question."
-                response_status = CopilotStatus.UNSUPPORTED_QUESTION
-                response_warnings = ("No data query or ranking was executed.",)
+        # One decomposition, one dispatch. Everything below reads the same
+        # classification: the two refusals that apply to every shape of question
+        # come first, then the operations select which pipeline runs.
+        if decomposition.needs_clarification:
             return CopilotResponse(
-                status=response_status,
-                answer=answer,
+                status=CopilotStatus.UNSUPPORTED_QUESTION,
+                answer=decomposition.clarification_question or "Please clarify the analysis goal.",
                 generated_at=now,
                 decomposition=decomposition,
                 routed_plan=routed_plan,
                 tool_trace=tuple(trace),
-                warnings=response_warnings,
+                warnings=("No data tool was executed before clarification.",),
             )
-
         if not routed_plan.executable:
-            missing_summary = ", ".join(item.value for item in routed_plan.missing_operations)
+            missing = ", ".join(item.value for item in routed_plan.missing_operations)
             return CopilotResponse(
                 status=CopilotStatus.INSUFFICIENT_DATA,
                 answer=(
-                    f"The validated plan cannot run because tools are missing: {missing_summary}."
+                    "I understood the requested analysis, but this runtime is missing the "
+                    f"following validated capabilities: {missing}."
                 ),
+                generated_at=now,
+                decomposition=decomposition,
+                routed_plan=routed_plan,
+                tool_trace=tuple(trace),
+                warnings=("The router failed closed; no partial conclusion was produced.",),
+            )
+        operations = decomposition.operations
+        if AnalysisOperation.SEARCH_WEB in operations and self._web_search is not None:
+            return await self._answer_web_search(
+                now, decomposition, routed_plan, trace, on_text=on_text
+            )
+        if AnalysisOperation.SIMULATE_SCENARIO in operations:
+            return answer_impact_scenario(
+                now,
+                decomposition,
+                routed_plan,
+                trace,
+                scenarios=self._scenario_service,
+                support=self._support,
+            )
+        if AnalysisOperation.RANK_CANDIDATES in operations:
+            return await self._answer_decision(
+                now, decomposition, routed_plan, trace, min_quality_score, on_text
+            )
+        if self._observations is not None and AnalysisOperation.INSPECT_DATASET in operations:
+            return await self._observations.answer(
+                now,
+                decomposition,
+                routed_plan,
+                trace,
+                min_quality_score=min_quality_score,
+                on_text=on_text,
+            )
+        return CopilotResponse(
+            status=CopilotStatus.UNSUPPORTED_QUESTION,
+            answer="No registered analysis can safely execute this question.",
+            generated_at=now,
+            decomposition=decomposition,
+            routed_plan=routed_plan,
+            tool_trace=tuple(trace),
+            warnings=("No data query or ranking was executed.",),
+        )
+
+    async def _answer_decision(
+        self,
+        now: datetime,
+        decomposition: DecomposedQuery,
+        routed_plan: RoutedToolPlan,
+        trace: list[ToolTrace],
+        min_quality_score: float,
+        on_text: Callable[[str], Awaitable[None]] | None,
+    ) -> CopilotResponse:
+        """Rank a registered profile, refusing when the named one is not registered.
+
+        The decomposer proposes a profile name; only the registry knows which
+        names exist in this runtime. Checking here is what keeps a plausible
+        invention from reaching the scoring engine, and it is also the honest
+        answer to a real decision question the deployment cannot serve.
+        """
+
+        profile_code = decomposition.decision_profile
+        registered = {item.profile_code for item in self._profiles.list()}
+        if profile_code is None or profile_code not in registered:
+            trace.append(
+                ToolTrace(
+                    tool="resolve_decision_profile",
+                    outcome="unsupported",
+                    summary=(
+                        f"no registered profile named {profile_code!r}; "
+                        f"registered: {', '.join(sorted(registered)) or 'none'}"
+                    ),
+                )
+            )
+            return CopilotResponse(
+                status=CopilotStatus.UNSUPPORTED_QUESTION,
+                answer="No registered decision profile can safely execute this question.",
                 generated_at=now,
                 decomposition=decomposition,
                 routed_plan=routed_plan,
                 tool_trace=tuple(trace),
                 warnings=("No data query or ranking was executed.",),
             )
-
+        trace.append(
+            ToolTrace(
+                tool="resolve_decision_profile",
+                outcome="ok",
+                summary=f"matched the question to registered profile {profile_code}",
+            )
+        )
         return await self._decisions.rank(
-            question,
+            decomposition.original_question,
             now=now,
-            intent=intent,
+            profile_code=profile_code,
             decomposition=decomposition,
             routed_plan=routed_plan,
             trace=trace,
@@ -454,8 +501,23 @@ class GroundedCopilotService:
             AnswerCompositionContext(
                 question=decomposition.original_question,
                 analysis_type="web_search",
+                # Titles and snippets are written by whoever owns the page. This
+                # is the most plainly attacker-controlled text in the system, so
+                # it is quarantined the same way catalog text is.
                 grounded_facts_json=grounded_json(
-                    {"results": [item.model_dump(mode="json") for item in citations]}
+                    {
+                        "results": [
+                            {
+                                "citation_id": item.citation_id,
+                                "title": quarantine(item.title),
+                                "snippet": quarantine(item.snippet),
+                                "published_at": (
+                                    item.published_at.isoformat() if item.published_at else None
+                                ),
+                            }
+                            for item in citations
+                        ]
+                    }
                 ),
                 allowed_citation_ids=tuple(item.citation_id for item in citations),
                 fallback_answer=fallback_answer,
@@ -475,7 +537,6 @@ class GroundedCopilotService:
                 "Web snippets are search-provider excerpts, not curated Youth Compass datasets.",
             ),
         )
-
 
 
 def _web_search_language(question: str) -> str:

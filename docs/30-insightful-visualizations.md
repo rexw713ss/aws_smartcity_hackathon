@@ -156,7 +156,31 @@ built on a flat result passes only when the agent actually declined to plot it.
 
 `grade_visualizations` in `agent/viz_evals.py` scores this from the spec and the profile, with no
 model in the loop, so it runs in CI. `tests/unit/test_viz_evals.py` runs a small suite through the
-production builder. A CLI entry point in `scripts/run_agent_evals.py` is still outstanding.
+production builder.
+
+### The answer suite
+
+Grading the chart alone leaves most of the turn unmeasured, so `agent/answer_evals.py` widens the
+same idea to the whole response, over eight dimensions:
+
+| Dimension | Question |
+|---|---|
+| `status` | Did it answer, or refuse, as the case declared? |
+| `grounding` | Does every number in the prose trace to the evidence attached to it? |
+| `citation` | Are the expected datasets cited, every reference resolvable, and the evidence actually pointed at? |
+| `language` | Is the answer written in the language the question was asked in? |
+| `limitations` | Does an answered turn carry a freshness and coverage audit? |
+| `tool_trace` | Did the tools the case requires actually run? |
+| `visualization` | Did the expected chart appear — or, for `expect_no_chart`, nothing? |
+| `disclosure` | Did any forbidden string (`demo_`, `s3://`, a storage path) reach the reader? |
+
+`grounding` deliberately re-derives its allowed numbers from the response's own evidence rather
+than reusing the composer's allowlist. One implementation checking its own work proves nothing; two
+independent ones disagreeing is a bug report. It also covers the deterministic fallback templates,
+which the composer's guard never sees.
+
+Run it with `python -m scripts.run_agent_evals --suite answers` (or `--suite all`).
+`tests/integration/test_answer_eval_suite.py` runs the same cases in CI.
 
 ## What we take from microsoft/lida, and what we do not
 

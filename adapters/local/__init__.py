@@ -1,7 +1,7 @@
 """Offline adapters for local development and deterministic tests."""
 
-from adapters.local.duckdb_query import DuckDBQueryEngine
 from adapters.local.brave_search import BraveWebSearchProvider
+from adapters.local.duckdb_query import DuckDBQueryEngine
 from adapters.local.feature_store import (
     DuckDBFeatureProvider,
     FeatureMaterializationConflictError,

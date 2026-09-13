@@ -1,0 +1,321 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "One Grounded Turn",
+    "subtitle": "Classify once, route to registered tools, execute the plan that was routed, then narrate only what was retrieved",
+    "output": "docs/diagrams/youth-compass-turn.html",
+    "visual_preset": "signal-flow",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "happy-path",
+        "label": "Question to grounded answer",
+        "focus": [
+          "question",
+          "decompose",
+          "route",
+          "execute",
+          "compose",
+          "answer"
+        ],
+        "note": "One classification drives everything after it. The plan that is routed is the plan that runs."
+      },
+      {
+        "id": "refusals",
+        "label": "Every way this refuses",
+        "focus": [
+          "clarify",
+          "closed",
+          "gap",
+          "fallback"
+        ],
+        "note": "Four separate refusals. None of them guesses, and each says what would make an answer possible."
+      },
+      {
+        "id": "model-boundary",
+        "label": "The two places a model acts",
+        "focus": [
+          "decompose",
+          "compose",
+          "fallback"
+        ],
+        "note": "It chooses from registered operations, then verbalizes retrieved facts. It never supplies a fact."
+      },
+      {
+        "id": "accounting",
+        "label": "What each step cost",
+        "focus": [
+          "execute"
+        ],
+        "note": "Every step records its duration; a query also records the bytes it scanned."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "ui",
+      "label": "Request surface"
+    },
+    {
+      "id": "plan",
+      "label": "Classify + route"
+    },
+    {
+      "id": "exec",
+      "label": "Execute the routed plan"
+    },
+    {
+      "id": "narrate",
+      "label": "Narrate under guard"
+    },
+    {
+      "id": "refuse",
+      "label": "Refuse rather than guess",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "intake",
+      "label": "Intake",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "planning",
+      "label": "One classification",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "delivery",
+      "label": "Narrate + deliver",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "emphasis"
+    }
+  ],
+  "groups": [
+    {
+      "id": "single_classifier",
+      "label": "one classifier",
+      "lane": "plan",
+      "fromCol": 1,
+      "toCol": 2,
+      "variant": "emphasis"
+    },
+    {
+      "id": "plan_execution",
+      "label": "the routed DAG runs",
+      "lane": "exec",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "dashed"
+    },
+    {
+      "id": "guards",
+      "label": "grounding + guards",
+      "lane": "narrate",
+      "fromCol": 4,
+      "toCol": 4,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "question",
+    "decompose",
+    "route",
+    "execute",
+    "compose",
+    "answer"
+  ],
+  "nodes": [
+    {
+      "id": "question",
+      "lane": "ui",
+      "col": 0,
+      "type": "external",
+      "label": "Question",
+      "sublabel": "vi · zh-Hant · en",
+      "width": 130
+    },
+    {
+      "id": "answer",
+      "lane": "ui",
+      "col": 5,
+      "type": "backend",
+      "label": "Grounded Answer",
+      "sublabel": "prose + citations + trace",
+      "width": 130
+    },
+    {
+      "id": "decompose",
+      "lane": "plan",
+      "col": 1,
+      "type": "backend",
+      "label": "Query Decomposer",
+      "sublabel": "model, keyword fallback",
+      "width": 130
+    },
+    {
+      "id": "route",
+      "lane": "plan",
+      "col": 2,
+      "type": "backend",
+      "label": "Smart Tool Router",
+      "sublabel": "registered tools only",
+      "width": 130
+    },
+    {
+      "id": "execute",
+      "lane": "exec",
+      "col": 3,
+      "type": "backend",
+      "label": "Plan Executor",
+      "sublabel": "runs the routed DAG",
+      "width": 130
+    },
+    {
+      "id": "compose",
+      "lane": "narrate",
+      "col": 4,
+      "type": "security",
+      "label": "Answer Composer",
+      "sublabel": "digest in, guards out",
+      "width": 130
+    },
+    {
+      "id": "clarify",
+      "lane": "refuse",
+      "col": 1,
+      "type": "security",
+      "label": "Ask for scope",
+      "sublabel": "no subject named",
+      "width": 130
+    },
+    {
+      "id": "closed",
+      "lane": "refuse",
+      "col": 2,
+      "type": "security",
+      "label": "Capability missing",
+      "sublabel": "names the gap",
+      "width": 130
+    },
+    {
+      "id": "gap",
+      "lane": "refuse",
+      "col": 3,
+      "type": "security",
+      "label": "Data gap",
+      "sublabel": "and how to close it",
+      "width": 130
+    },
+    {
+      "id": "fallback",
+      "lane": "refuse",
+      "col": 4,
+      "type": "messagebus",
+      "label": "Verified template",
+      "sublabel": "a draft was rejected",
+      "width": 130
+    }
+  ],
+  "edges": [
+    {
+      "from": "question",
+      "to": "decompose",
+      "label": "one turn",
+      "variant": "emphasis"
+    },
+    {
+      "from": "decompose",
+      "to": "route",
+      "label": "operations + profile",
+      "variant": "emphasis"
+    },
+    {
+      "from": "route",
+      "to": "execute",
+      "label": "routed plan",
+      "variant": "emphasis"
+    },
+    {
+      "from": "execute",
+      "to": "compose",
+      "label": "retrieved evidence",
+      "variant": "emphasis"
+    },
+    {
+      "from": "compose",
+      "to": "answer",
+      "label": "passes both guards",
+      "variant": "emphasis",
+      "route": "auto"
+    },
+    {
+      "from": "decompose",
+      "to": "clarify",
+      "label": "nothing to analyse",
+      "variant": "security",
+      "role": "error",
+      "route": "auto"
+    },
+    {
+      "from": "route",
+      "to": "closed",
+      "label": "tool not registered",
+      "variant": "security",
+      "role": "error",
+      "route": "auto"
+    },
+    {
+      "from": "execute",
+      "to": "gap",
+      "label": "metric not published",
+      "variant": "security",
+      "role": "error",
+      "route": "auto"
+    },
+    {
+      "from": "compose",
+      "to": "fallback",
+      "label": "draft rejected",
+      "variant": "security",
+      "role": "error",
+      "route": "auto"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "What changed in this refactor",
+      "items": [
+        "One classifier: the decomposition carries the decision profile too",
+        "The routed DAG is executed, not merely described alongside an if-chain",
+        "Each trace entry names the step it came from, its duration, and its bytes"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "The model's two jobs, and their limits",
+      "items": [
+        "Decompose: pick registered operations; an unknown profile is dropped",
+        "Compose: verbalize a digest; inventing a number or citation is rejected",
+        "Data-derived text is flattened and labelled as data, never obeyed"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Refusal is a feature",
+      "items": [
+        "Asking for unpublished unemployment used to return population counts",
+        "It now returns insufficient_data and the metric that would close the gap",
+        "A degraded plan says so instead of looking like a healthy one"
+      ]
+    }
+  ]
+}

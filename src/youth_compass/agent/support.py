@@ -14,6 +14,7 @@ excerpted, which language a fallback narrative is written in).
 
 import json
 import re
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
@@ -213,6 +214,7 @@ class AnswerSupport:
         output. It stays optional because most callers await the whole answer.
         """
 
+        started = time.perf_counter()
         result = (
             await self._composer.compose(context)
             if on_text is None
@@ -223,6 +225,12 @@ class AnswerSupport:
                 tool="answer_composer",
                 outcome=result.mode,
                 summary=(f"composed grounded narrative with {len(result.citation_ids)} citations"),
+                duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
+                # Only the model path reports usage; the deterministic template
+                # leaves these unset rather than claiming zero, so a reader can
+                # tell "free" from "not measured".
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
             )
         )
         return result.answer

@@ -10,6 +10,7 @@ Multi-dataset questions are handed to `youth_compass.agent.multi_dataset`, which
 owns the join.
 """
 
+import asyncio
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -25,12 +26,15 @@ from youth_compass.agent.contracts import (
     EvidenceCitation,
     ObservationSeries,
     RoutedToolPlan,
+    RoutedToolStep,
     ToolTrace,
     VisualizationColumn,
     VisualizationSpec,
     VisualizationType,
 )
 from youth_compass.agent.data_shape import profile_series
+from youth_compass.agent.execution import ExecutionState, PlanExecutor, StepHandler
+from youth_compass.agent.grounding import inspection_digest, series_digest
 from youth_compass.agent.measures import choose_measure
 from youth_compass.agent.multi_dataset import (
     answer_multi_dataset_observations,
@@ -127,35 +131,26 @@ class ObservationAnswering:
                 support=self._support,
                 min_quality_score=min_quality_score,
             )
+        # Retrieval runs the routed plan rather than a parallel `if` chain, so
+        # the steps in `routed_plan.steps`, their declared dependencies, and the
+        # trace entries below are one description of one execution.
+        state = ExecutionState(decomposition=decomposition, min_quality_score=min_quality_score)
+        executor = PlanExecutor(self._retrieval_handlers())
+        retrieval = _retrieval_plan(routed_plan, executor)
         try:
-            inspection = tools.inspect_dataset.execute(
-                decomposition, min_quality_score=min_quality_score
-            )
-            metadata = tools.catalog.get(inspection.dataset_id)
-            if metadata.version != inspection.dataset_version:
-                raise QueryExecutionError("the published dataset version changed during analysis")
+            await executor.run(retrieval, state, trace)
         except YouthCompassError as exc:
-            trace.append(unavailable_trace("inspect_dataset", exc))
             return self._support.observation_failure(
-                now, decomposition, routed_plan, trace, warning=str(exc)
+                now,
+                decomposition,
+                routed_plan,
+                trace,
+                warning=str(exc),
+                inspection=state.get("inspection"),
+                series=state.get("series"),
             )
-        trace.extend(
-            (
-                ToolTrace(
-                    tool="search_catalog",
-                    outcome="ok",
-                    summary=f"selected {inspection.dataset_id}@{inspection.dataset_version}",
-                ),
-                ToolTrace(
-                    tool="inspect_dataset",
-                    outcome="ok",
-                    summary=(
-                        f"resolved {inspection.metric_code} across "
-                        f"{inspection.period_start} to {inspection.period_end}"
-                    ),
-                ),
-            )
-        )
+        inspection = state.require("inspection")
+        metadata = state.require("metadata")
         if AnalysisOperation.FORECAST_METRIC in decomposition.operations:
             return await self._answer_forecast(
                 now,
@@ -176,7 +171,7 @@ class ObservationAnswering:
                 AnswerCompositionContext(
                     question=decomposition.original_question,
                     analysis_type="dataset_inspection",
-                    grounded_facts_json=grounded_json(inspection.model_dump(mode="json")),
+                    grounded_facts_json=grounded_json(inspection_digest(inspection)),
                     fallback_answer=fallback_answer,
                 ),
                 trace,
@@ -195,61 +190,15 @@ class ObservationAnswering:
                 dataset_inspection=inspection,
                 visualizations=visualizations,
             )
-        try:
-            series = tools.query_observations.execute(decomposition, inspection, metadata)
-        except YouthCompassError as exc:
-            trace.append(unavailable_trace("query_observations", exc))
-            return self._support.observation_failure(
-                now,
-                decomposition,
-                routed_plan,
-                trace,
-                warning=str(exc),
-                inspection=inspection,
-            )
-        series = _readable_observation_series(series, decomposition.original_question)
+        series = state.require("series")
         scope = _filter_scope(decomposition.filters)
-        trace.append(
-            ToolTrace(
-                tool="query_observations",
-                outcome="ok",
-                summary=(
-                    f"retrieved {len(series.points)} aggregated observations"
-                    + (f" within {scope}" if scope else "")
-                ),
-            )
+        comparison = state.get("comparison")
+        # A plan that omitted explain_lineage still gets a citation: an answer
+        # carrying numbers without provenance is not publishable. What it does not
+        # get is a lineage trace entry, because that step did not run.
+        citation = state.get("citation") or citation_from_series(
+            "data-1", metadata, series, decomposition.original_question
         )
-        comparison = None
-        if AnalysisOperation.COMPARE_ENTITIES in decomposition.operations:
-            try:
-                comparison = tools.compare_entities.execute(series)
-            except YouthCompassError as exc:
-                trace.append(unavailable_trace("compare_entities", exc))
-                return self._support.observation_failure(
-                    now,
-                    decomposition,
-                    routed_plan,
-                    trace,
-                    warning=str(exc),
-                    inspection=inspection,
-                    series=series,
-                )
-            trace.append(
-                ToolTrace(
-                    tool="compare_entities",
-                    outcome="ok",
-                    summary=f"calculated changes for {len(comparison.changes)} entities",
-                )
-            )
-        citation = citation_from_series("data-1", metadata, series, decomposition.original_question)
-        if AnalysisOperation.EXPLAIN_LINEAGE in decomposition.operations:
-            trace.append(
-                ToolTrace(
-                    tool="explain_lineage",
-                    outcome="ok",
-                    summary="attached 1 dataset-version citation",
-                )
-            )
         fallback_answer = _observation_answer(
             series,
             comparison,
@@ -257,16 +206,24 @@ class ObservationAnswering:
             question=decomposition.original_question,
             citation_id=citation.citation_id,
         )
+        # Doc 30: look at the retrieved rows before deciding what to draw, pick
+        # the unit that makes the comparison legible, then let scoring decide
+        # which of the defensible views actually reach the answer. The profile is
+        # built here rather than after composing because the composer needs it:
+        # it is the bounded description that replaced dumping every row.
+        profile = profile_series(series)
         answer = await self._support.compose(
             AnswerCompositionContext(
                 question=decomposition.original_question,
                 analysis_type="observation_comparison",
+                # A digest, not a dump. 29 districts over 60 months is 1,740
+                # points; the profile plus landmark points says what a narrative
+                # can legitimately use, and keeps data-derived text quarantined.
                 grounded_facts_json=grounded_json(
                     {
-                        "dataset_inspection": inspection.model_dump(mode="json"),
-                        "observation_series": series.model_dump(mode="json"),
-                        "comparison": (comparison.model_dump(mode="json") if comparison else None),
-                        "citation": citation.model_dump(mode="json"),
+                        "dataset": inspection_digest(inspection),
+                        "series": series_digest(series, profile, comparison),
+                        "citation_id": citation.citation_id,
                         "applied_filters": decomposition.filters.model_dump(mode="json"),
                     }
                 ),
@@ -276,10 +233,6 @@ class ObservationAnswering:
             trace,
             on_text=on_text,
         )
-        # Doc 30: look at the retrieved rows before deciding what to draw, pick
-        # the unit that makes the comparison legible, then let scoring decide
-        # which of the defensible views actually reach the answer.
-        profile = profile_series(series)
         measure = choose_measure(
             profile, decomposition, language=name_language(decomposition.original_question)
         )
@@ -326,6 +279,93 @@ class ObservationAnswering:
             visualizations=visualizations,
             limitations=limitations,
         )
+
+    def _retrieval_handlers(self) -> dict[AnalysisOperation, StepHandler]:
+        """One handler per retrieval operation the plan can route.
+
+        Each is `async` and each pushes its blocking work onto a worker thread.
+        The tools are synchronous and one of them is an Athena query: called
+        directly from a coroutine it holds the event loop for the whole scan, so
+        every other in-flight request waits behind a query it is not waiting for.
+        """
+
+        tools = self._tools
+
+        async def search_catalog(state: ExecutionState, step: RoutedToolStep) -> str:
+            del step
+            metadata = await asyncio.to_thread(
+                tools.inspect_dataset.select,
+                state.decomposition,
+                min_quality_score=state.min_quality_score,
+            )
+            state.put("metadata", metadata)
+            return f"selected {metadata.dataset_id} from the published catalog"
+
+        async def inspect_dataset(state: ExecutionState, step: RoutedToolStep) -> str:
+            del step
+            selected = state.require("metadata")
+            inspection = await asyncio.to_thread(
+                tools.inspect_dataset.execute_for_dataset,
+                state.decomposition,
+                selected.dataset_id,
+                min_quality_score=state.min_quality_score,
+            )
+            # Re-read the catalog after inspecting: a version that changed under
+            # the analysis would make the citation describe rows nobody queried.
+            current = await asyncio.to_thread(tools.catalog.get, inspection.dataset_id)
+            if current.version != inspection.dataset_version:
+                raise QueryExecutionError("the published dataset version changed during analysis")
+            state.put("metadata", current)
+            state.put("inspection", inspection)
+            return (
+                f"resolved {inspection.metric_code} across "
+                f"{inspection.period_start} to {inspection.period_end}"
+            )
+
+        async def query_observations(state: ExecutionState, step: RoutedToolStep) -> str:
+            del step
+            inspection = state.require("inspection")
+            metadata = state.require("metadata")
+            series = await asyncio.to_thread(
+                tools.query_observations.execute,
+                state.decomposition,
+                inspection,
+                metadata,
+            )
+            series = _readable_observation_series(series, state.decomposition.original_question)
+            state.put("series", series)
+            state.charge(scanned_bytes=tools.query_observations.last_scanned_bytes)
+            scope = _filter_scope(state.decomposition.filters)
+            return f"retrieved {len(series.points)} aggregated observations" + (
+                f" within {scope}" if scope else ""
+            )
+
+        async def compare_entities(state: ExecutionState, step: RoutedToolStep) -> str:
+            del step
+            comparison = await asyncio.to_thread(
+                tools.compare_entities.execute, state.require("series")
+            )
+            state.put("comparison", comparison)
+            return f"calculated changes for {len(comparison.changes)} entities"
+
+        async def explain_lineage(state: ExecutionState, step: RoutedToolStep) -> str:
+            del step
+            citation = citation_from_series(
+                "data-1",
+                state.require("metadata"),
+                state.require("series"),
+                state.decomposition.original_question,
+            )
+            state.put("citation", citation)
+            return "attached 1 dataset-version citation"
+
+        return {
+            AnalysisOperation.SEARCH_CATALOG: search_catalog,
+            AnalysisOperation.INSPECT_DATASET: inspect_dataset,
+            AnalysisOperation.QUERY_OBSERVATIONS: query_observations,
+            AnalysisOperation.COMPARE_ENTITIES: compare_entities,
+            AnalysisOperation.EXPLAIN_LINEAGE: explain_lineage,
+        }
 
     def _answer_catalog(
         self,
@@ -495,9 +535,9 @@ class ObservationAnswering:
                 analysis_type="forecast",
                 grounded_facts_json=grounded_json(
                     {
-                        "dataset_inspection": inspection.model_dump(mode="json"),
+                        "dataset": inspection_digest(inspection),
                         "forecast": result.model_dump(mode="json"),
-                        "citation": citation.model_dump(mode="json"),
+                        "citation_id": citation.citation_id,
                     }
                 ),
                 allowed_citation_ids=(citation.citation_id,),
@@ -537,6 +577,46 @@ class ObservationAnswering:
             visualizations=visualizations,
             limitations=limitations,
         )
+
+
+def _retrieval_plan(plan: RoutedToolPlan, executor: PlanExecutor) -> RoutedToolPlan:
+    """Narrow a routed plan to the retrieval steps this executor can run.
+
+    A plan legitimately contains steps retrieval does not own — forecast_metric,
+    simulate_scenario, web_search — which are handled by the branches after
+    retrieval. Dropping them here would leave dangling ``depends_on`` references,
+    so the surviving steps have their dependencies filtered to the steps that
+    remain. The dependency edges between kept steps are preserved exactly, which
+    is what the executor orders by.
+    """
+
+    runnable = tuple(step for step in plan.steps if executor.handles(step.operation))
+    # Retrieval only owns lineage for an observation series. A forecast plan also
+    # ends in explain_lineage, but the thing it cites is a model version and an
+    # input dataset, which the forecast branch attaches itself. Running the
+    # retrieval handler there would ask for a series nothing produced.
+    queries_observations = any(
+        step.operation is AnalysisOperation.QUERY_OBSERVATIONS for step in runnable
+    )
+    kept = tuple(
+        step
+        for step in runnable
+        if queries_observations or step.operation is not AnalysisOperation.EXPLAIN_LINEAGE
+    )
+    kept_ids = {step.step_id for step in kept}
+    return RoutedToolPlan(
+        steps=tuple(
+            step.model_copy(
+                update={
+                    "depends_on": tuple(
+                        dependency for dependency in step.depends_on if dependency in kept_ids
+                    )
+                }
+            )
+            for step in kept
+        ),
+        missing_operations=plan.missing_operations,
+    )
 
 
 def _recognized_places(entity_ids: tuple[str, ...]) -> tuple[str, ...]:

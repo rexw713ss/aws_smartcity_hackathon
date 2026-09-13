@@ -1,11 +1,21 @@
 """Grounded conversational decision-support orchestration."""
 
+from youth_compass.agent.answer_evals import (
+    AnswerDimension,
+    AnswerEvalCase,
+    AnswerEvalHarness,
+    AnswerEvalReport,
+    AnswerEvalResult,
+    grade_answer,
+    load_answer_eval_cases,
+)
 from youth_compass.agent.answering import (
     AnswerComposer,
     DeterministicAnswerComposer,
     FallbackAnswerComposer,
     ModelAnswerComposer,
 )
+from youth_compass.agent.caching import CacheStats, TtlCache
 from youth_compass.agent.contracts import (
     AnalysisFilters,
     AnalysisOperation,
@@ -15,7 +25,6 @@ from youth_compass.agent.contracts import (
     CandidateInsight,
     ComposedAnswer,
     ConversationContext,
-    CopilotIntent,
     CopilotResponse,
     CopilotStatus,
     CoverageGap,
@@ -24,6 +33,8 @@ from youth_compass.agent.contracts import (
     DatasetInspection,
     DecisionExecutionPlan,
     DecomposedQuery,
+    Decomposition,
+    DecompositionSource,
     EntityChange,
     EntityComparison,
     EvidenceCitation,
@@ -75,6 +86,17 @@ from youth_compass.agent.evals import (
     AgentEvalResult,
     load_eval_cases,
 )
+from youth_compass.agent.execution import (
+    ExecutionState,
+    PlanExecutionError,
+    PlanExecutor,
+    execution_order,
+)
+from youth_compass.agent.grounding import (
+    inspection_digest,
+    quarantine,
+    series_digest,
+)
 from youth_compass.agent.limitations import DataLimitationsBuilder
 from youth_compass.agent.measures import (
     Measure,
@@ -89,12 +111,8 @@ from youth_compass.agent.observation_tools import (
     ObservationToolSuite,
     QueryObservationsTool,
 )
-from youth_compass.agent.planner import (
-    CopilotPlanner,
-    DeterministicCopilotPlanner,
-    ModelCopilotPlanner,
-)
 from youth_compass.agent.planning import (
+    KNOWN_DECISION_PROFILES,
     DeterministicQueryDecomposer,
     FallbackQueryDecomposer,
     ModelQueryDecomposer,
@@ -127,6 +145,7 @@ from youth_compass.agent.viz_selection import (
 )
 
 __all__ = [
+    "KNOWN_DECISION_PROFILES",
     "AgentEvalCase",
     "AgentEvalHarness",
     "AgentEvalReport",
@@ -136,7 +155,13 @@ __all__ = [
     "AnnotationKind",
     "AnswerComposer",
     "AnswerCompositionContext",
+    "AnswerDimension",
     "AnswerDraft",
+    "AnswerEvalCase",
+    "AnswerEvalHarness",
+    "AnswerEvalReport",
+    "AnswerEvalResult",
+    "CacheStats",
     "CandidateInsight",
     "CandidateRole",
     "CompareEntitiesTool",
@@ -144,8 +169,6 @@ __all__ = [
     "ConversationContext",
     "ConversationContextResolver",
     "ConversationContextStore",
-    "CopilotIntent",
-    "CopilotPlanner",
     "CopilotResponse",
     "CopilotStatus",
     "CoverageGap",
@@ -156,8 +179,9 @@ __all__ = [
     "DatasetInspection",
     "DecisionExecutionPlan",
     "DecomposedQuery",
+    "Decomposition",
+    "DecompositionSource",
     "DeterministicAnswerComposer",
-    "DeterministicCopilotPlanner",
     "DeterministicQueryDecomposer",
     "DimensionScore",
     "Direction",
@@ -166,6 +190,7 @@ __all__ = [
     "EntitySignal",
     "EvidenceCitation",
     "EvidenceExcerptRow",
+    "ExecutionState",
     "FallbackAnswerComposer",
     "FallbackQueryDecomposer",
     "FeatureContributionInsight",
@@ -183,12 +208,13 @@ __all__ = [
     "Measure",
     "MeasuredPoint",
     "ModelAnswerComposer",
-    "ModelCopilotPlanner",
     "ModelQueryDecomposer",
     "MultiDatasetAnalysis",
     "ObservationPoint",
     "ObservationSeries",
     "ObservationToolSuite",
+    "PlanExecutionError",
+    "PlanExecutor",
     "QueryDecomposer",
     "QueryObservationsTool",
     "QuestionFocus",
@@ -205,6 +231,7 @@ __all__ = [
     "ToolCapabilityRegistry",
     "ToolTrace",
     "Transform",
+    "TtlCache",
     "VisualizationAnnotation",
     "VisualizationBuilder",
     "VisualizationCandidate",
@@ -221,14 +248,20 @@ __all__ = [
     "choose_measure",
     "context_from_decomposition",
     "default_decision_capabilities",
+    "execution_order",
+    "grade_answer",
     "grade_visualizations",
+    "inspection_digest",
+    "load_answer_eval_cases",
     "load_eval_cases",
     "new_session_id",
     "profile_series",
+    "quarantine",
     "register_acquisition_capabilities",
     "register_forecast_capabilities",
     "register_impact_capabilities",
     "register_observation_capabilities",
     "register_web_search_capabilities",
     "select_visualizations",
+    "series_digest",
 ]

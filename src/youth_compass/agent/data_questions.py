@@ -25,6 +25,7 @@ from youth_compass.agent.contracts import (
     EntityComparison,
     EvidenceCitation,
     EvidenceExcerptRow,
+    ObservationPoint,
     ObservationSeries,
     QuestionFocus,
     RoutedToolPlan,
@@ -132,16 +133,15 @@ class DataQuestionAnswerer:
             QuestionFocus.JOINABILITY: self._joinability,
             QuestionFocus.EVIDENCE_SUMMARY: self._evidence_summary,
         }
-        handler = handlers.get(decomposition.focus) if decomposition.focus else None
-        if handler is None:
+        focus = decomposition.focus
+        handler = handlers.get(focus) if focus is not None else None
+        if handler is None or focus is None:
             return None
         turn = _Turn(now, decomposition, routed_plan, trace, min_quality_score)
         try:
             return await handler(turn)
         except YouthCompassError as exc:
-            trace.append(
-                ToolTrace(tool=decomposition.focus.value, outcome="unavailable", summary=str(exc)[:300])
-            )
+            trace.append(ToolTrace(tool=focus.value, outcome="unavailable", summary=str(exc)[:300]))
             return self._response(
                 turn,
                 status=CopilotStatus.INSUFFICIENT_DATA,
@@ -236,7 +236,9 @@ class DataQuestionAnswerer:
     # --- data quality ------------------------------------------------------
 
     async def _completeness(self, turn: _Turn) -> CopilotResponse:
-        loaded = self._load(turn, turn.decomposition.model_copy(update={"entity_ids": ()}), default_topic=True)
+        loaded = self._load(
+            turn, turn.decomposition.model_copy(update={"entity_ids": ()}), default_topic=True
+        )
         citation = self._citation("data-1", loaded, turn.language)
         periods = sorted({point.period for point in loaded.series.points})
         latest = periods[-1]
@@ -277,10 +279,10 @@ class DataQuestionAnswerer:
                 f"{'Yes' if len(entities_latest) == len(DISTRICTS) else 'No'}. {name} reports "
                 f"yearly and its latest year, {latest}, covers {coverage}."
             )
-        fallback = f"{verdict} The latest period, {latest}, covers {coverage}. [{citation.citation_id}]"
-        turn.trace.append(
-            ToolTrace(tool="audit_completeness", outcome="ok", summary=verdict[:300])
+        fallback = (
+            f"{verdict} The latest period, {latest}, covers {coverage}. [{citation.citation_id}]"
         )
+        turn.trace.append(ToolTrace(tool="audit_completeness", outcome="ok", summary=verdict[:300]))
         return await self._single_dataset_response(turn, loaded, citation, fallback)
 
     async def _estimates(self, turn: _Turn) -> CopilotResponse:
@@ -335,7 +337,9 @@ class DataQuestionAnswerer:
         if not topics:
             return self._clarify(turn, "Which dataset's population should be checked?")
         topic = topics[0]
-        records = [item for item in self._catalog_records() if resolve_topic_name(item.topic) == topic]
+        records = [
+            item for item in self._catalog_records() if resolve_topic_name(item.topic) == topic
+        ]
         subject = humanize_code(topic).casefold()
         rule = (
             "Sources without a youth age breakdown are ingested as district context and are "
@@ -346,7 +350,9 @@ class DataQuestionAnswerer:
                 f"No {subject} dataset is in the catalog, so this cannot be checked against "
                 f"published data. {rule}"
             )
-            turn.trace.append(ToolTrace(tool="search_catalog", outcome="no_match", summary=answer[:300]))
+            turn.trace.append(
+                ToolTrace(tool="search_catalog", outcome="no_match", summary=answer[:300])
+            )
             return self._response(
                 turn, status=CopilotStatus.INSUFFICIENT_DATA, answer=answer, warnings=(answer,)
             )
@@ -356,7 +362,9 @@ class DataQuestionAnswerer:
                 f"The {subject} dataset is not published (its latest ingestion is "
                 f"{metadata.status.value.replace('_', ' ')}), so no answer uses it. {rule}"
             )
-            turn.trace.append(ToolTrace(tool="search_catalog", outcome="unavailable", summary=answer[:300]))
+            turn.trace.append(
+                ToolTrace(tool="search_catalog", outcome="unavailable", summary=answer[:300])
+            )
             return self._response(
                 turn, status=CopilotStatus.INSUFFICIENT_DATA, answer=answer, warnings=(answer,)
             )
@@ -390,7 +398,9 @@ class DataQuestionAnswerer:
         topic = next(iter(extract_topics(turn.question)), None)
         if topic is None:
             return self._clarify(turn, "Which dataset's newest version should be described?")
-        records = [item for item in self._catalog_records() if resolve_topic_name(item.topic) == topic]
+        records = [
+            item for item in self._catalog_records() if resolve_topic_name(item.topic) == topic
+        ]
         subject = humanize_code(topic).casefold()
         if not records:
             answer = f"No {subject} dataset is in the catalog, so there is no version to compare."
@@ -400,7 +410,9 @@ class DataQuestionAnswerer:
             )
         dataset_id = records[0].dataset_id
         versions = [
-            item for item in self._tools.catalog.list_versions(dataset_id) if not item.version.startswith("received-")
+            item
+            for item in self._tools.catalog.list_versions(dataset_id)
+            if not item.version.startswith("received-")
         ]
         if not versions:
             raise QueryExecutionError(f"{dataset_id} has no processed version")
@@ -480,7 +492,9 @@ class DataQuestionAnswerer:
         names = [humanize_code(item.dataset_id) for item in pair]
         keyed = all("district_code" in item.grain.dimensions for item in pair)
         scopes = {item.population_scope for item in pair}
-        citations = tuple(_catalog_citation(f"data-{index}", item) for index, item in enumerate(pair, start=1))
+        citations = tuple(
+            _catalog_citation(f"data-{index}", item) for index, item in enumerate(pair, start=1)
+        )
         if grains[0] == grains[1] and keyed:
             verdict = (
                 f"Yes. {names[0]} and {names[1]} both report by {grains[0]} and are keyed by "
@@ -507,7 +521,9 @@ class DataQuestionAnswerer:
                 + ", ".join(sorted(scope.value for scope in scopes))
                 + "), so a combined table compares two groups rather than one."
             )
-        turn.trace.append(ToolTrace(tool="validate_analysis_plan", outcome="ok", summary=verdict[:300]))
+        turn.trace.append(
+            ToolTrace(tool="validate_analysis_plan", outcome="ok", summary=verdict[:300])
+        )
         fallback = verdict + " [data-1] [data-2]"
         return await self._citations_response(turn, citations, fallback, inspection=inspections[0])
 
@@ -527,12 +543,16 @@ class DataQuestionAnswerer:
             try:
                 loaded = self._load(turn, scoped, dataset_id=metadata.dataset_id)
             except YouthCompassError as exc:
-                sections.append(f"{humanize_code(metadata.dataset_id)}: not available for these districts ({exc}).")
+                sections.append(
+                    f"{humanize_code(metadata.dataset_id)}: not available for these "
+                    f"districts ({exc})."
+                )
                 continue
             citation = self._citation(f"data-{len(citations) + 1}", loaded, turn.language)
             citations.append(citation)
+            scope_label = _SCOPE_DESCRIPTIONS[metadata.population_scope]
             header = (
-                f"{humanize_code(metadata.dataset_id)} ({_SCOPE_DESCRIPTIONS[metadata.population_scope]}, "
+                f"{humanize_code(metadata.dataset_id)} ({scope_label}, "
                 f"{period_granularity(loaded.inspection.period_end)}ly, "
                 f"{loaded.inspection.period_start} to {loaded.inspection.period_end}) "
                 f"[{citation.citation_id}]"
@@ -540,10 +560,13 @@ class DataQuestionAnswerer:
             try:
                 comparison = self._tools.compare_entities.execute(loaded.series)
                 rows = [
-                    f"- {self._name(change, turn)}: {change.last_value:,.0f} in {change.last_period}, "
-                    f"{change.percent_change:+.2f}% since {change.first_period}"
-                    if change.percent_change is not None
-                    else f"- {self._name(change, turn)}: {change.last_value:,.0f} in {change.last_period}"
+                    f"- {self._name(change, turn)}: {change.last_value:,.0f} "
+                    f"in {change.last_period}"
+                    + (
+                        f", {change.percent_change:+.2f}% since {change.first_period}"
+                        if change.percent_change is not None
+                        else ""
+                    )
                     for change in comparison.changes
                 ]
             except YouthCompassError:
@@ -556,14 +579,14 @@ class DataQuestionAnswerer:
             sections.append(header + "\n" + "\n".join(rows))
         if not citations:
             raise QueryExecutionError("no published dataset covers the selected districts")
-        names = ", ".join(
-            readable_entity_name(entity, None, turn.language) for entity in entities
-        )
+        names = ", ".join(readable_entity_name(entity, None, turn.language) for entity in entities)
         turn.trace.append(
             ToolTrace(
                 tool="compose_evidence_summary",
                 outcome="ok",
-                summary=f"summarized {len(citations)} published datasets for {len(entities)} districts",
+                summary=(
+                    f"summarized {len(citations)} published datasets for {len(entities)} districts"
+                ),
             )
         )
         fallback = f"Evidence summary for {names}\n\n" + "\n\n".join(sections)
@@ -603,7 +626,9 @@ class DataQuestionAnswerer:
                 ToolTrace(
                     tool="query_observations",
                     outcome="ok",
-                    summary=f"retrieved {len(series.points)} observations from {metadata.dataset_id}",
+                    summary=(
+                        f"retrieved {len(series.points)} observations from {metadata.dataset_id}"
+                    ),
                 ),
             )
         )
@@ -611,7 +636,11 @@ class DataQuestionAnswerer:
 
     def _published(self) -> list[DatasetMetadata]:
         return sorted(
-            (item for item in self._tools.catalog.list_datasets() if item.status is DatasetStatus.PUBLISHED),
+            (
+                item
+                for item in self._tools.catalog.list_datasets()
+                if item.status is DatasetStatus.PUBLISHED
+            ),
             key=lambda item: (resolve_topic_name(item.topic) != _DEFAULT_TOPIC, item.dataset_id),
         )
 
@@ -621,7 +650,9 @@ class DataQuestionAnswerer:
     def _name(self, change: EntityChange, turn: _Turn) -> str:
         return readable_entity_name(change.entity_id, change.entity_name, turn.language)
 
-    def _citation(self, citation_id: str, loaded: _Loaded, language: NameLanguage) -> EvidenceCitation:
+    def _citation(
+        self, citation_id: str, loaded: _Loaded, language: NameLanguage
+    ) -> EvidenceCitation:
         return EvidenceCitation(
             citation_id=citation_id,
             dataset_id=loaded.metadata.dataset_id,
@@ -650,7 +681,9 @@ class DataQuestionAnswerer:
                 analysis_type="data_question",
                 grounded_facts_json=_grounded_json(
                     {
-                        "focus": turn.decomposition.focus.value if turn.decomposition.focus else None,
+                        "focus": turn.decomposition.focus.value
+                        if turn.decomposition.focus
+                        else None,
                         "facts": facts,
                         "citations": [item.model_dump(mode="json") for item in citations],
                     }
@@ -680,7 +713,11 @@ class DataQuestionAnswerer:
             citations=(citation,),
             observed_entity_ids=[change.entity_id for change in comparison.changes],
             requested_entity_ids=turn.decomposition.entity_ids,
-            catalog_terms=(loaded.metadata.topic, loaded.metadata.dataset_id, loaded.series.metric_code),
+            catalog_terms=(
+                loaded.metadata.topic,
+                loaded.metadata.dataset_id,
+                loaded.series.metric_code,
+            ),
             series=loaded.series,
         )
         return self._response(
@@ -705,7 +742,11 @@ class DataQuestionAnswerer:
             now=turn.now,
             citations=(citation,),
             observed_entity_ids=[point.entity_id for point in loaded.series.points],
-            catalog_terms=(loaded.metadata.topic, loaded.metadata.dataset_id, loaded.series.metric_code),
+            catalog_terms=(
+                loaded.metadata.topic,
+                loaded.metadata.dataset_id,
+                loaded.series.metric_code,
+            ),
             series=loaded.series,
         )
         return self._response(
@@ -743,7 +784,9 @@ class DataQuestionAnswerer:
         )
 
     def _clarify(self, turn: _Turn, question: str) -> CopilotResponse:
-        turn.trace.append(ToolTrace(tool="query_decomposer", outcome="clarification", summary=question))
+        turn.trace.append(
+            ToolTrace(tool="query_decomposer", outcome="clarification", summary=question)
+        )
         return self._response(
             turn,
             status=CopilotStatus.UNSUPPORTED_QUESTION,
@@ -807,13 +850,15 @@ def _district_key(entity_id: str) -> str:
     return district.code if district is not None else entity_id.casefold()
 
 
-def _latest_points(series: ObservationSeries) -> list:  # type: ignore[type-arg]
-    latest: dict[str, object] = {}
+def _latest_points(series: ObservationSeries) -> list[ObservationPoint]:
+    """Keep one point per entity: the newest period that entity reported."""
+
+    latest: dict[str, ObservationPoint] = {}
     for point in series.points:
         current = latest.get(point.entity_id)
-        if current is None or point.period > current.period:  # type: ignore[attr-defined]
+        if current is None or point.period > current.period:
             latest[point.entity_id] = point
-    return sorted(latest.values(), key=lambda point: point.entity_id)  # type: ignore[attr-defined]
+    return sorted(latest.values(), key=lambda point: point.entity_id)
 
 
 def _catalog_citation(citation_id: str, metadata: DatasetMetadata) -> EvidenceCitation:
@@ -837,11 +882,13 @@ def _inspection_changes(
     lines: list[str] = []
     if (before.period_start, before.period_end) != (after.period_start, after.period_end):
         lines.append(
-            f"coverage moved from {before.period_start}–{before.period_end} to "
-            f"{after.period_start}–{after.period_end}"
+            f"coverage moved from {before.period_start} to {before.period_end}, "
+            f"and now runs {after.period_start} to {after.period_end}"
         )
     if before.entity_count != after.entity_count:
-        lines.append(f"districts covered changed from {before.entity_count} to {after.entity_count}")
+        lines.append(
+            f"districts covered changed from {before.entity_count} to {after.entity_count}"
+        )
     added = sorted(set(after.available_metrics) - set(before.available_metrics))
     removed = sorted(set(before.available_metrics) - set(after.available_metrics))
     if added:
@@ -850,7 +897,8 @@ def _inspection_changes(
         lines.append("metrics removed: " + ", ".join(humanize_code(code) for code in removed))
     if previous.quality_score != current.quality_score:
         lines.append(
-            f"quality score changed from {previous.quality_score:.2f} to {current.quality_score:.2f}"
+            f"quality score changed from {previous.quality_score:.2f} "
+            f"to {current.quality_score:.2f}"
         )
     published_before = previous.published_at or previous.created_at
     published_after = current.published_at or current.created_at
@@ -866,4 +914,6 @@ def _inspection_changes(
 def _grounded_json(payload: object) -> str:
     import json
 
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=str)
+    return json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=str
+    )

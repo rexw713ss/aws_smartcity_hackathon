@@ -342,54 +342,6 @@ export const impactAnswer = {
   },
 }
 
-export const whatIfAnswer = {
-  metric_code: 'youth_population_18_35',
-  observed_period: '2026-07',
-  target_year: 2030,
-  baseline_method: 'observed_age_cohorts_with_historical_district_retention',
-  age_lower: 18,
-  age_upper: 35,
-  balance_mode: 'open',
-  baseline_total: 754542,
-  scenario_total: 755154,
-  total_delta: 612,
-  population_conserved: false,
-  rows: [
-    {
-      district_code: '14', district_name: 'Ruifang', baseline_value: 5589,
-      scenario_value: 6201, absolute_delta: 612, percent_delta: 10.9501,
-      baseline_rank: 18, scenario_rank: 18, rank_change: 0,
-      historical_retention_rate: 0.981154, scenario_retention_rate: 1.006993,
-    },
-  ],
-  trajectory: [
-    { year: 2026, baseline_value: 832214, scenario_value: 832214, absolute_delta: 0 },
-    { year: 2027, baseline_value: 812322, scenario_value: 812499, absolute_delta: 177 },
-    { year: 2028, baseline_value: 791379, scenario_value: 791717, absolute_delta: 338 },
-    { year: 2029, baseline_value: 770142, scenario_value: 770624, absolute_delta: 482 },
-    { year: 2030, baseline_value: 754542, scenario_value: 755154, absolute_delta: 612 },
-  ],
-  evidence: [
-    {
-      kind: 'official', label: 'Observed district population',
-      detail: 'New Taipei Civil Affairs monthly household-registration counts.',
-      source_url: 'https://www.ca.ntpc.gov.tw/',
-    },
-    {
-      kind: 'derived', label: 'Cohort projection baseline',
-      detail: 'Observed single-year cohorts are aged forward using recent transition rates.',
-      source_url: null,
-    },
-    {
-      kind: 'user_assumption', label: 'Scenario adjustments',
-      detail: 'Raise district 14 to the observed top-quartile benchmark.', source_url: null,
-    },
-  ],
-  assumptions: ['Raise district 14 to the observed top-quartile benchmark.'],
-  warnings: ['Scenario adjustments are user assumptions, not predictions or causal estimates.'],
-  generated_at: '2026-09-12T12:00:00Z',
-}
-
 export const districtOverview = {
   datasetId: 'population',
   datasetVersion: 'v-overview',
@@ -436,7 +388,6 @@ export async function mockCopilot(
   options: {
     query: unknown | ((index: number) => unknown)
     acquire?: unknown
-    whatIf?: unknown
     districtOverview?: unknown | ((districtCode: string) => unknown)
     datasets?: unknown
     queryStatus?: number
@@ -474,9 +425,6 @@ export async function mockCopilot(
   )
   await page.route('**/api/v1/copilot/intake-options', (route: Route) =>
     route.fulfill({ json: { linkHosts: ['data.ntpc.gov.tw'], uploadFormats: ['csv', 'json', 'xlsx'], maxUploadBytes: 26214400 } }),
-  )
-  await page.route('**/api/v1/copilot/what-if', (route: Route) =>
-    route.fulfill({ json: options.whatIf ?? whatIfAnswer }),
   )
   await page.route('**/api/v1/districts/*/overview', (route: Route) => {
     const districtCode = new URL(route.request().url()).pathname.match(/\/districts\/(\d{2})\/overview$/)?.[1] ?? ''

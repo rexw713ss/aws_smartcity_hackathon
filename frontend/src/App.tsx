@@ -23,19 +23,21 @@ const requestTimeoutMs = 90_000
 // Phrasings the offline DeterministicQueryDecomposer actually routes; see
 // evals/agent-routing.jsonl. With the Bedrock decomposer enabled, paraphrases
 // route too, but these chips must work in the offline demo path as well.
+// Only questions this runtime can answer from published data belong here. The
+// home-buying and EV-charger rankings were removed: they score fictional sites
+// against hand-written constants in scripts/materialize_demo_features.py, and a
+// fully cited answer built on invented evidence is worse than no answer.
 const baseSuggestions: Record<Language, string[]> = {
   'zh-TW': [
     '如果 2030 年前林口新增 2,000 名青年人口，應投資哪些基礎設施？',
     '比較 2023 至 2025 年的人口趨勢',
-    '哪個行政區最適合青年居住？',
-    '電動車充電站應設置在哪裡？',
+    '板橋區的青年人口趨勢如何？',
     '資料目錄中有哪些已發布的青年資料集？',
   ],
   en: [
     'If 2,000 young people move to Linkou before 2030, what infrastructure should we invest in?',
     'Compare population trend from 2023 to 2025',
-    'Which district is best suited for young people to live in?',
-    'Where should we place an EV charging station?',
+    'What is the youth population trend in Banqiao?',
     'Which youth datasets are published in the catalog?',
   ],
 }

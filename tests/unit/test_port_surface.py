@@ -28,6 +28,7 @@ from youth_compass.ports import (
     QueryEngine,
     SourceAdapter,
     SourceConnector,
+    WebSearchProvider,
     WorkflowRunner,
 )
 
@@ -68,6 +69,7 @@ EXPECTED_SURFACE: dict[type, dict[str, tuple[str, ...]]] = {
         "get": ("candidate_id",),
         "fetch": ("candidate",),
     },
+    WebSearchProvider: {"search": ("request",)},
 }
 
 EXPECTED_MODULE_NAMES = {
@@ -82,6 +84,7 @@ EXPECTED_MODULE_NAMES = {
     Clock: "clock",
     SourceAdapter: "source_adapter",
     SourceConnector: "source_connector",
+    WebSearchProvider: "web_search",
 }
 
 # Requirement 1 criterion 11.
@@ -101,6 +104,8 @@ NAMED_PAYLOADS = {
     "AcquiredSource": "source_connector",
     "DataRequirement": "source_connector",
     "SourceCandidate": "source_connector",
+    "WebSearchRequest": "web_search",
+    "WebSearchResult": "web_search",
 }
 
 PERMITTED_SCALARS = {str, int, float, bool, bytes, type(None), datetime, date}
@@ -301,9 +306,17 @@ def test_model_provider_generate_is_async() -> None:
     assert inspect.iscoroutinefunction(ModelProvider.generate)
 
 
-def test_eleven_protocols_across_eleven_modules() -> None:
-    assert len(ALL_PORTS) == 11
-    assert len(_port_modules()) == 11
+def test_every_port_module_declares_exactly_one_checked_protocol() -> None:
+    """The count is derived, not asserted: a new port must be registered here.
+
+    A literal count drifts silently the moment a port is added — the module
+    appears, the count fails, and the cheapest repair is to bump the number
+    without adding the port to EXPECTED_SURFACE, which is how a port ends up
+    unguarded. Comparing the two sets names the missing registration instead.
+    """
+
+    assert set(_port_modules()) == set(EXPECTED_MODULE_NAMES.values())
+    assert len(ALL_PORTS) == len(_port_modules())
 
 
 def test_object_store_put_metadata_is_parameterized_str_mapping() -> None:

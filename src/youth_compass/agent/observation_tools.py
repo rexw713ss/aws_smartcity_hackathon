@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable
 from typing import Protocol
 
+from youth_compass.agent.caching import TtlCache
 from youth_compass.agent.contracts import (
     DatasetInspection,
     DecomposedQuery,
@@ -66,20 +67,41 @@ class InspectDatasetTool:
     """Select one relevant published dataset and verify its actual coverage."""
 
     def __init__(
-        self, catalog: DatasetCatalogReader, query_engine_factory: QueryEngineFactory
+        self,
+        catalog: DatasetCatalogReader,
+        query_engine_factory: QueryEngineFactory,
+        cache: TtlCache | None = None,
     ) -> None:
         self._catalog = catalog
         self._query_engine_factory = query_engine_factory
+        # Inspection is the measured hot spot: a full coverage scan that costs
+        # more than the question's own query. It is also the most cacheable thing
+        # here, because its result depends only on the immutable dataset version
+        # and on which metric the question selects.
+        self._cache = cache if cache is not None else TtlCache()
 
-    def execute(
+    def select(
         self, decomposition: DecomposedQuery, *, min_quality_score: float = 0.0
-    ) -> DatasetInspection:
+    ) -> DatasetMetadata:
+        """Choose the one published dataset a question is about.
+
+        Separate from ``execute`` because they are different operations: selecting
+        is ``search_catalog`` and inspecting is ``inspect_dataset``. The plan
+        routes them as two steps with a dependency between them, so they are
+        callable as two steps.
+        """
+
         candidates = [
             item
             for item in self._catalog.list_datasets()
             if item.status is DatasetStatus.PUBLISHED and item.quality_score >= min_quality_score
         ]
-        metadata = _select_dataset(candidates, decomposition)
+        return _select_dataset(candidates, decomposition)
+
+    def execute(
+        self, decomposition: DecomposedQuery, *, min_quality_score: float = 0.0
+    ) -> DatasetInspection:
+        metadata = self.select(decomposition, min_quality_score=min_quality_score)
         return self._inspect(metadata, decomposition)
 
     def execute_for_dataset(
@@ -113,6 +135,25 @@ class InspectDatasetTool:
         return self._inspect(metadata, decomposition)
 
     def _inspect(
+        self, metadata: DatasetMetadata, decomposition: DecomposedQuery
+    ) -> DatasetInspection:
+        # The version is in the key, so a republish addresses a different entry
+        # rather than invalidating this one: there is no window where a stale
+        # inspection can be served. The metric and subject terms are in the key
+        # because they are what `_select_metric` reads.
+        key = (
+            "inspect",
+            metadata.dataset_id,
+            metadata.version,
+            decomposition.metric_terms,
+            decomposition.subject_terms,
+        )
+        inspection: DatasetInspection = self._cache.get_or_call(
+            key, lambda: self._inspect_uncached(metadata, decomposition)
+        )
+        return inspection
+
+    def _inspect_uncached(
         self, metadata: DatasetMetadata, decomposition: DecomposedQuery
     ) -> DatasetInspection:
         result = self._query_engine_factory(metadata).execute(
@@ -154,8 +195,17 @@ class InspectDatasetTool:
 class QueryObservationsTool:
     """Run a typed read-only query and aggregate canonical rows by entity and period."""
 
-    def __init__(self, query_engine_factory: QueryEngineFactory) -> None:
+    def __init__(
+        self, query_engine_factory: QueryEngineFactory, cache: TtlCache | None = None
+    ) -> None:
         self._query_engine_factory = query_engine_factory
+        self._cache = cache if cache is not None else TtlCache()
+        #: Bytes the last executed query reported scanning. Athena prices by
+        #: scanned bytes, so this is what lets a trace state the cost of a turn
+        #: rather than only its shape. Read immediately after `execute`.
+        #:
+        #: A cache hit reports zero, which is the truth: nothing was scanned.
+        self.last_scanned_bytes: int = 0
 
     def execute(
         self,
@@ -171,6 +221,32 @@ class QueryObservationsTool:
             raise QueryExecutionError(
                 "observation query requires the inspected published dataset version"
             )
+        # Same reasoning as inspection: the immutable version plus everything that
+        # narrows the result is the whole key. Asking a follow-up that re-scopes
+        # the question is a different key and correctly misses.
+        key = (
+            "observations",
+            inspection.dataset_id,
+            inspection.dataset_version,
+            inspection.metric_code,
+            decomposition.entity_ids,
+            decomposition.time_expression,
+            decomposition.filters.age_lower,
+            decomposition.filters.age_upper,
+            decomposition.filters.gender_code,
+        )
+        self.last_scanned_bytes = 0
+        series: ObservationSeries = self._cache.get_or_call(
+            key, lambda: self._execute_uncached(decomposition, inspection, metadata)
+        )
+        return series
+
+    def _execute_uncached(
+        self,
+        decomposition: DecomposedQuery,
+        inspection: DatasetInspection,
+        metadata: DatasetMetadata,
+    ) -> ObservationSeries:
         filters = decomposition.filters
         dimensions = [*_INSPECTION_DIMENSIONS]
         if filters.age_lower is not None or filters.age_upper is not None:
@@ -194,6 +270,7 @@ class QueryObservationsTool:
                 max_rows=100_000,
             )
         )
+        self.last_scanned_bytes = result.scanned_bytes
         if result.truncated:
             raise QueryExecutionError("observation query exceeded the safe 100000-row query limit")
         records = _records(result.columns, result.rows)
@@ -338,14 +415,24 @@ class CompareEntitiesTool:
 
 
 class ObservationToolSuite:
-    """Runtime bundle exposing the three independently testable observation tools."""
+    """Runtime bundle exposing the three independently testable observation tools.
+
+    The two reading tools share one cache so a single bound covers the suite, and
+    so a caller can inspect one set of statistics to see whether caching is
+    earning its place. ``cache=TtlCache(max_entries=1)`` effectively disables it
+    for a test that needs to observe every query.
+    """
 
     def __init__(
-        self, catalog: DatasetCatalogReader, query_engine_factory: QueryEngineFactory
+        self,
+        catalog: DatasetCatalogReader,
+        query_engine_factory: QueryEngineFactory,
+        cache: TtlCache | None = None,
     ) -> None:
         self.catalog = catalog
-        self.inspect_dataset = InspectDatasetTool(catalog, query_engine_factory)
-        self.query_observations = QueryObservationsTool(query_engine_factory)
+        self.cache = cache if cache is not None else TtlCache()
+        self.inspect_dataset = InspectDatasetTool(catalog, query_engine_factory, self.cache)
+        self.query_observations = QueryObservationsTool(query_engine_factory, self.cache)
         self.compare_entities = CompareEntitiesTool()
 
 
@@ -390,7 +477,25 @@ def _relevance(metadata: DatasetMetadata, terms: set[str], spoken: set[str]) -> 
 
 
 def _select_metric(metrics: tuple[str, ...], decomposition: DecomposedQuery) -> str:
-    requested = set(decomposition.metric_terms) | set(decomposition.subject_terms)
+    # A question that names canonical metrics none of the data carries has to be
+    # refused, not rounded to whatever is published. `metric_terms` holds
+    # canonical codes rather than free text, so an empty intersection here is an
+    # unambiguous statement that the requested measure is absent.
+    #
+    # This is checked before the single-metric shortcut on purpose. Asking for
+    # youth unemployment against a catalog that publishes only population used to
+    # return population figures under the unemployment question, which is the one
+    # failure this system is built to avoid: a wrong answer rather than a missing
+    # one.
+    named = tuple(dict.fromkeys(decomposition.metric_terms))
+    if named and not set(named) & set(metrics):
+        raise QueryExecutionError(
+            "the published data does not measure "
+            + ", ".join(named)
+            + "; available: "
+            + ", ".join(metrics)
+        )
+    requested = set(named) | set(decomposition.subject_terms)
     requested_tokens = {token for term in requested for token in _tokens(term)}
     scored = sorted(
         ((len(set(_tokens(metric)) & requested_tokens), metric) for metric in metrics),

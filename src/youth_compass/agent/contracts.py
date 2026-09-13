@@ -113,8 +113,49 @@ class DecomposedQuery(BaseModel):
     filters: AnalysisFilters = AnalysisFilters()
     operations: tuple[AnalysisOperation, ...] = Field(min_length=1)
     focus: QuestionFocus | None = None
+    # The registered decision profile this question asks to run, when it asks for
+    # one at all. It belongs here rather than in a second classifier: a question
+    # is one thing, so it gets one classification. Two independent classifiers
+    # over the same sentence made a question's fate depend on whether they
+    # happened to agree, and left no place to state that they had not.
+    #
+    # The pattern only constrains the shape of the name. Whether the profile
+    # exists is decided by the profile registry at execution time, because the
+    # decomposer cannot know which profiles a given runtime registered.
+    decision_profile: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
     needs_clarification: bool = False
     clarification_question: str | None = Field(default=None, max_length=400)
+
+
+class DecompositionSource(StrEnum):
+    """Which decomposer actually produced the plan that ran."""
+
+    MODEL = "model"
+    KEYWORD_TABLE = "keyword_table"
+
+
+class Decomposition(BaseModel):
+    """A decomposition together with the provenance of the plan it carries.
+
+    Provenance is deliberately not a field on ``DecomposedQuery``. That schema is
+    handed to the model as its response contract, and a model asked to record
+    where its own output came from will fill the field with whatever reads well.
+    Keeping it out here means the value is observed by the application rather
+    than claimed by the model.
+
+    The distinction matters because the two sources are not interchangeable. The
+    keyword table recognizes the question shapes someone wrote down in three
+    languages; the model generalizes past them. An answer built from the table
+    when the model was supposed to build it is a degraded answer, and without
+    this field that degradation is invisible in the response.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    query: DecomposedQuery
+    source: DecompositionSource
+    #: Why the primary decomposer was not used. Set only on a fallback.
+    degraded_reason: str | None = Field(default=None, max_length=300)
 
 
 class ConversationContext(BaseModel):
@@ -184,15 +225,6 @@ class RoutedToolPlan(BaseModel):
         return not self.missing_operations
 
 
-class CopilotIntent(BaseModel):
-    """Allowlisted interpretation that a future Bedrock planner may propose."""
-
-    model_config = ConfigDict(frozen=True)
-
-    profile_code: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    entity_ids: tuple[str, ...] = ()
-
-
 class DecisionExecutionPlan(BaseModel):
     """Deterministic plan executed after intent validation."""
 
@@ -206,13 +238,38 @@ class DecisionExecutionPlan(BaseModel):
 
 
 class ToolTrace(BaseModel):
-    """Auditable record of a bounded tool invocation."""
+    """Auditable record of a bounded tool invocation, with what it cost.
+
+    The trace was auditable but not answerable: it said what ran and in what
+    order, and nothing about where a slow turn spent its time or what a turn cost
+    to serve. Neither question could be answered without attaching a profiler,
+    which is not an option once the thing is deployed.
+
+    Every accounting field is optional because not every step has one. A pure
+    calculation has a duration but no tokens; a cached read has a duration near
+    zero; a step whose adapter does not report usage leaves the token fields
+    unset rather than guessing at them. An absent value means "not reported", and
+    is deliberately distinguishable from zero.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     tool: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     outcome: str
     summary: str
+    #: Wall-clock time for this step. Wall clock rather than CPU on purpose: the
+    #: costs that matter here are a remote query and a model call, and both are
+    #: spent waiting.
+    duration_ms: int | None = Field(default=None, ge=0)
+    #: Which routed step produced this entry, when the plan executor drove it.
+    #: This is what lets a reader line the trace up against `routed_plan.steps`
+    #: and see that the plan and the execution are the same thing.
+    step_id: str | None = Field(default=None, pattern=r"^step_[0-9]+$")
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    #: Bytes the query engine reported scanning. Athena bills by scanned bytes,
+    #: so this is the field that turns a slow answer into a priced one.
+    scanned_bytes: int | None = Field(default=None, ge=0)
 
 
 class EvidenceExcerptRow(BaseModel):
@@ -582,12 +639,28 @@ class AnswerCompositionContext(BaseModel):
 
     question: str = Field(min_length=3)
     analysis_type: Literal[
-        "decision", "dataset_inspection", "observation_comparison", "forecast", "data_question",
-        "web_search"
+        "decision",
+        "dataset_inspection",
+        "observation_comparison",
+        "forecast",
+        "data_question",
+        "web_search",
     ]
     grounded_facts_json: str = Field(min_length=2)
     allowed_citation_ids: tuple[str, ...] = ()
     fallback_answer: str = Field(min_length=1)
+    #: True when ``grounded_facts_json`` contains text that originated in data
+    #: rather than in this application — a dataset topic, a source-supplied entity
+    #: label, a web search snippet.
+    #:
+    #: The composer's existing guards reject an invented citation and an invented
+    #: number. Neither looks at prose, so a dataset whose topic reads as an
+    #: instruction can steer tone, add a recommendation, or drop a caveat without
+    #: touching a number. This flag is what lets the composer say so in the system
+    #: prompt: the quarantined text is a value to quote, never a directive to
+    #: obey. It defaults to True because assuming text is untrusted is the safe
+    #: error; a caller passing only application-computed values may set it False.
+    contains_data_provided_text: bool = True
 
 
 class ComposedAnswer(BaseModel):
@@ -598,6 +671,11 @@ class ComposedAnswer(BaseModel):
     answer: str = Field(min_length=1)
     citation_ids: tuple[str, ...] = ()
     mode: Literal["model", "deterministic"]
+    #: Usage the provider reported, carried through so the trace can price the
+    #: turn. Unset on the deterministic path and on any provider that does not
+    #: report it, which is deliberately distinct from zero.
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
 
 class AnswerDraft(BaseModel):

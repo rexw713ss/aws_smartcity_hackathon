@@ -13,12 +13,6 @@ from apps.api.schemas import MAX_UPLOAD_BYTES, ApiModel
 from apps.api.security import require_write_token
 from youth_compass.acquisition import AcquisitionStart, LinkAcquisitionStart
 from youth_compass.agent import CopilotResponse, ToolCapability
-from youth_compass.decisioning import (
-    PopulationBalanceMode,
-    ScenarioAdjustment,
-    ScenarioOperation,
-    YouthPopulationScenarioResult,
-)
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
 
@@ -55,52 +49,12 @@ class DataIntakeOptions(ApiModel):
     max_upload_bytes: int
 
 
-class ScenarioAdjustmentRequest(ApiModel):
-    """A user-supplied scenario assumption, never presented as observed data."""
-
-    district_id: str = Field(min_length=1, max_length=80)
-    operation: ScenarioOperation
-    value: float = Field(default=0, ge=-1_000_000, le=1_000_000)
-    source_district_id: str | None = Field(default=None, min_length=1, max_length=80)
-
-
-class YouthPopulationScenarioRequest(ApiModel):
-    """A bounded cohort projection from the latest complete district snapshot."""
-
-    balance_mode: PopulationBalanceMode = PopulationBalanceMode.OPEN
-    target_year: int | None = Field(default=None, ge=2026, le=2043)
-    adjustments: tuple[ScenarioAdjustmentRequest, ...] = Field(min_length=1, max_length=20)
-
-
 @router.get("/capabilities", response_model=list[ToolCapability])
 def list_copilot_capabilities(request: Request) -> list[ToolCapability]:
     """List the bounded tools currently discoverable by the smart router."""
 
     runtime: LocalRuntime = request.app.state.runtime
     return list(runtime.copilot().list_capabilities())
-
-
-@router.post("/what-if", response_model=YouthPopulationScenarioResult)
-def run_youth_population_scenario(
-    payload: YouthPopulationScenarioRequest, request: Request
-) -> YouthPopulationScenarioResult:
-    """Compare observed district youth population with explicit user assumptions."""
-
-    runtime: LocalRuntime = request.app.state.runtime
-    adjustments = tuple(
-        ScenarioAdjustment(
-            district_id=item.district_id,
-            operation=item.operation,
-            value=item.value,
-            source_district_id=item.source_district_id,
-        )
-        for item in payload.adjustments
-    )
-    return runtime.scenarios().run(
-        adjustments,
-        balance_mode=payload.balance_mode,
-        target_year=payload.target_year,
-    )
 
 
 @router.post("/query", response_model=CopilotResponse)
@@ -147,9 +101,7 @@ async def stream_copilot(payload: CopilotQueryRequest, request: Request) -> Stre
             # Send their complete answer once before the structured result.
             if response.answer != last_text:
                 await queue.put({"type": "text", "text": response.answer})
-            await queue.put(
-                {"type": "result", "response": response.model_dump(mode="json")}
-            )
+            await queue.put({"type": "result", "response": response.model_dump(mode="json")})
         except Exception as exc:  # The HTTP status is already committed once streaming begins.
             await queue.put({"type": "error", "message": str(exc)[:400]})
         finally:

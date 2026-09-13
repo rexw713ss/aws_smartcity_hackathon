@@ -273,3 +273,48 @@ def test_no_default_is_guessed_when_population_is_not_published() -> None:
 
     with pytest.raises(QueryExecutionError, match="specify a metric or topic"):
         _select_dataset(catalog, _selection_query("Compare Shimen and Linkou"))
+
+
+def test_a_metric_the_data_does_not_measure_is_refused_not_substituted() -> None:
+    """The single-metric shortcut used to answer the wrong question.
+
+    Asking for youth unemployment against a catalog that publishes only
+    population returned population figures under the unemployment question. That
+    is the one outcome this system is built to avoid: a confident wrong answer
+    instead of an admitted gap. The requested metric is a canonical code, so an
+    empty intersection with what is published is unambiguous.
+    """
+
+    from youth_compass.agent.observation_tools import _select_metric
+
+    with pytest.raises(QueryExecutionError, match="does not measure unemployment_count"):
+        _select_metric(
+            ("population_count",),
+            _selection_query(
+                "Compare youth unemployment by district",
+                metric_terms=("unemployment_count",),
+            ),
+        )
+
+
+def test_the_only_published_metric_is_still_used_when_the_question_names_none() -> None:
+    """The refusal must not fire on a question that never named a measure."""
+
+    from youth_compass.agent.observation_tools import _select_metric
+
+    selected = _select_metric(
+        ("population_count",), _selection_query("Compare Shimen and Linkou from 2018 to 2025")
+    )
+
+    assert selected == "population_count"
+
+
+def test_a_named_metric_that_is_published_is_selected_normally() -> None:
+    from youth_compass.agent.observation_tools import _select_metric
+
+    selected = _select_metric(
+        ("population_count",),
+        _selection_query("youth population trend", metric_terms=("population_count",)),
+    )
+
+    assert selected == "population_count"

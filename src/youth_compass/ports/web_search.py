@@ -1,4 +1,16 @@
-"""Bounded web-search port used by the grounded copilot."""
+"""WebSearchProvider port and its payload models.
+
+Stage 1 proposal originating from the AWS workstream. The backend workstream may
+amend these signatures; see docs/12-aws-stage1-foundation.md for the amendment
+procedure. This port is an addition to the table in
+docs/01-system-architecture.md section 5, added when the copilot gained a
+current-information path that curated datasets cannot serve.
+
+The port grants search, not fetching. A caller receives provider-ranked
+snippets with an HTTPS URL and can cite them, but it cannot ask the adapter to
+retrieve an arbitrary address, which keeps the public web outside the
+allowlisted acquisition path.
+"""
 
 from typing import Protocol, runtime_checkable
 

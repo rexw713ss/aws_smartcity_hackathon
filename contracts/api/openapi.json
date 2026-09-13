@@ -78,6 +78,7 @@
         "enum": [
           "search_catalog",
           "search_tools",
+          "search_web",
           "discover_sources",
           "inspect_dataset",
           "acquire_source",
@@ -670,6 +671,14 @@
               "type": "string"
             },
             "title": "Warnings",
+            "type": "array"
+          },
+          "web_citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WebCitation"
+            },
+            "title": "Web Citations",
             "type": "array"
           }
         },
@@ -1267,6 +1276,18 @@
             ],
             "title": "Clarification Question"
           },
+          "decision_profile": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Profile"
+          },
           "entity_ids": {
             "default": [],
             "items": {
@@ -1623,93 +1644,6 @@
         "title": "DistrictProfileResponse",
         "type": "object"
       },
-      "DistrictScenarioResult": {
-        "description": "Before/after result for one canonical district.",
-        "properties": {
-          "absolute_delta": {
-            "title": "Absolute Delta",
-            "type": "integer"
-          },
-          "baseline_rank": {
-            "minimum": 1.0,
-            "title": "Baseline Rank",
-            "type": "integer"
-          },
-          "baseline_value": {
-            "minimum": 0.0,
-            "title": "Baseline Value",
-            "type": "integer"
-          },
-          "district_code": {
-            "title": "District Code",
-            "type": "string"
-          },
-          "district_name": {
-            "title": "District Name",
-            "type": "string"
-          },
-          "historical_retention_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Historical Retention Rate"
-          },
-          "percent_delta": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Percent Delta"
-          },
-          "rank_change": {
-            "title": "Rank Change",
-            "type": "integer"
-          },
-          "scenario_rank": {
-            "minimum": 1.0,
-            "title": "Scenario Rank",
-            "type": "integer"
-          },
-          "scenario_retention_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scenario Retention Rate"
-          },
-          "scenario_value": {
-            "minimum": 0.0,
-            "title": "Scenario Value",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "district_code",
-          "district_name",
-          "baseline_value",
-          "scenario_value",
-          "absolute_delta",
-          "percent_delta",
-          "baseline_rank",
-          "scenario_rank",
-          "rank_change"
-        ],
-        "title": "DistrictScenarioResult",
-        "type": "object"
-      },
       "DistrictTrendPointResponse": {
         "properties": {
           "period": {
@@ -1929,16 +1863,6 @@
         ],
         "title": "EvidenceExcerptRow",
         "type": "object"
-      },
-      "EvidenceKind": {
-        "description": "Origin of a number shown in a scenario response.",
-        "enum": [
-          "official",
-          "derived",
-          "user_assumption"
-        ],
-        "title": "EvidenceKind",
-        "type": "string"
       },
       "FeatureContributionInsight": {
         "description": "Public explanation of one feature's score contribution.",
@@ -2928,15 +2852,6 @@
         "title": "ObservationSeries",
         "type": "object"
       },
-      "PopulationBalanceMode": {
-        "description": "Whether a change alters the city total or redistributes it.",
-        "enum": [
-          "open",
-          "redistribute"
-        ],
-        "title": "PopulationBalanceMode",
-        "type": "string"
-      },
       "PopulationScope": {
         "enum": [
           "youth_specific",
@@ -3218,125 +3133,6 @@
         "title": "RoutedToolStep",
         "type": "object"
       },
-      "ScenarioAdjustmentRequest": {
-        "description": "A user-supplied scenario assumption, never presented as observed data.",
-        "properties": {
-          "districtId": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Districtid",
-            "type": "string"
-          },
-          "operation": {
-            "$ref": "#/components/schemas/ScenarioOperation"
-          },
-          "sourceDistrictId": {
-            "anyOf": [
-              {
-                "maxLength": 80,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sourcedistrictid"
-          },
-          "value": {
-            "default": 0,
-            "maximum": 1000000.0,
-            "minimum": -1000000.0,
-            "title": "Value",
-            "type": "number"
-          }
-        },
-        "required": [
-          "districtId",
-          "operation"
-        ],
-        "title": "ScenarioAdjustmentRequest",
-        "type": "object"
-      },
-      "ScenarioEvidence": {
-        "description": "A source or assumption disclosed by the calculation.",
-        "properties": {
-          "detail": {
-            "title": "Detail",
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/EvidenceKind"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Url"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "detail"
-        ],
-        "title": "ScenarioEvidence",
-        "type": "object"
-      },
-      "ScenarioOperation": {
-        "description": "Allowlisted transformations of one district population.",
-        "enum": [
-          "absolute_change",
-          "percent_change",
-          "transfer",
-          "annual_net_migration",
-          "retention_rate_change",
-          "match_city_retention",
-          "match_top_quartile_retention"
-        ],
-        "title": "ScenarioOperation",
-        "type": "string"
-      },
-      "ScenarioTrajectoryPoint": {
-        "description": "City-wide projected totals at one year.",
-        "properties": {
-          "absolute_delta": {
-            "title": "Absolute Delta",
-            "type": "integer"
-          },
-          "baseline_value": {
-            "minimum": 0.0,
-            "title": "Baseline Value",
-            "type": "integer"
-          },
-          "scenario_value": {
-            "minimum": 0.0,
-            "title": "Scenario Value",
-            "type": "integer"
-          },
-          "year": {
-            "title": "Year",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "year",
-          "baseline_value",
-          "scenario_value",
-          "absolute_delta"
-        ],
-        "title": "ScenarioTrajectoryPoint",
-        "type": "object"
-      },
       "SemanticRole": {
         "enum": [
           "year",
@@ -3616,11 +3412,71 @@
         "type": "object"
       },
       "ToolTrace": {
-        "description": "Auditable record of a bounded tool invocation.",
+        "description": "Auditable record of a bounded tool invocation, with what it cost.\n\nThe trace was auditable but not answerable: it said what ran and in what\norder, and nothing about where a slow turn spent its time or what a turn cost\nto serve. Neither question could be answered without attaching a profiler,\nwhich is not an option once the thing is deployed.\n\nEvery accounting field is optional because not every step has one. A pure\ncalculation has a duration but no tokens; a cached read has a duration near\nzero; a step whose adapter does not report usage leaves the token fields\nunset rather than guessing at them. An absent value means \"not reported\", and\nis deliberately distinguishable from zero.",
         "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
           "outcome": {
             "title": "Outcome",
             "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "scanned_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Bytes"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "pattern": "^step_[0-9]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
           },
           "summary": {
             "title": "Summary",
@@ -4111,151 +3967,51 @@
         "title": "WarningSeverity",
         "type": "string"
       },
-      "YouthPopulationScenarioRequest": {
-        "description": "A bounded cohort projection from the latest complete district snapshot.",
+      "WebCitation": {
+        "description": "A search result used as web evidence, separate from published datasets.",
         "properties": {
-          "adjustments": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioAdjustmentRequest"
-            },
-            "maxItems": 20,
-            "minItems": 1,
-            "title": "Adjustments",
-            "type": "array"
+          "citation_id": {
+            "pattern": "^web-\\d+$",
+            "title": "Citation Id",
+            "type": "string"
           },
-          "balanceMode": {
-            "$ref": "#/components/schemas/PopulationBalanceMode",
-            "default": "open"
-          },
-          "targetYear": {
+          "published_at": {
             "anyOf": [
               {
-                "maximum": 2043.0,
-                "minimum": 2026.0,
-                "type": "integer"
+                "format": "date-time",
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Targetyear"
+            "title": "Published At"
+          },
+          "snippet": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2000,
+            "pattern": "^https://",
+            "title": "Url",
+            "type": "string"
           }
         },
         "required": [
-          "adjustments"
+          "citation_id",
+          "title",
+          "url"
         ],
-        "title": "YouthPopulationScenarioRequest",
-        "type": "object"
-      },
-      "YouthPopulationScenarioResult": {
-        "description": "A deterministic comparison with enough context to audit every number.",
-        "properties": {
-          "age_lower": {
-            "default": 18,
-            "title": "Age Lower",
-            "type": "integer"
-          },
-          "age_upper": {
-            "default": 35,
-            "title": "Age Upper",
-            "type": "integer"
-          },
-          "assumptions": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Assumptions",
-            "type": "array"
-          },
-          "balance_mode": {
-            "$ref": "#/components/schemas/PopulationBalanceMode"
-          },
-          "baseline_method": {
-            "title": "Baseline Method",
-            "type": "string"
-          },
-          "baseline_total": {
-            "minimum": 0.0,
-            "title": "Baseline Total",
-            "type": "integer"
-          },
-          "evidence": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioEvidence"
-            },
-            "title": "Evidence",
-            "type": "array"
-          },
-          "generated_at": {
-            "format": "date-time",
-            "title": "Generated At",
-            "type": "string"
-          },
-          "metric_code": {
-            "default": "youth_population_18_35",
-            "title": "Metric Code",
-            "type": "string"
-          },
-          "observed_period": {
-            "title": "Observed Period",
-            "type": "string"
-          },
-          "population_conserved": {
-            "title": "Population Conserved",
-            "type": "boolean"
-          },
-          "rows": {
-            "items": {
-              "$ref": "#/components/schemas/DistrictScenarioResult"
-            },
-            "title": "Rows",
-            "type": "array"
-          },
-          "scenario_total": {
-            "minimum": 0.0,
-            "title": "Scenario Total",
-            "type": "integer"
-          },
-          "target_year": {
-            "title": "Target Year",
-            "type": "integer"
-          },
-          "total_delta": {
-            "title": "Total Delta",
-            "type": "integer"
-          },
-          "trajectory": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioTrajectoryPoint"
-            },
-            "title": "Trajectory",
-            "type": "array"
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Warnings",
-            "type": "array"
-          }
-        },
-        "required": [
-          "observed_period",
-          "target_year",
-          "baseline_method",
-          "balance_mode",
-          "baseline_total",
-          "scenario_total",
-          "total_delta",
-          "population_conserved",
-          "rows",
-          "trajectory",
-          "evidence",
-          "assumptions",
-          "warnings",
-          "generated_at"
-        ],
-        "title": "YouthPopulationScenarioResult",
+        "title": "WebCitation",
         "type": "object"
       },
       "apps__api__schemas__UploadResponse": {
@@ -4587,15 +4343,15 @@
         ]
       }
     },
-    "/api/v1/copilot/what-if": {
+    "/api/v1/copilot/query/stream": {
       "post": {
-        "description": "Compare observed district youth population with explicit user assumptions.",
-        "operationId": "run_youth_population_scenario_api_v1_copilot_what_if_post",
+        "description": "Stream Bedrock answer snapshots, then the validated structured response.",
+        "operationId": "stream_copilot_api_v1_copilot_query_stream_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/YouthPopulationScenarioRequest"
+                "$ref": "#/components/schemas/CopilotQueryRequest"
               }
             }
           },
@@ -4603,13 +4359,6 @@
         },
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/YouthPopulationScenarioResult"
-                }
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -4623,7 +4372,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Run Youth Population Scenario",
+        "summary": "Stream Copilot",
         "tags": [
           "copilot"
         ]

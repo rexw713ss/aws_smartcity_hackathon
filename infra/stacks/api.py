@@ -104,11 +104,16 @@ _API_TIMEOUT = Duration.seconds(90)
 _API_MEMORY_MB = 1024
 #: The copilot route is public and each call can invoke Bedrock twice, so an
 #: unbounded caller would spend real money before the budget alarm ever fires.
-#: These two limits cap that: the stage throttle bounds request rate at the
-#: edge, and reserved concurrency bounds how many handlers can run at once.
+#:
+#: Reserved concurrency is the only cap this surface has. Streaming answers
+#: require a Lambda Function URL — an API Gateway HTTP API buffers the response
+#: and collapses the live Bedrock stream back into one payload — and a Function
+#: URL has no stage, so there is no edge rate limit to configure. A caller can
+#: therefore still issue requests as fast as it likes; what it cannot do is have
+#: more than this many handlers, and so more than this many Bedrock calls, in
+#: flight at once. Anything stricter needs authentication or CloudFront in front
+#: of the URL, neither of which this stack has yet.
 _API_RESERVED_CONCURRENCY = 20
-_API_THROTTLE_RATE_PER_SECOND = 20
-_API_THROTTLE_BURST = 40
 
 
 class ApiStack(TaggedStack):

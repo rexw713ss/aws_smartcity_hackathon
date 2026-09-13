@@ -1,0 +1,458 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "New Taipei Youth Compass — Deployed Runtime",
+    "subtitle": "What is actually deployed, and how a question reaches published evidence",
+    "output": "docs/diagrams/youth-compass-runtime.html",
+    "visual_preset": "blueprint",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "question-path",
+        "label": "A question reaches the data",
+        "focus": [
+          "users",
+          "funcurl",
+          "api",
+          "athena",
+          "s3"
+        ],
+        "note": "Public HTTPS to a streaming Lambda, then a typed read-only query against immutable Parquet."
+      },
+      {
+        "id": "model-calls",
+        "label": "Where the model is invoked",
+        "focus": [
+          "api",
+          "bedrock"
+        ],
+        "note": "Two bounded stages per turn: classify the question, then verbalize facts already retrieved."
+      },
+      {
+        "id": "state",
+        "label": "State and its owners",
+        "focus": [
+          "s3",
+          "glue",
+          "dynamo",
+          "athena"
+        ],
+        "note": "Published versions are immutable; session scope expires by TTL."
+      },
+      {
+        "id": "publish-path",
+        "label": "How data becomes answerable",
+        "focus": [
+          "upload",
+          "ingest",
+          "stepfn",
+          "reviewer",
+          "s3",
+          "glue"
+        ],
+        "note": "Nothing is queryable until a reviewer approves the mapping and an immutable version is published."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "Residents & Officials",
+      "sublabel": "asks in 3 languages",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "site",
+      "type": "cloud",
+      "label": "CloudFront + S3",
+      "sublabel": "React single-page app",
+      "pos": [
+        260,
+        140
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "frontend"
+    },
+    {
+      "id": "bedrock",
+      "type": "cloud",
+      "label": "Amazon Bedrock",
+      "sublabel": "Claude · temperature 0",
+      "pos": [
+        490,
+        140
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "aws"
+    },
+    {
+      "id": "funcurl",
+      "type": "security",
+      "label": "Lambda Function URL",
+      "sublabel": "RESPONSE_STREAM · auth NONE",
+      "pos": [
+        260,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "public edge"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI + Copilot",
+      "sublabel": "reserved concurrency 20",
+      "pos": [
+        490,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "api"
+    },
+    {
+      "id": "athena",
+      "type": "database",
+      "label": "Amazon Athena",
+      "sublabel": "typed read-only queries",
+      "pos": [
+        730,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "aws"
+    },
+    {
+      "id": "s3",
+      "type": "cloud",
+      "label": "S3 curated",
+      "sublabel": "immutable Parquet versions",
+      "pos": [
+        970,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "aws"
+    },
+    {
+      "id": "dynamo",
+      "type": "database",
+      "label": "DynamoDB",
+      "sublabel": "follow-up scope · TTL",
+      "pos": [
+        260,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "aws"
+    },
+    {
+      "id": "glue",
+      "type": "database",
+      "label": "Glue Catalog",
+      "sublabel": "dataset versions",
+      "pos": [
+        730,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "aws"
+    },
+    {
+      "id": "upload",
+      "type": "external",
+      "label": "CSV Upload",
+      "sublabel": "government open data",
+      "pos": [
+        40,
+        700
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Ingestion Workflow",
+      "sublabel": "profile → map → transform",
+      "pos": [
+        260,
+        700
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "pipeline"
+    },
+    {
+      "id": "stepfn",
+      "type": "messagebus",
+      "label": "Step Functions",
+      "sublabel": "human approval gate",
+      "pos": [
+        490,
+        700
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "aws"
+    },
+    {
+      "id": "reviewer",
+      "type": "external",
+      "label": "Reviewer",
+      "sublabel": "approves the mapping",
+      "pos": [
+        730,
+        700
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS us-east-1 / hackathon account",
+      "wraps": [
+        "site",
+        "bedrock",
+        "funcurl",
+        "api",
+        "athena",
+        "s3",
+        "dynamo",
+        "glue",
+        "ingest",
+        "stepfn"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "not publicly reachable",
+      "wraps": [
+        "api",
+        "athena",
+        "s3",
+        "dynamo",
+        "glue",
+        "ingest"
+      ],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "from": "users",
+      "to": "site",
+      "label": "HTTPS",
+      "variant": "dashed",
+      "route": "orthogonal-v",
+      "labelAt": [
+        118,
+        205
+      ]
+    },
+    {
+      "from": "users",
+      "to": "funcurl",
+      "label": "HTTPS question",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [
+        238,
+        272
+      ]
+    },
+    {
+      "from": "funcurl",
+      "to": "api",
+      "label": "streams the turn",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [
+        450,
+        275
+      ]
+    },
+    {
+      "from": "api",
+      "to": "bedrock",
+      "label": "decompose, then compose",
+      "variant": "security",
+      "route": "straight",
+      "labelAt": [
+        565,
+        250
+      ]
+    },
+    {
+      "from": "api",
+      "to": "athena",
+      "label": "typed QuerySpec",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [
+        685,
+        275
+      ]
+    },
+    {
+      "from": "athena",
+      "to": "s3",
+      "label": "scans bytes",
+      "variant": "default",
+      "route": "straight",
+      "labelAt": [
+        925,
+        275
+      ]
+    },
+    {
+      "from": "api",
+      "to": "glue",
+      "label": "resolve version",
+      "variant": "default",
+      "route": "auto"
+    },
+    {
+      "from": "api",
+      "to": "dynamo",
+      "label": "session scope",
+      "variant": "dashed",
+      "route": "auto"
+    },
+    {
+      "from": "upload",
+      "to": "ingest",
+      "label": "raw file",
+      "variant": "default",
+      "route": "straight",
+      "labelAt": [
+        220,
+        675
+      ]
+    },
+    {
+      "from": "ingest",
+      "to": "stepfn",
+      "label": "pauses here",
+      "variant": "security",
+      "route": "straight",
+      "labelAt": [
+        478,
+        690
+      ]
+    },
+    {
+      "from": "stepfn",
+      "to": "reviewer",
+      "label": "approval gate · request, then approve or reject",
+      "variant": "security",
+      "route": "straight",
+      "labelAt": [
+        685,
+        668
+      ]
+    },
+    {
+      "from": "ingest",
+      "to": "s3",
+      "label": "publishes immutable version",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "via": [
+        [
+          335,
+          620
+        ],
+        [
+          1045,
+          620
+        ]
+      ],
+      "labelAt": [
+        640,
+        600
+      ]
+    },
+    {
+      "from": "ingest",
+      "to": "glue",
+      "label": "registers version",
+      "variant": "default",
+      "route": "auto"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One deployed process",
+      "items": [
+        "A single Lambda holds the API and the whole copilot",
+        "Streaming needs a Function URL, so there is no stage to throttle",
+        "Reserved concurrency 20 is therefore the only spend cap"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Nothing is answerable by accident",
+      "items": [
+        "An upload pauses at Step Functions until a human approves its mapping",
+        "Only then is an immutable version published and registered",
+        "Queries name a registered version, never a bucket path"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Cost is measured, not assumed",
+      "items": [
+        "Athena bills per byte scanned; every turn records what it scanned",
+        "A version-keyed cache fronts both reads inside the process",
+        "Measured: repeat question 1153 ms → 23 ms, 1.4 MB → 0 bytes"
+      ]
+    }
+  ]
+}

@@ -5,7 +5,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from youth_compass.agent.contracts import AnalysisOperation, DecomposedQuery, RoutedToolPlan
+from youth_compass.agent.contracts import (
+    AnalysisOperation,
+    DecomposedQuery,
+    DecompositionSource,
+    RoutedToolPlan,
+)
 from youth_compass.agent.planning import QueryDecomposer, SmartToolRouter
 from youth_compass.domain.errors import ModelInvocationError
 
@@ -37,6 +42,9 @@ class AgentEvalResult(BaseModel):
     # Absent when the model itself failed, so a provider error is reported as a
     # failed case rather than aborting the whole run.
     decomposition: DecomposedQuery | None = None
+    #: Which decomposer produced the plan. Recorded so a run against Bedrock
+    #: cannot be read as a model result when the keyword table answered.
+    decomposition_source: DecompositionSource | None = None
     routed_plan: RoutedToolPlan | None = None
 
 
@@ -63,7 +71,7 @@ class AgentEvalHarness:
         results: list[AgentEvalResult] = []
         for case in cases:
             try:
-                decomposition = await self._decomposer.decompose(case.question, case.entity_ids)
+                planned = await self._decomposer.decompose(case.question, case.entity_ids)
             except ModelInvocationError as exc:
                 # A model that fails on one question is a result to record, not a
                 # reason to abandon the measurement. Aborting the run hid the
@@ -77,14 +85,24 @@ class AgentEvalHarness:
                     )
                 )
                 continue
+            decomposition = planned.query
             routed_plan = self._router.route(decomposition)
-            failures = _failures(case, decomposition, routed_plan)
+            failures = list(_failures(case, decomposition, routed_plan))
+            # A case that only passes because the keyword table caught it is not
+            # evidence that the configured decomposer works. Scoring the model
+            # while silently accepting fallback output is how a broken provider
+            # reports a perfect pass rate.
+            if planned.degraded_reason is not None:
+                failures.append(
+                    f"decomposition degraded to {planned.source.value}: {planned.degraded_reason}"
+                )
             results.append(
                 AgentEvalResult(
                     case_id=case.case_id,
                     passed=not failures,
-                    failures=failures,
+                    failures=tuple(failures),
                     decomposition=decomposition,
+                    decomposition_source=planned.source,
                     routed_plan=routed_plan,
                 )
             )

@@ -95,18 +95,29 @@ class ModelSettings(BaseModel):
     timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     max_attempts: int = Field(default=3, ge=1, le=10)
 
-    # Which stages the model is allowed to run. The two carry very different
-    # risk: the answer composer only verbalizes a payload the application has
-    # already grounded, and its output is rejected if it invents a citation or a
-    # number. The query decomposer chooses which tools run, so a plausible but
-    # wrong plan routes the whole answer wrong — and a plan that is merely wrong
-    # rather than invalid never triggers the deterministic fallback.
+    # Which stages the model is allowed to run. Both default on, because both
+    # are bounded: the answer composer only verbalizes a payload the application
+    # has already grounded, and its output is rejected if it invents a citation
+    # or a number; the decomposer only chooses from registered operations, and
+    # its output is schema-validated before anything runs.
     #
-    # Measured on evals/agent-routing.jsonl and against the live API: model
-    # decomposition currently degrades answers, so it is off by default and must
-    # be enabled deliberately.
+    # `decompose_queries` is on because the alternative is worse. Its fallback,
+    # DeterministicQueryDecomposer, recognizes question shapes from curated
+    # keyword cues in three languages, so it answers only the shapes someone
+    # already wrote down and is least reliable exactly where phrasing varies
+    # most. Making that the primary route caps what the product can understand
+    # at whatever its cue table happens to list.
+    #
+    # The risk this trades into is real and named: the decomposer picks which
+    # tools run, so a plan that is plausible but wrong routes the whole answer
+    # wrong, and being wrong rather than invalid never trips the fallback. Two
+    # things bound it. Every routed operation must resolve to a registered
+    # capability or the router fails closed, and evals/agent-routing.jsonl scores
+    # decomposition and routing directly — a run whose plan came from the
+    # fallback is failed rather than counted, so the pass rate measures the model
+    # and not the keyword table standing in for it.
     compose_answers: bool = True
-    decompose_queries: bool = False
+    decompose_queries: bool = True
 
 
 class ForecastSettings(BaseModel):

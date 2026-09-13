@@ -14,7 +14,6 @@ from datetime import datetime
 from youth_compass.agent.contracts import (
     AnswerCompositionContext,
     CandidateInsight,
-    CopilotIntent,
     CopilotResponse,
     CopilotStatus,
     DecisionExecutionPlan,
@@ -71,7 +70,7 @@ class DecisionAnswering:
         question: str,
         *,
         now: datetime,
-        intent: CopilotIntent,
+        profile_code: str,
         decomposition: DecomposedQuery,
         routed_plan: RoutedToolPlan,
         trace: list[ToolTrace],
@@ -86,7 +85,12 @@ class DecisionAnswering:
         rather than scored on what happens to be present.
         """
 
-        profile = self._profiles.get(intent.profile_code)
+        profile = self._profiles.get(profile_code)
+        # The scope a decision ranks over comes from the decomposition, which is
+        # the only classification of this question. `_scope_from_question`
+        # deliberately never narrows a ranking plan to districts, so this is the
+        # caller-supplied entity set or nothing.
+        entity_ids = decomposition.entity_ids
         feature_codes = tuple(
             dict.fromkeys(
                 [
@@ -99,7 +103,7 @@ class DecisionAnswering:
             profile_code=profile.profile_code,
             profile_version=profile.version,
             feature_codes=feature_codes,
-            entity_ids=intent.entity_ids,
+            entity_ids=entity_ids,
             min_quality_score=min_quality_score,
         )
         trace.append(
@@ -118,7 +122,7 @@ class DecisionAnswering:
             feature_set = self._provider.get_features(
                 FeatureQuery(
                     feature_codes=feature_codes,
-                    entity_ids=intent.entity_ids,
+                    entity_ids=entity_ids,
                     min_quality_score=min_quality_score,
                 )
             )
