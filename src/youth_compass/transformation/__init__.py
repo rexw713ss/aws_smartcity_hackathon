@@ -1,12 +1,19 @@
-"""Deterministic canonical transformation and local Parquet publication."""
+"""Deterministic canonical transformation and local Parquet publication.
 
-from youth_compass.transformation.pipeline import (
-    PublicationConflictError,
-    TransformationError,
-    TransformOptions,
-    run_csv_transformation,
-)
+Pipeline exports are loaded lazily so callers that only need lightweight value
+preview helpers do not have to import the optional PyArrow runtime.
+"""
+
+from typing import TYPE_CHECKING, Any
+
 from youth_compass.transformation.values import RowTransformationError, preview_column_value
+
+if TYPE_CHECKING:
+    from youth_compass.transformation.pipeline import (
+        PublicationConflictError,
+        TransformationError,
+        TransformOptions,
+    )
 
 __all__ = [
     "PublicationConflictError",
@@ -16,3 +23,18 @@ __all__ = [
     "preview_column_value",
     "run_csv_transformation",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Load Parquet-backed pipeline exports only when they are requested."""
+
+    if name in {
+        "PublicationConflictError",
+        "TransformationError",
+        "TransformOptions",
+        "run_csv_transformation",
+    }:
+        from youth_compass.transformation import pipeline
+
+        return getattr(pipeline, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
