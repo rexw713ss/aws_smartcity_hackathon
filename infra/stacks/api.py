@@ -293,7 +293,6 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_MODEL__PROVIDER": "bedrock",
                 "YOUTH_COMPASS_MODEL__MODEL_ID": model_id,
                 "YOUTH_COMPASS_MODEL__REGION": region,
-                "YOUTH_COMPASS_API__CORS_ALLOWED_ORIGINS": site_origin,
                 "YOUTH_COMPASS_API__WRITE_SECRET_ARN": self.write_secret.secret_arn,
                 "YOUTH_COMPASS_ALLOWED_SOURCE_IPS": ",".join(_ALLOWED_SOURCE_IPS),
                 # Lambda scales to many concurrent instances, so follow-up

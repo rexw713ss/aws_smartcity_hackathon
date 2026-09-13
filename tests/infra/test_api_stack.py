@@ -282,6 +282,17 @@ class TestStreamingFunctionUrl:
             },
         )
 
+    def test_cors_is_not_duplicated_by_the_fastapi_middleware(self, template: Template) -> None:
+        functions = template.find_resources("AWS::Lambda::Function")
+        api_environment = next(
+            function["Properties"]["Environment"]["Variables"]
+            for function in functions.values()
+            if "YOUTH_COMPASS_DATA_ROOT"
+            in function["Properties"].get("Environment", {}).get("Variables", {})
+        )
+
+        assert "YOUTH_COMPASS_API__CORS_ALLOWED_ORIGINS" not in api_environment
+
     def test_concurrency_is_capped_because_a_function_url_has_no_edge_throttle(
         self, template: Template
     ) -> None:
