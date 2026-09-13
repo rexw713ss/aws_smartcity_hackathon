@@ -1,233 +1,263 @@
 # AWS Architecture — New Taipei Youth Compass
 
-> Region: ap-northeast-1 (Tokyo)
+> Region: **us-east-1** (N. Virginia) · Environment: `hackathon` · Account: `765996595659`
+>
+> **This document describes what is actually deployed**, not the original plan. Services that
+> exist only in the planning documents are listed in [§6 Not deployed](#6-not-deployed).
+> The drawable version is `docs/aws-architecture.drawio`.
 
-## System Architecture
+## 1. System Architecture
 
 ```mermaid
 graph TB
-    subgraph S3["Amazon S3 — Data Lake"]
-        S3_IN["incoming/<br/>Raw uploaded files"]
-        S3_QUA["quarantined/<br/>Failed validation"]
-        S3_STD["standardized/<br/>Canonical dimensions added"]
-        S3_CUR["curated/<br/>Published analytical tables<br/>(Parquet, versioned)"]
-        S3_FC["forecasts/<br/>Prediction artifacts"]
-        S3_META["metadata/<br/>Quality reports, lineage"]
+    PUBLIC["Browser<br/>(public / judge)"]
+    REVIEWER["Human reviewer"]
+
+    subgraph Edge["Public surface"]
+        CF["Amazon CloudFront<br/>OAC, HTTPS redirect,<br/>SPA deep links"]
+        SITE["S3 site bucket<br/>private, React/Vite build"]
+        FURL["Lambda Function URL<br/>AuthType NONE,<br/>RESPONSE_STREAM"]
+        SM["AWS Secrets Manager<br/>write-endpoint shared secret"]
     end
 
-    subgraph Compute["Serverless Compute"]
-        LAMBDA["AWS Lambda<br/>(ARM64 Graviton)<br/>Data profiling,<br/>schema mapping,<br/>transformation"]
-        SFN["AWS Step Functions<br/>Ingestion Workflow:<br/>profile → map → validate →<br/>approval pause →<br/>transform → quality → publish"]
+    subgraph Api["API Lambda — ARM64, 1024 MB, 90 s, reserved concurrency 20"]
+        APILAMBDA["FastAPI + Lambda Web Adapter<br/>LangGraph agent runs in-process"]
     end
 
-    subgraph Analytics["Analytics & Catalog"]
-        GLUE["AWS Glue<br/>Data Catalog<br/>Table schemas"]
-        DDB["Amazon DynamoDB<br/>Dataset metadata,<br/>approval status,<br/>version pointer"]
-        ATHENA["Amazon Athena<br/>SQL over Parquet<br/>Typed queries only,<br/>scanned-bytes capped"]
+    subgraph Ingest["Event-driven ingestion"]
+        S3IN["S3 incoming/<br/>presigned POST, 30-day expiry,<br/>EventBridge enabled"]
+        EB["Amazon EventBridge<br/>Object Created, prefix incoming/"]
+        UPLOADFN["Lambda upload-event<br/>256 MB, 30 s<br/>one execution per upload"]
+        SFN["Step Functions Standard<br/>analyze → confidence gate →<br/>waitForTaskToken → publish / quarantine"]
+        XFORMFN["Lambda transform<br/>1024 MB, 5 min, ARM64<br/>no Bedrock access"]
     end
 
-    subgraph AI["AI & ML"]
-        BEDROCK["Amazon Bedrock<br/>Foundation model inference<br/>Policy copilot responses"]
-        SAGEMAKER["Amazon SageMaker<br/>Forecast model training,<br/>model registry,<br/>batch transform"]
-        AGENTCORE["Bedrock AgentCore<br/>LangGraph agent hosting,<br/>MCP Gateway,<br/>tool orchestration"]
+    subgraph Lake["Data lake and catalog"]
+        S3LAKE["S3 zones<br/>standardized/ curated/<br/>quarantined/ (90 d) metadata/<br/>forecasts/ (created, unused)"]
+        GLUE["AWS Glue Data Catalog<br/>youth_compass_hackathon"]
+        ATHENA["Amazon Athena<br/>workgroup-enforced<br/>1 GiB scan cap"]
+        DDB["Amazon DynamoDB<br/>job state, task tokens,<br/>conversation (TTL)"]
     end
 
-    subgraph Events["Event-Driven"]
-        EB["Amazon EventBridge<br/>Audit events,<br/>S3 triggers,<br/>workflow notifications"]
+    subgraph AI["AI"]
+        BEDROCK["Amazon Bedrock<br/>us.anthropic.claude-sonnet-4-6<br/>inference profile"]
     end
 
-    subgraph Security["IAM & Cost Controls"]
-        WRITE["Write_Role<br/>Ingestion workflow:<br/>write to data lake"]
-        COPILOT["Copilot_Role<br/>Query path only:<br/>DENIED write + delete<br/>on curated data"]
-        BUDGET["AWS Budgets<br/>Per-environment<br/>spending alerts"]
+    subgraph Gov["Governance"]
+        BUDGET["AWS Budgets<br/>50 USD/month, 80% + 100%"]
+        CW["Amazon CloudWatch<br/>logs and metrics"]
     end
 
-    subgraph Observability["Observability"]
-        CW["Amazon CloudWatch<br/>Logs, metrics, alarms"]
-        OTEL["OpenTelemetry → CloudWatch<br/>Distributed traces"]
-    end
+    PUBLIC -->|"HTTPS"| CF
+    CF -->|"OAC signed read"| SITE
+    PUBLIC -->|"XHR, streaming"| FURL
+    FURL --> APILAMBDA
+    APILAMBDA -->|"cached 5 min"| SM
+    PUBLIC -->|"presigned POST"| S3IN
 
-    %% Ingestion flow
-    S3_IN -->|"S3 event"| EB
-    EB -->|"triggers"| SFN
-    SFN -->|"invokes"| LAMBDA
-    SFN -->|"on success"| S3_CUR
-    SFN -->|"on failure"| S3_QUA
-    SFN -->|"intermediate"| S3_STD
-    SFN -->|"register schema"| GLUE
-    SFN -->|"update metadata"| DDB
+    S3IN -->|"Object Created"| EB
+    EB -->|"rule target"| UPLOADFN
+    UPLOADFN -->|"StartExecution, idempotent"| SFN
+    SFN -->|"analyze / transform"| XFORMFN
 
-    %% AI-assisted mapping
-    LAMBDA -->|"mapping proposals"| BEDROCK
-    BEDROCK -->|"structured response"| LAMBDA
+    REVIEWER -->|"approve / reject + token"| APILAMBDA
+    APILAMBDA -->|"SendTaskSuccess / Failure"| SFN
 
-    %% Forecast pipeline
-    SAGEMAKER -->|"trained models"| S3_FC
-    SAGEMAKER -->|"reads training data"| S3_CUR
+    XFORMFN -->|"publish or quarantine"| S3LAKE
+    XFORMFN -->|"register table"| GLUE
+    XFORMFN -->|"job state, version"| DDB
 
-    %% Agent
-    AGENTCORE -->|"tool calls"| ATHENA
-    AGENTCORE -->|"tool calls"| DDB
-    AGENTCORE -->|"inference"| BEDROCK
+    APILAMBDA -->|"query"| ATHENA
+    APILAMBDA -->|"job + conversation state"| DDB
+    APILAMBDA -->|"inference"| BEDROCK
+    ATHENA -->|"schema"| GLUE
+    ATHENA -->|"scan curated/, read-only"| S3LAKE
 
-    %% Query path
-    ATHENA -->|"scans"| S3_CUR
-    ATHENA -->|"reads schema"| GLUE
+    BUDGET -.->|"monitors"| Lake & Api & AI
+    CW -.->|"collects"| Api & Ingest & ATHENA
 
-    %% Audit
-    SFN -->|"emits"| EB
-    LAMBDA -->|"emits"| EB
-
-    %% IAM
-    WRITE -.->|"assumed by"| LAMBDA & SFN
-    COPILOT -.->|"assumed by"| ATHENA & AGENTCORE
-
-    %% Cost + observability
-    BUDGET -.->|"monitors"| S3 & Compute & Analytics & AI
-    CW -.->|"collects from"| LAMBDA & SFN & ATHENA & BEDROCK & SAGEMAKER
-    AGENTCORE -->|"traces"| OTEL
-
-    %% Styling
     classDef storage fill:#d4edda,stroke:#28a745,stroke-width:2px
     classDef compute fill:#cce5ff,stroke:#004085,stroke-width:2px
     classDef analytics fill:#e2e3f1,stroke:#383d6e,stroke-width:2px
     classDef ai fill:#fff3cd,stroke:#856404,stroke-width:2px
     classDef event fill:#d1ecf1,stroke:#0c5460,stroke-width:2px
-    classDef iam fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    classDef edge fill:#ede7f6,stroke:#8c4fff,stroke-width:2px
     classDef obs fill:#f0f0f0,stroke:#6c757d,stroke-width:2px
 
-    class S3_IN,S3_QUA,S3_STD,S3_CUR,S3_FC,S3_META storage
-    class LAMBDA,SFN compute
+    class S3IN,S3LAKE,SITE storage
+    class APILAMBDA,UPLOADFN,XFORMFN compute
     class GLUE,DDB,ATHENA analytics
-    class BEDROCK,SAGEMAKER,AGENTCORE ai
-    class EB event
-    class WRITE,COPILOT,BUDGET iam
-    class CW,OTEL obs
+    class BEDROCK ai
+    class EB,SFN event
+    class CF,FURL,SM edge
+    class CW,BUDGET obs
 ```
 
-## Ingestion Data Flow
+## 2. Ingestion Data Flow
+
+Mapping is **deterministic confidence scoring**. No model is called on this path — the transform
+Lambda holds no Bedrock permission at all.
 
 ```mermaid
 sequenceDiagram
+    participant B as Browser
+    participant API as API Lambda
     participant S3In as S3 incoming/
     participant EB as EventBridge
+    participant UP as upload-event Lambda
     participant SFN as Step Functions
-    participant Lambda as Lambda
-    participant Bedrock as Bedrock
-    participant Reviewer as Human Reviewer
-    participant S3Cur as S3 curated/
-    participant S3Qua as S3 quarantined/
+    participant TX as transform Lambda
+    participant R as Human reviewer
+    participant Lake as S3 curated/ or quarantined/
     participant Glue as Glue Catalog
     participant DDB as DynamoDB
 
-    S3In->>EB: ObjectCreated event
-    EB->>SFN: Start workflow
-    SFN->>Lambda: Profile CSV
-    Lambda-->>SFN: DatasetProfile
-    SFN->>Lambda: Propose mapping
-    Lambda->>Bedrock: Assist mapping (structured output)
-    Bedrock-->>Lambda: Mapping suggestion
-    Lambda-->>SFN: MappingAnalysis
+    B->>API: POST /api/v1/uploads (write token)
+    API-->>B: presigned POST fields + jobId
+    B->>S3In: multipart POST, file last
+    S3In-->>B: 204
+    S3In->>EB: Object Created (incoming/)
+    EB->>UP: rule target
+    UP->>SFN: StartExecution (idempotent on job id)
 
-    alt Low confidence or complex schema
-        SFN->>Reviewer: Pause (waitForTaskToken)
-        Reviewer->>SFN: Approve / Reject / Edit
-    end
+    SFN->>TX: action=analyze
+    TX-->>SFN: profile + mapping confidence
 
-    alt Approved
-        SFN->>Lambda: Transform + Quality check
-        SFN->>S3Cur: Publish Parquet
-        SFN->>Glue: Register table schema
-        SFN->>DDB: Update version pointer
-        SFN->>EB: dataset.published
-    else Rejected or Failed
-        SFN->>S3Qua: Quarantine with reason
-        SFN->>EB: dataset.quarantined
+    alt analysis failed (status=error)
+        SFN->>TX: action=transform, approved=false
+        TX->>Lake: quarantine with reason
+    else confidence >= 0.95
+        SFN->>TX: action=transform, approved=true
+        TX->>Lake: publish curated Parquet
+        TX->>Glue: register table schema
+        TX->>DDB: job published, version pointer
+    else confidence below 0.95 or absent
+        SFN->>TX: action=await_approval (waitForTaskToken)
+        TX->>DDB: persist task token
+        Note over SFN: execution suspended, no hourly charge
+        R->>API: POST /ingestion-jobs/{id}/decision
+        API->>SFN: SendTaskSuccess / SendTaskFailure
+        SFN->>TX: publish or quarantine
     end
 ```
 
-## Query & Copilot Path
+## 3. Query and Copilot Path
+
+The agent runs **in-process inside the API Lambda**. There is no AgentCore runtime and no MCP
+Gateway.
 
 ```mermaid
 graph LR
-    subgraph Agent["Bedrock AgentCore"]
-        GRAPH["LangGraph Agent<br/>Policy copilot"]
-        TOOLS["MCP Gateway<br/>Tool orchestration"]
+    subgraph ApiLambda["API Lambda (single process)"]
+        FASTAPI["FastAPI routes"]
+        AGENT["LangGraph agent<br/>planning + answering"]
+        TOOLS["Typed tool layer<br/>QuerySpec, feature reads"]
     end
 
-    subgraph Query["Analytical Query"]
-        ATHENA["Amazon Athena"]
-        S3["S3 curated/<br/>Parquet"]
-        GLUE["Glue Catalog"]
-    end
+    ATHENA["Amazon Athena<br/>1 GiB scan cap"]
+    GLUE["Glue Catalog"]
+    S3C["S3 curated/<br/>READ ONLY"]
+    DDB["DynamoDB<br/>conversation + job state"]
+    BEDROCK["Amazon Bedrock<br/>Claude Sonnet 4.6"]
 
-    subgraph Forecast["Forecast"]
-        SM_REG["SageMaker<br/>Model Registry"]
-        S3_FC["S3 forecasts/"]
-    end
-
-    subgraph Metadata["Governance"]
-        DDB["DynamoDB<br/>Lineage, quality,<br/>approval history"]
-    end
-
-    GRAPH -->|"typed QuerySpec"| TOOLS
-    TOOLS -->|"execute query"| ATHENA
-    ATHENA -->|"scan"| S3
+    FASTAPI --> AGENT
+    AGENT --> TOOLS
+    AGENT -->|"inference"| BEDROCK
+    TOOLS -->|"StartQueryExecution"| ATHENA
+    TOOLS -->|"session context"| DDB
     ATHENA -->|"schema"| GLUE
-    TOOLS -->|"get forecast"| S3_FC
-    TOOLS -->|"get lineage"| DDB
-    GRAPH -->|"inference"| BEDROCK["Bedrock"]
+    ATHENA -->|"scan"| S3C
 
     classDef agent fill:#fff3cd,stroke:#856404,stroke-width:2px
     classDef query fill:#e2e3f1,stroke:#383d6e,stroke-width:2px
-    class GRAPH,TOOLS agent
-    class ATHENA,S3,GLUE,SM_REG,S3_FC query
+    class FASTAPI,AGENT,TOOLS agent
+    class ATHENA,GLUE,S3C query
 ```
 
-## Security Boundary
+## 4. Security Boundary
+
+The boundary that actually applies is each function's own execution role. `Write_Role` and
+`Copilot_Role` are deployed in the Data stack but **no principal assumes them yet** — the
+planned role separation is not wired up.
 
 ```mermaid
-graph LR
-    subgraph Write["Write_Role"]
-        W_SFN["Step Functions"]
-        W_LAMBDA["Lambda"]
-        W_S3["S3: write to<br/>standardized/, curated/,<br/>forecasts/, metadata/"]
-        W_GLUE["Glue: create/update tables"]
-        W_DDB["DynamoDB: read + write"]
+graph TB
+    subgraph ApiRole["API Lambda execution role"]
+        A1["S3 curated/: READ ONLY"]
+        A2["S3 incoming/: read + write"]
+        A3["Athena + Glue: read"]
+        A4["Bedrock: the configured model only, not *"]
+        A5["states:SendTaskSuccess / SendTaskFailure"]
+        A6["Secrets Manager: the write secret only"]
     end
 
-    subgraph Read["Copilot_Role"]
-        R_AGENT["AgentCore"]
-        R_ATHENA["Athena"]
-        R_S3["S3 curated/: READ ONLY"]
-        R_DDB["DynamoDB: READ ONLY"]
+    subgraph XformRole["transform Lambda execution role"]
+        X1["S3 standardized/ curated/ quarantined/: read + write"]
+        X2["glue:CreateTable / UpdateTable / GetTable<br/>scoped to this database, no delete"]
+        X3["DynamoDB: read + write"]
     end
 
-    DENY["EXPLICIT DENY<br/>s3:PutObject<br/>s3:DeleteObject<br/>on curated/*"]
+    subgraph UploadRole["upload-event Lambda execution role"]
+        U1["S3 incoming/: read"]
+        U2["states:StartExecution"]
+    end
 
-    R_ATHENA --> R_S3
-    R_AGENT --> R_ATHENA
-    R_ATHENA --> R_DDB
-    R_ATHENA -.- DENY
+    subgraph Unwired["Deployed but unassumed"]
+        W["Write_Role"]
+        C["Copilot_Role<br/>explicit DENY s3:PutObject, s3:DeleteObject on curated/*"]
+    end
 
-    classDef deny fill:#fde8e8,stroke:#c53030,stroke-width:3px
-    class DENY deny
+    classDef deny fill:#fde8e8,stroke:#c53030,stroke-width:2px
+    classDef idle fill:#f0f0f0,stroke:#999999,stroke-width:2px,stroke-dasharray: 5 5
+    class A1 deny
+    class W,C idle
 ```
 
-## Service Inventory
+Other enforced guardrails:
+
+- **Athena workgroup** sets `enforce_work_group_configuration=true`, so the 1 GiB scan cap and
+  the result location cannot be overridden per query.
+- **Site bucket** blocks all public access and is reachable only through CloudFront via OAC.
+- **CORS** allows only the CloudFront origin; `GET`, `POST`, `OPTIONS` only.
+- **Write endpoints** require `X-Youth-Compass-Token`. If the secret cannot be read the guard
+  fails closed with 503 — an unreachable secret store never becomes an unguarded write path.
+- **No VPC, no NAT, no always-on compute.** Everything is request-billed.
+
+## 5. Service Inventory
 
 | Service | Purpose | Cost model |
 |---|---|---|
-| **Amazon S3** | Data lake (6 zones), versioned, public-access blocked | per GB stored + per request |
+| **Amazon CloudFront** | SPA delivery, OAC to a private bucket, HTTPS redirect | per request + GB out |
+| **Amazon S3** | Site bucket + 6 data-lake zones, versioned, public access blocked | per GB + per request |
+| **AWS Lambda** | API (Function URL, response streaming), upload-event, transform — all ARM64 | per request + GB-second |
+| **AWS Step Functions** | Standard workflow with `waitForTaskToken` approval pause | per state transition |
+| **Amazon EventBridge** | S3 Object Created rule scoped to `incoming/` | per event |
 | **AWS Glue Data Catalog** | Table schemas for curated Parquet | per object cataloged |
-| **Amazon DynamoDB** | Dataset metadata, approval status, version pointer | per request (on-demand) |
-| **Amazon Athena** | SQL over curated Parquet, typed queries, cost-capped | per TB scanned |
-| **AWS Lambda** | Profiling, mapping, transformation (ARM64) | per invocation |
-| **AWS Step Functions** | Ingestion workflow with human-approval pause | per state transition |
-| **Amazon EventBridge** | Audit events and S3 triggers | per event |
-| **Amazon Bedrock** | Foundation model inference for the policy copilot | per token |
-| **Amazon SageMaker** | Forecast training, model registry, batch transform | per instance-hour |
-| **Bedrock AgentCore** | LangGraph agent hosting and MCP tool gateway | hosting |
-| **Amazon CloudWatch** | Logs, metrics, alarms, distributed traces | per GB ingested |
-| **AWS Budgets** | Per-environment spending alerts | free |
-| **AWS IAM** | Role separation (write vs read-only copilot) | free |
+| **Amazon Athena** | SQL over curated Parquet, workgroup-enforced 1 GiB cap | per TB scanned |
+| **Amazon DynamoDB** | Job state, workflow task tokens, conversation context (TTL) | per request (on-demand) |
+| **Amazon Bedrock** | Copilot inference, single configured model | per token |
+| **AWS Secrets Manager** | Write-endpoint shared secret, stack-generated | per secret + per call |
+| **Amazon CloudWatch** | Lambda and Athena logs and metrics | per GB ingested |
+| **AWS Budgets** | 50 USD/month, alerts at 80% and 100% | free |
+| **AWS IAM** | Per-function execution roles | free |
+
+## 6. Not deployed
+
+Present in the planning documents and the earlier diagram, absent from every stack:
+
+| Claimed | Reality |
+|---|---|
+| **Amazon SageMaker** — forecast training, model registry, batch transform | No construct in any stack. `config.py` has a `SAGEMAKER` enum value and `forecasting/baseline.py` calls it "a future SageMaker batch job"; the forecast ships as a precomputed artifact. |
+| **Bedrock AgentCore** — LangGraph hosting, MCP Gateway | No construct. The agent runs in-process in the API Lambda. |
+| **Bedrock-assisted schema mapping** | The transform Lambda is granted no Bedrock permission. Mapping is deterministic confidence scoring. |
+| **OpenTelemetry → CloudWatch distributed traces** | Not wired. CloudWatch logs and metrics only. |
+| **`forecasts/` write path** | The bucket is created and `Write_Role` can write it, but nothing does; `YOUTH_COMPASS_FORECAST__PROVIDER=local`. |
+| **`Write_Role` / `Copilot_Role` enforcing the boundary** | Both deployed, neither assumed by any principal. |
+| **Region ap-northeast-1 (Tokyo)** | Deployed in **us-east-1**. `infra/environments.py` still defaults to `ap-northeast-1`; the deploy passes `-c region=us-east-1` and the Makefile defaults `YOUTH_COMPASS_REGION` to `us-east-1`. |
+
+## 7. Related documents
+
+- `docs/21-api-deployment.md` — live endpoints, redeploy steps, frontend integration
+- `docs/aws-workstream-status.md` — overall AWS status and remaining gaps
+- `docs/06-backend-api.md` — API contract
+- `docs/aws-architecture.drawio` — the drawable diagram (Traditional Chinese)
