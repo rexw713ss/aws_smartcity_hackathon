@@ -29,6 +29,13 @@ _IMMUTABLE = "public, max-age=31536000, immutable"
 _ENTRY_DOCUMENTS = {"index.html", "404.html"}
 
 
+def _api_v1_base(api_base: str) -> str:
+    """Return the versioned API root expected by the frontend client."""
+
+    root = api_base.rstrip("/")
+    return root if root.endswith("/api/v1") else f"{root}/api/v1"
+
+
 def _outputs(stack_name: str, region: str) -> dict[str, str]:
     client = boto3.client("cloudformation", region_name=region)
     stacks = client.describe_stacks(StackName=stack_name)["Stacks"]
@@ -71,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     outputs = _outputs(stack_name, args.region)
     bucket = outputs["SiteBucketName"]
     distribution_id = outputs["DistributionId"]
-    api_base = outputs["ApiBaseUrl"]
+    api_base = _api_v1_base(outputs["ApiBaseUrl"])
 
     s3 = boto3.client("s3", region_name=args.region)
     uploaded = 0
