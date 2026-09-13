@@ -534,7 +534,7 @@ class GroundedCopilotService:
             web_citations=citations,
             tool_trace=tuple(trace),
             assumptions=(
-                "Web snippets are search-provider excerpts, not curated Youth Compass datasets.",
+                "Web snippets are search-provider excerpts, not curated New Taipei Youth Policy datasets.",
             ),
         )
 

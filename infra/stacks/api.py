@@ -189,7 +189,7 @@ class ApiStack(TaggedStack):
             self,
             "WriteSecret",
             secret_name=f"{env_config.stack_prefix}-api-write-secret",
-            description="Shared secret required by the Youth Compass API write endpoints.",
+            description="Shared secret required by the New Taipei Youth Policy API write endpoints.",
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 password_length=48,
                 # The value travels in an HTTP header, so keep it to characters

@@ -7,7 +7,7 @@
         <mxCell id="title-group" connectable="0" parent="1" style="group;fontFamily=Helvetica;" value="" vertex="1">
           <mxGeometry height="83" width="2340" x="50" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="title-text" parent="title-group" style="text;html=1;resizable=1;points=[];autosize=1;align=left;verticalAlign=top;spacingTop=-4;fontSize=30;fontStyle=1;fontFamily=Helvetica;" value="新北青年羅盤 — AWS 資料與人工智慧平台" vertex="1">
+        <mxCell id="title-text" parent="title-group" style="text;html=1;resizable=1;points=[];autosize=1;align=left;verticalAlign=top;spacingTop=-4;fontSize=30;fontStyle=1;fontFamily=Helvetica;" value="新北青策 — AWS 資料與人工智慧平台" vertex="1">
           <mxGeometry height="42" width="1500" as="geometry" />
         </mxCell>
         <mxCell id="subtitle-text" parent="title-group" style="text;html=1;resizable=0;points=[];autosize=1;align=left;verticalAlign=top;spacingTop=-4;fontSize=16;fontFamily=Helvetica;" value="實際部署架構:CloudFront 前台、Lambda Function URL API、事件驅動匯入與人工審核、Athena 分析、Bedrock 智慧助理 — 區域:us-east-1" vertex="1">

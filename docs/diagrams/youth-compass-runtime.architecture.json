@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "New Taipei Youth Compass — Deployed Runtime",
+    "title": "New Taipei Youth Policy — Deployed Runtime",
     "subtitle": "What is actually deployed, and how a question reaches published evidence",
     "output": "docs/diagrams/youth-compass-runtime.html",
     "visual_preset": "blueprint",

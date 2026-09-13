@@ -1,4 +1,4 @@
-# New Taipei Youth Compass — AWS workstream targets.
+# New Taipei Youth Policy — AWS workstream targets.
 # Run `make help` for the full list. Targets marked (creds) need AWS credentials.
 
 ENV ?= dev

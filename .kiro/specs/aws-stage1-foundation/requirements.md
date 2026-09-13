@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Stage 1 of the AWS integration plan for **New Taipei Youth Compass** builds the zero-cost foundation layer that the AWS engineer needs before any AWS resource exists. It delivers four things: the port Protocol definitions that pin the seam between domain logic and infrastructure, a reusable contract-test harness backed by in-memory AWS fakes, an AWS CDK application skeleton that is synthesized but never deployed, and a set of runnable verification scripts the engineer executes and reads directly to judge whether an AWS account is usable.
+Stage 1 of the AWS integration plan for **New Taipei Youth Policy** builds the zero-cost foundation layer that the AWS engineer needs before any AWS resource exists. It delivers four things: the port Protocol definitions that pin the seam between domain logic and infrastructure, a reusable contract-test harness backed by in-memory AWS fakes, an AWS CDK application skeleton that is synthesized but never deployed, and a set of runnable verification scripts the engineer executes and reads directly to judge whether an AWS account is usable.
 
 The design is shaped by two hard external facts. First, the hackathon organizer hands out a dedicated AWS environment only on the morning of the competition and suspends it afterwards, so the team must be able to take an unfamiliar empty account to a verified stack in one command and pull all data back out before the account disappears. Second, cost matters: this feature deploys nothing, spends nothing, and defers Amazon Bedrock, Amazon SageMaker AI, and Amazon Bedrock AgentCore work to a later stage. Stage 1 only *checks readiness* for those services.
 

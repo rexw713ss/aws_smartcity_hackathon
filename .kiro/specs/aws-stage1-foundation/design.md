@@ -2,7 +2,7 @@
 
 ## Overview
 
-Stage 1 delivers the AWS foundation layer for **New Taipei Youth Compass** as five artifact groups that share one property: none of them can create an AWS resource or spend money. The design is organised around that property rather than around the artifacts, because the guarantee is what makes the feature mergeable six days before the competition and before any hackathon credit exists.
+Stage 1 delivers the AWS foundation layer for **New Taipei Youth Policy** as five artifact groups that share one property: none of them can create an AWS resource or spend money. The design is organised around that property rather than around the artifacts, because the guarantee is what makes the feature mergeable six days before the competition and before any hackathon credit exists.
 
 The five artifact groups:
 
