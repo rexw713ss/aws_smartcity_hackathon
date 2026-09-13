@@ -1,14 +1,14 @@
-# New Taipei Youth Compass - Documentation
+# New Taipei Youth Policy - Documentation
 
 > Status: Architecture baseline approved on 2026-08-31  
 > Last updated: 2026-08-31  
 > Working language: Vietnamese; source field names remain in Traditional Chinese where useful.
 
-This directory describes the proposed product and technical design for **New Taipei Youth Compass (新北青年羅盤)**. The documents intentionally separate the offline reference implementation from the future AWS deployment so the backend and AI work can progress before cloud integration begins.
+This directory describes the proposed product and technical design for **New Taipei Youth Policy (新北青策)**. The documents intentionally separate the offline reference implementation from the future AWS deployment so the backend and AI work can progress before cloud integration begins.
 
 ## Product summary
 
-New Taipei Youth Compass is an adaptive data-to-decision platform for youth policy. It accepts a new public dataset, profiles and maps its schema, validates its compatibility with existing data, integrates approved data into a curated analytical layer, updates forecasts, and presents grounded insights through a dashboard with an AI policy copilot.
+New Taipei Youth Policy is an adaptive data-to-decision platform for youth policy. It accepts a new public dataset, profiles and maps its schema, validates its compatibility with existing data, integrates approved data into a curated analytical layer, updates forecasts, and presents grounded insights through a dashboard with an AI policy copilot.
 
 The system has three core capabilities:
 

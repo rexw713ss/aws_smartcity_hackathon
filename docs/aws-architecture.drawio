@@ -9,7 +9,7 @@
         <mxCell id="title-group" connectable="0" style="group;fontFamily=Helvetica;" value="" vertex="1" parent="1">
           <mxGeometry height="83" width="2140" x="50" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="title-text" style="text;html=1;resizable=1;points=[];autosize=1;align=left;verticalAlign=top;spacingTop=-4;fontSize=30;fontStyle=1;fontFamily=Helvetica;" value="新北青年羅盤 &#8212; AWS 資料與人工智慧平台" vertex="1" parent="title-group">
+        <mxCell id="title-text" style="text;html=1;resizable=1;points=[];autosize=1;align=left;verticalAlign=top;spacingTop=-4;fontSize=30;fontStyle=1;fontFamily=Helvetica;" value="新北青策 &#8212; AWS 資料與人工智慧平台" vertex="1" parent="title-group">
           <mxGeometry height="42" width="1400" as="geometry" />
         </mxCell>
         <mxCell id="subtitle-text" style="text;html=1;resizable=0;points=[];autosize=1;align=left;verticalAlign=top;spacingTop=-4;fontSize=16;fontFamily=Helvetica;" value="無伺服器資料湖,結合人工審核的資料匯入、分析查詢、預測與 AI 政策智慧助理 &#8212; 區域:ap-northeast-1(東京)" vertex="1" parent="title-group">

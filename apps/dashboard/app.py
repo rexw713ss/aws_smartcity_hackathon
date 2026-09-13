@@ -1,4 +1,4 @@
-"""Temporary Streamlit UI for the offline Youth Compass vertical slice."""
+"""Temporary Streamlit UI for the offline New Taipei Youth Policy vertical slice."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import streamlit as st
 from apps.dashboard.api_client import ApiError, YouthCompassApi
 
 st.set_page_config(
-    page_title="新北青年政策羅盤",
+    page_title="新北青策",
     page_icon="🧭",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -122,7 +122,7 @@ _state("copilot_result", None)
 _state("copilot_session_id", None)
 
 with st.sidebar:
-    st.markdown("## 🧭 Youth Compass")
+    st.markdown("## 🧭 新北青策")
     st.caption("Offline reviewer console")
     st.text_input("FastAPI URL", key="api_url")
     st.text_input("Reviewer identity", key="reviewer")
@@ -140,7 +140,7 @@ with st.sidebar:
     st.caption("FastAPI · DuckDB · Parquet · SQLite")
 
 st.markdown('<div class="eyebrow">New Taipei City · Youth Affairs</div>', unsafe_allow_html=True)
-st.title("新北青年政策羅盤")
+st.title("新北青策")
 st.markdown(
     '<div class="hero-copy">Turn unfamiliar public data into reviewable, traceable '
     "policy evidence — without replacing the published dashboard until a human approves it.</div>",

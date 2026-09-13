@@ -15,14 +15,14 @@ from youth_compass.transformation import (
 
 app = typer.Typer(
     name="youth-compass",
-    help="Offline-first data onboarding tools for New Taipei Youth Compass.",
+    help="Offline-first data onboarding tools for New Taipei Youth Policy.",
     no_args_is_help=True,
 )
 
 
 @app.callback()
 def main() -> None:
-    """Run offline New Taipei Youth Compass utilities."""
+    """Run offline New Taipei Youth Policy utilities."""
 
 
 @app.command()

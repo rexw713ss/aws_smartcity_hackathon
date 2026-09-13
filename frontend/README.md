@@ -1,4 +1,4 @@
-# Youth Compass — decision assistant frontend
+# 新北青策 — decision assistant frontend
 
 A chat-first client for the grounded copilot. The conversation leads; charts,
 citations, and the tool trace support it from the right pane.

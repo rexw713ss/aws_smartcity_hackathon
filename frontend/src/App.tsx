@@ -83,7 +83,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.lang = language
-    document.title = language === 'zh-TW' ? '新北青年政策羅盤 · 決策助理' : 'Youth Compass · Decision Assistant'
+    document.title = language === 'zh-TW' ? '新北青策 · 決策助理' : 'New Taipei Youth Policy · Decision Assistant'
     try { localStorage.setItem('youth-compass-language', language) } catch { /* Private storage can be unavailable. */ }
   }, [language])
 

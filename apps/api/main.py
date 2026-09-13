@@ -71,7 +71,7 @@ def default_data_root() -> Path:
 
 
 def create_app(data_root: Path | None = None) -> FastAPI:
-    app = FastAPI(title="New Taipei Youth Compass API", version=__version__)
+    app = FastAPI(title="New Taipei Youth Policy API", version=__version__)
     runtime = LocalRuntime(default_data_root() if data_root is None else data_root)
     app.state.runtime = runtime
     # Exposed separately so request-scoped guards can read settings without

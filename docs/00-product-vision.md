@@ -1,6 +1,6 @@
 # Product Vision
 
-> Product: New Taipei Youth Compass (新北青年羅盤)  
+> Product: New Taipei Youth Policy (新北青策)
 > Positioning: Adaptive youth data integration and policy decision-support platform
 
 ## 1. Problem statement
