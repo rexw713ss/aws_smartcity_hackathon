@@ -29,6 +29,14 @@ CANONICAL_FIELD_RULES = (
         "year_roc",
         SemanticRole.YEAR,
         PrimitiveType.INTEGER,
+        "parse_compact_date",
+        True,
+        _aliases("date_licensing"),
+    ),
+    CanonicalFieldRule(
+        "year_roc",
+        SemanticRole.YEAR,
+        PrimitiveType.INTEGER,
         "parse_year",
         True,
         _aliases("年", "年度", "民國年", "year", "stat_year", "report_year"),
@@ -56,6 +64,22 @@ CANONICAL_FIELD_RULES = (
         "normalize_district",
         True,
         _aliases("區", "行政區", "鄉鎮市區", "district", "district_name", "area", "area_name"),
+    ),
+    CanonicalFieldRule(
+        "district_name",
+        SemanticRole.DISTRICT_NAME,
+        PrimitiveType.STRING,
+        "extract_district",
+        True,
+        _aliases("building_site"),
+    ),
+    CanonicalFieldRule(
+        "source_record_id",
+        SemanticRole.DIMENSION,
+        PrimitiveType.STRING,
+        "normalize_text",
+        True,
+        _aliases("license_number", "source_record_id"),
     ),
     CanonicalFieldRule(
         "age_label_original",
@@ -223,12 +247,15 @@ _METRIC_HINTS = frozenset(
         "薪資",
         "戶數",
         "單位數",
+        "失業率",
         "count",
         "value",
         "population",
         "income",
         "salary",
         "job_seekers",
+        "households",
+        "unemployment_rate",
     )
 )
 

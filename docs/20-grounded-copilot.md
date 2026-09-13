@@ -33,7 +33,7 @@ forecast adapter returns the missing operation and refuses to manufacture a part
 
 For population what-if questions, `search_tools` selects the relevant registered chain before
 execution. The agent projects only the explicit population shock, audits the evidence needed
-for housing, transport, and public-service impacts, and searches configured official sources
+for housing and public-service impacts, and searches configured official sources
 for missing metrics. It withholds investment advice until that capacity evidence is complete.
 See [28-youth-population-what-if.md](./28-youth-population-what-if.md).
 
@@ -70,8 +70,21 @@ follow-up question can omit the metric, entities, period, or age band it inherit
 [26-conversation-context.md](./26-conversation-context.md).
 
 When evidence is missing, the endpoint returns `insufficient_data` and does not produce
-a recommendation. Unsupported questions return `unsupported_question` without querying
-the feature store.
+a recommendation. If web search is enabled, the agent searches the government hosts in
+`acquisition.link_allowed_hosts` even when configured-source discovery already has a match.
+It keeps only direct tabular downloads (or strict same-host data endpoints found in a result),
+and returns them as unverified suggestions rather than evidence. Selecting either a configured
+or searched source sends it through the same allowlisted download, mapping, quality-check,
+and human-approval workflow. A failed search leaves the grounded refusal intact. Unsupported
+questions return `unsupported_question` without querying the feature store.
+
+The fallback uses the existing optional Brave adapter. Enable it at process startup; keep
+the key in the environment rather than YAML:
+
+```bash
+export YOUTH_COMPASS_WEB_SEARCH__ENABLED=true
+export YOUTH_COMPASS_WEB_SEARCH__API_KEY=<brave-search-api-key>
+```
 
 The local runtime reads `data/features/current.parquet`. The Streamlit dashboard exposes
 the same endpoint under **Decision copilot**.

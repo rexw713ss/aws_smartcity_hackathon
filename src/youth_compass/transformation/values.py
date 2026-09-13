@@ -4,11 +4,16 @@ import math
 from dataclasses import dataclass
 from datetime import date
 
-from youth_compass.domain.contracts import MappingProposal, PopulationScope
+from youth_compass.domain.contracts import ColumnMapping, MappingProposal, PopulationScope
 from youth_compass.mapping.age import AgeRange, YouthRelationship, youth_overlap
 from youth_compass.mapping.gender import normalize_gender
-from youth_compass.mapping.geography import District, normalize_district
-from youth_compass.mapping.time import parse_year
+from youth_compass.mapping.geography import (
+    District,
+    extract_district,
+    is_city_scope,
+    normalize_district,
+)
+from youth_compass.mapping.time import parse_compact_date, parse_year
 
 _NULL_TOKENS = {"", "null", "none", "n/a", "na", "nan"}
 _YOUTH_RELATIONSHIPS = {
@@ -99,6 +104,32 @@ class LineageContext:
     transformation_version: str
 
 
+def preview_column_value(raw: str, mapping: ColumnMapping) -> dict[str, object]:
+    """Apply one allowlisted column mapping for a bounded reviewer preview.
+
+    Unlike ``transform_row`` this does not claim the sample is a valid complete
+    observation. It shows only the canonical fields produced by this mapping,
+    which is enough for a steward to verify examples before approving a file.
+    """
+
+    values: dict[str, object] = {}
+    if mapping.target_field == "youth_relationship":
+        values[mapping.target_field] = _normalize_youth_relationship(
+            raw, mapping.source_column
+        ).value
+    elif mapping.target_field == "youth_weight":
+        values[mapping.target_field] = _parse_float(raw, mapping.source_column)
+    else:
+        _apply_column_mapping(
+            values,
+            target=mapping.target_field,
+            transformation=mapping.transformation,
+            raw=raw,
+            source_field=mapping.source_column,
+        )
+    return values
+
+
 def transform_row(
     row: dict[str, str],
     proposal: MappingProposal,
@@ -170,7 +201,9 @@ def transform_row(
                 metric.source_column,
             )
         metric_value = original_value
-        metric_estimated = is_estimated
+        # Overlap weighting is what makes a value estimated. A rate is published
+        # for its band as-is and is never weighted, so it is not an estimate.
+        metric_estimated = is_estimated and metric.aggregation_method == "sum"
         if (
             relationship == YouthRelationship.PARTIALLY_OVERLAPS
             and weight is not None
@@ -245,6 +278,7 @@ def _base_values(
         "source_topic": None,
         "source_agency": None,
         "source_dataset_name": None,
+        "source_record_id": None,
     }
 
 
@@ -265,6 +299,16 @@ def _apply_column_mapping(
         _set_consistent(values, "year_roc", parsed.year_roc, source_field)
         _set_consistent(values, "year_gregorian", parsed.year_gregorian, source_field)
         return
+    if transformation == "parse_compact_date":
+        parsed_date = parse_compact_date(raw)
+        if parsed_date is None:
+            raise RowTransformationError(
+                "INVALID_DATE", f"Cannot parse compact date value {raw!r}", source_field
+            )
+        _set_consistent(values, "year_roc", parsed_date.year_roc, source_field)
+        _set_consistent(values, "year_gregorian", parsed_date.year_gregorian, source_field)
+        _set_consistent(values, "month", parsed_date.month, source_field)
+        return
     if transformation == "parse_month":
         month = _parse_integer(raw, source_field)
         if not 1 <= month <= 12:
@@ -274,10 +318,22 @@ def _apply_column_mapping(
         _set_consistent(values, target, month, source_field)
         return
     if transformation in {"normalize_district", "normalize_district_code"}:
+        if is_city_scope(raw):
+            # city_code and city_name are already set; no district applies.
+            values["geography_granularity"] = "city"
+            return
         district = normalize_district(raw)
         if district is None:
             raise RowTransformationError(
                 "UNKNOWN_DISTRICT", f"Unknown New Taipei district {raw!r}", source_field
+            )
+        _set_district(values, district, source_field)
+        return
+    if transformation == "extract_district":
+        district = extract_district(raw)
+        if district is None:
+            raise RowTransformationError(
+                "UNKNOWN_DISTRICT", f"No New Taipei district found in {raw!r}", source_field
             )
         _set_district(values, district, source_field)
         return
@@ -423,7 +479,10 @@ def _derive_period(values: dict[str, object]) -> None:
 
 
 def _validate_grain(values: dict[str, object], proposal: MappingProposal) -> None:
+    city_level = values.get("geography_granularity") == "city"
     for dimension in proposal.grain.dimensions:
+        if city_level and dimension in {"district_code", "district_name"}:
+            continue
         if values.get(dimension) is None:
             raise RowTransformationError(
                 "MISSING_GRAIN_VALUE",

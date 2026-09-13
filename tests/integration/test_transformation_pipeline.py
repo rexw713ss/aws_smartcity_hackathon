@@ -189,3 +189,42 @@ def test_sample_publication_has_distinct_explicit_version(tmp_path: Path) -> Non
     assert manifest.is_sample is True
     assert manifest.dataset_version.endswith("sample1")
     assert manifest.rows_received == 1
+
+
+def test_transform_publishes_city_wide_rates_without_weighting_or_district(
+    tmp_path: Path,
+) -> None:
+    # The labour force survey is published only for the city as a whole; a rate
+    # for a partially overlapping band is the published figure, not an estimate.
+    source = tmp_path / "unemployment.csv"
+    source.write_text(
+        "民國年,行政區,年齡,性別,失業率\n"
+        "113,新北市,15-24歲,男,9.5\n"
+        "113,新北市,25-29歲,女,5.1\n"
+        "113,新北市,65歲以上,女,0.1\n",
+        encoding="utf-8",
+    )
+
+    manifest = run_csv_transformation(source, _options(tmp_path))
+
+    assert manifest.status == "published"
+    assert manifest.observation_count == 2
+    table = pq.read_table(manifest.parquet_uri)
+    assert table.column("district_code").to_pylist() == [None, None]
+    assert table.column("city_code").to_pylist() == ["65000", "65000"]
+    assert table.column("geography_granularity").to_pylist() == ["city", "city"]
+    assert table.column("metric_code").to_pylist() == ["unemployment_rate"] * 2
+    assert table.column("metric_value").to_pylist() == [9.5, 5.1]
+    assert table.column("is_estimated").to_pylist() == [False, False]
+
+
+def test_transform_still_rejects_an_unknown_district_beside_the_city(tmp_path: Path) -> None:
+    source = tmp_path / "unemployment.csv"
+    source.write_text(
+        "民國年,行政區,年齡,性別,失業率\n113,新北市,25-29歲,女,5.1\n113,台北市,25-29歲,女,5.0\n",
+        encoding="utf-8",
+    )
+
+    manifest = run_csv_transformation(source, _options(tmp_path, max_rejection_rate=0.0))
+
+    assert manifest.status == "quarantined"

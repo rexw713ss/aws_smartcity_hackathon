@@ -97,12 +97,24 @@ class TtlCache:
         is deterministic, the duplicate is wasted work and never a wrong answer.
         """
 
+        value, _ = self.get_or_call_with_status(key, produce)
+        return value
+
+    def get_or_call_with_status(
+        self, key: Hashable, produce: Callable[[], Any]
+    ) -> tuple[Any, bool]:
+        """Return the value and whether it came from cache.
+
+        The status lets per-request cost accounting report zero scan bytes for
+        a hit without relying on mutable state shared by concurrent requests.
+        """
+
         found, value = self._lookup(key)
         if found:
-            return value
+            return value, True
         produced = produce()
         self._store(key, produced)
-        return produced
+        return produced, False
 
     def _lookup(self, key: Hashable) -> tuple[bool, Any]:
         with self._lock:

@@ -24,7 +24,7 @@ from youth_compass.agent.contracts import (
     VisualizationType,
     VisualizationValue,
 )
-from youth_compass.agent.data_shape import SeriesProfile
+from youth_compass.agent.data_shape import SeriesProfile, profile_series
 from youth_compass.agent.measures import Measure, Transform, apply_measure
 from youth_compass.agent.viz_selection import (
     CandidateRole,
@@ -200,6 +200,7 @@ class VisualizationBuilder:
     ) -> tuple[VisualizationSpec, ...]:
         """Return the views worth showing; see `observation_candidates` for the rest."""
 
+        effective_profile = profile or profile_series(series)
         candidates = self.observation_candidates(
             question,
             series,
@@ -208,8 +209,9 @@ class VisualizationBuilder:
             decomposition=decomposition,
             measure=measure,
             denominators=denominators,
+            profile=effective_profile,
         )
-        return select_visualizations(candidates, profile=profile).selected
+        return select_visualizations(candidates, profile=effective_profile).selected
 
     def observation_candidates(
         self,
@@ -221,6 +223,7 @@ class VisualizationBuilder:
         decomposition: DecomposedQuery | None = None,
         measure: Measure | None = None,
         denominators: Mapping[str, float] | None = None,
+        profile: SeriesProfile | None = None,
     ) -> tuple[VisualizationCandidate, ...]:
         """Build every defensible view of one observation result, scored by fit.
 
@@ -231,7 +234,11 @@ class VisualizationBuilder:
 
         labels = _labels(question)
         language = _language(question)
-        metric_title = f"{humanize_code(series.metric_code)} {labels['trend_suffix']}"
+        effective_profile = profile or profile_series(series)
+        metric_name = _METRIC_NAMES.get(series.metric_code, {}).get(
+            _text_key(language), humanize_code(series.metric_code)
+        )
+        metric_title = f"{metric_name} {labels['trend_suffix']}"
         candidates: list[VisualizationCandidate] = []
 
         trend = self._trend_candidate(
@@ -242,6 +249,7 @@ class VisualizationBuilder:
             title=metric_title,
             measure=measure,
             denominators=denominators,
+            profile=effective_profile,
             intent_fit=_trend_fit(series, decomposition),
         )
         if trend is not None:
@@ -298,6 +306,7 @@ class VisualizationBuilder:
         title: str,
         measure: Measure | None,
         denominators: Mapping[str, float] | None,
+        profile: SeriesProfile,
         intent_fit: float = 1.0,
     ) -> VisualizationCandidate | None:
         """A line over time, in the measure the caller chose for this result."""
@@ -305,15 +314,15 @@ class VisualizationBuilder:
         plotted = _measured_rows(series, measure, denominators, language)
         if plotted is None:
             return None
-        rows, unit, value_label, rationale = plotted
+        rows, unit, value_label, _rationale = plotted
         chart_rows, excluded_rows = _complete_series_rows(rows)
-        chart_rows = _insert_monthly_gaps(chart_rows)
-        chart_rows, sampled_rows = _select_informative_line_rows(chart_rows)
+        chart_rows = _resample_monthly_rows(chart_rows, profile.plot_interval_months)
+        chart_rows, point_sampled = _select_informative_line_rows(chart_rows)
         if not chart_rows:
             return None
-        has_gaps = any(row.get("value") is None for row in chart_rows)
-        caveat = _trend_description(language, sampled_rows, has_gaps)
-        description = " ".join(part for part in (rationale, caveat) if part) or None
+        cadence_sampled = profile.plot_interval_months > 1
+        # The card is for the finding. Sampling, normalization, and missing-data
+        # diagnostics remain available in the agent trace and evidence view.
         # Two periods draw a straight segment per entity. Stacked on one axis
         # that is unreadable past a handful of places; as a slope it is exactly
         # the "who moved, and which way" picture the reader is after.
@@ -324,7 +333,7 @@ class VisualizationBuilder:
                 visualization_id="observation-slope" if slope else "observation-trend",
                 type=VisualizationType.SLOPE if slope else VisualizationType.LINE,
                 title=title,
-                description=description,
+                description=None,
                 headline=narrative.headline,
                 annotations=narrative.annotations,
                 reference_lines=narrative.reference_lines,
@@ -334,7 +343,12 @@ class VisualizationBuilder:
                 series_field="entity_name",
                 rows=tuple(chart_rows[:_MAX_CHART_ROWS]),
                 citation_ids=citation_ids,
-                truncated=excluded_rows or sampled_rows or len(chart_rows) > _MAX_CHART_ROWS,
+                truncated=(
+                    excluded_rows
+                    or cadence_sampled
+                    or point_sampled
+                    or len(chart_rows) > _MAX_CHART_ROWS
+                ),
             ),
             role=CandidateRole.TREND,
             intent_fit=intent_fit,
@@ -432,8 +446,14 @@ class VisualizationBuilder:
         question: str,
         result: ForecastResult,
         citation_ids: tuple[str, ...],
+        history: ObservationSeries | None = None,
     ) -> tuple[VisualizationSpec, ...]:
-        """Build a renderer-neutral forecast line and its accessible table fallback."""
+        """Build a renderer-neutral forecast line and its accessible table fallback.
+
+        ``history`` holds observed values for the forecast's snapshot month. They
+        are drawn in front of the projection with a zero-width band, so the line
+        reads as one path that fans out only where it stops being measured.
+        """
 
         labels = _labels(question)
         language = _language(question)
@@ -449,7 +469,23 @@ class VisualizationBuilder:
             }
             for point in result.points
         ]
-        chart_rows, excluded_rows = _complete_series_rows(rows)
+        forecast_districts = {_district_key(point.district_code) for point in result.points}
+        observed_rows: list[dict[str, VisualizationValue]] = [
+            {
+                "period": observation.period[:4],
+                "entity_id": observation.entity_id,
+                "entity_name": display_name(observation.entity_id, language),
+                "value": observation.value,
+                "lower": observation.value,
+                "upper": observation.value,
+                "kind": "observed",
+            }
+            for observation in (history.points if history is not None else ())
+            if _district_key(observation.entity_id) in forecast_districts
+        ]
+        chart_rows, excluded_rows = _complete_series_rows(
+            [*observed_rows, *({**row, "kind": "forecast"} for row in rows)]
+        )
         horizon = _latest_common_forecast_year(result) if _wants_map(question) else None
         mapped = _choropleth(
             visualization_id="forecast-map",
@@ -482,7 +518,11 @@ class VisualizationBuilder:
                     visualization_id="forecast-trend",
                     type=VisualizationType.LINE,
                     title=f"{humanize_code(result.metric_code)} {labels['forecast_suffix']}",
-                    description=labels["forecast_description"],
+                    description=(
+                        labels["forecast_history_description"]
+                        if observed_rows
+                        else labels["forecast_description"]
+                    ),
                     x=_encoding("period", labels["period"], "temporal"),
                     y=_encoding("value", labels["forecast_value"], "quantitative"),
                     series_field="entity_name",
@@ -512,9 +552,109 @@ class VisualizationBuilder:
                     truncated=len(rows) > _MAX_TABLE_ROWS,
                 )
             )
+        specs.extend(_forecast_drivers(result, labels, language, citation_ids))
         if mapped is not None:
             specs.append(mapped)
         return tuple(specs)
+
+
+def _district_key(identifier: str) -> str:
+    """One comparison key for every spelling of a district."""
+
+    district = resolve_district_name(identifier).district
+    return district.code if district is not None else identifier.casefold()
+
+
+def _year_range(labels: dict[str, str], start: str, end: int) -> str:
+    # Written so the frontend's prose-year rule localizes both ends in Chinese.
+    return labels["year_range"].format(start=start, end=end)
+
+
+def _forecast_drivers(
+    result: ForecastResult,
+    labels: dict[str, str],
+    language: NameLanguage,
+    citation_ids: tuple[str, ...],
+) -> tuple[VisualizationSpec, ...]:
+    """Show why each district's final forecast differs from its base count.
+
+    One district reads best as three signed bars; several districts need the
+    same parts side by side, which only a table shows without a legend puzzle.
+    """
+
+    final_year = max(point.year_gregorian for point in result.points)
+    finals = [
+        (point, point.components)
+        for point in result.points
+        if point.year_gregorian == final_year and point.components is not None
+    ]
+    if not finals:
+        return ()
+    base_year = finals[0][1].base_period[:4]
+    years = _year_range(labels, base_year, final_year)
+    if len(finals) == 1:
+        point, parts = finals[0]
+        name = display_name(point.district_code, language)
+        return (
+            VisualizationSpec(
+                visualization_id="forecast-drivers",
+                type=VisualizationType.CONTRIBUTION_BAR,
+                title=f"{labels['drivers_title']} · {name} · {years}",
+                description=labels["drivers_description"],
+                x=_encoding("persons", labels["persons_change"], "quantitative", "persons"),
+                y=_encoding("driver_name", labels["driver"], "nominal"),
+                rows=(
+                    {
+                        "driver": "entering",
+                        "driver_name": labels["entering"],
+                        "persons": parts.entering,
+                    },
+                    {
+                        "driver": "ageing_out",
+                        "driver_name": labels["ageing_out"],
+                        "persons": -parts.ageing_out,
+                    },
+                    {
+                        "driver": "net_change",
+                        "driver_name": labels["net_change"],
+                        "persons": parts.net_change,
+                    },
+                ),
+                citation_ids=citation_ids,
+            ),
+        )
+    rows: list[dict[str, VisualizationValue]] = [
+        {
+            "entity_id": point.district_code,
+            "entity_name": display_name(point.district_code, language),
+            "base_value": parts.base_value,
+            "entering": parts.entering,
+            "ageing_out": parts.ageing_out,
+            "net_change": parts.net_change,
+            "value": point.value,
+        }
+        for point, parts in finals
+    ]
+    rows.sort(key=lambda row: float(row["value"] or 0) / max(float(row["base_value"] or 1), 1.0))
+    return (
+        VisualizationSpec(
+            visualization_id="forecast-drivers-table",
+            type=VisualizationType.DATA_TABLE,
+            title=f"{labels['drivers_title']} · {years}",
+            description=labels["drivers_description"],
+            columns=(
+                _column("entity_name", labels["entity"]),
+                _column("base_value", f"{labels['base_value']} {base_year}", "persons"),
+                _column("entering", labels["entering"], "persons"),
+                _column("ageing_out", labels["ageing_out"], "persons"),
+                _column("net_change", labels["net_change"], "persons"),
+                _column("value", f"{labels['forecast_value']} {final_year}", "persons"),
+            ),
+            rows=tuple(rows[:_MAX_TABLE_ROWS]),
+            citation_ids=citation_ids,
+            truncated=len(rows) > _MAX_TABLE_ROWS,
+        ),
+    )
 
 
 _MIN_SLOPE_ENTITIES = 3
@@ -528,6 +668,12 @@ class ChartNarrative:
     annotations: tuple[VisualizationAnnotation, ...] = ()
     reference_lines: tuple[VisualizationReferenceLine, ...] = ()
     focus_entities: tuple[str, ...] = ()
+
+
+# Reader-facing metric names where the snake_case code would leak into a title.
+_METRIC_NAMES: dict[str, dict[str, str]] = {
+    "unemployment_rate": {"zh": "失業率", "vi": "Tỷ lệ thất nghiệp", "en": "Unemployment rate"},
+}
 
 
 def _trend_narrative(
@@ -557,12 +703,15 @@ def _trend_narrative(
         if len(ordered) < _MIN_LINE_PERIODS or not ordered[0][1]:
             continue
         ratio = abs(ordered[-1][1] - ordered[0][1]) / abs(ordered[0][1])
-        ranked.append((ratio, name, ordered))
+        # For a rate the reader compares percentage points, so rank by those.
+        movement = abs(ordered[-1][1] - ordered[0][1]) if unit == "percent" else ratio
+        ranked.append((movement, name, ordered))
     if not ranked:
         return ChartNarrative()
-    ratio, name, ordered = max(ranked, key=lambda item: (item[0], item[1]))
+    _, name, ordered = max(ranked, key=lambda item: (item[0], item[1]))
     first_period, first_value = ordered[0]
     last_period, last_value = ordered[-1]
+    ratio = abs(last_value - first_value) / abs(first_value)
     headline = _movement_headline(
         language, name, first_period, first_value, last_period, last_value, ratio, unit
     )
@@ -640,6 +789,9 @@ def _comparison_narrative(
         return ChartNarrative()
     name = str(leader["entity_name"])
     value = float(leader[field] or 0)
+    # An absolute change in a rate is a count of percentage points, not a percent.
+    if field == "absolute_change" and unit == "percent":
+        unit = "percentage_points"
     return ChartNarrative(
         headline=_change_headline(language, name, value, unit),
         focus_entities=(name,),
@@ -656,6 +808,10 @@ def _movement_headline(
     ratio: float,
     unit: str | None,
 ) -> str:
+    if unit == "percent":
+        return _rate_movement_headline(
+            language, name, first_period, first_value, last_period, last_value
+        )
     percent = ratio * 100
     rising = last_value >= first_value
     figures = f"{first_value:,.0f} → {last_value:,.0f}"
@@ -674,8 +830,40 @@ def _movement_headline(
     return f"{name} {movement} {percent:.1f}% between {first_period} and {last_period} ({figures})"
 
 
+def _rate_movement_headline(
+    language: NameLanguage,
+    name: str,
+    first_period: str,
+    first_value: float,
+    last_period: str,
+    last_value: float,
+) -> str:
+    """A rate moves in percentage points, never by a percent of itself."""
+
+    figures = f"{first_value:.1f}% → {last_value:.1f}%"
+    points = last_value - first_value
+    if language is NameLanguage.ZH_HANT:
+        return (
+            f"{name}在{first_period}至{last_period}間變動 {points:+.1f} 個百分點"
+            f"（{figures}）"  # noqa: RUF001
+        )
+    if language is NameLanguage.VIETNAMESE:
+        return (
+            f"{name} thay đổi {points:+.1f} điểm phần trăm từ {first_period} đến "
+            f"{last_period} ({figures})"
+        )
+    return (
+        f"{name} moved {points:+.1f} percentage points between {first_period} and "
+        f"{last_period} ({figures})"
+    )
+
+
 def _change_headline(language: NameLanguage, name: str, value: float, unit: str | None) -> str:
     figure = f"{value:+,.1f}%" if unit == "percent" else f"{value:+,.0f}"
+    if unit == "percentage_points":
+        figure = f"{value:+.1f} " + {"zh": "個百分點", "vi": "điểm phần trăm"}.get(
+            _text_key(language), "pp"
+        )
     if language is NameLanguage.ZH_HANT:
         return f"{name}的變化幅度最大（{figure}）"  # noqa: RUF001
     if language is NameLanguage.VIETNAMESE:
@@ -858,6 +1046,81 @@ def _insert_monthly_gaps(
     return output
 
 
+def _resample_monthly_rows(
+    rows: Sequence[dict[str, VisualizationValue]], interval_months: int
+) -> list[dict[str, VisualizationValue]]:
+    """Apply the profiler's calendar-aware cadence without inventing values."""
+
+    if interval_months <= 1:
+        return _insert_monthly_gaps(rows)
+    grouped: dict[str, list[dict[str, VisualizationValue]]] = {}
+    for row in rows:
+        entity = str(row.get("entity_id") or row.get("entity_name") or "")
+        grouped.setdefault(entity, []).append(dict(row))
+
+    all_indices = [index for row in rows if (index := _month_index(row.get("period"))) is not None]
+    if not all_indices:
+        return [dict(row) for row in rows]
+    shared_start = min(all_indices)
+    shared_end = max(all_indices)
+
+    output: list[dict[str, VisualizationValue]] = []
+    for entity_rows in grouped.values():
+        indexed = [
+            (index, row)
+            for row in entity_rows
+            if (index := _month_index(row.get("period"))) is not None
+        ]
+        if len(indexed) != len(entity_rows) or not indexed:
+            output.extend(entity_rows)
+            continue
+        by_bucket: dict[int, list[tuple[int, dict[str, VisualizationValue]]]] = {}
+        for index, row in indexed:
+            by_bucket.setdefault((index - shared_start) // interval_months, []).append((index, row))
+        first, last = min(by_bucket), max(by_bucket)
+        for bucket in range(first, last + 1):
+            candidates = by_bucket.get(bucket, [])
+            label = _bucket_label(
+                shared_start,
+                bucket,
+                interval_months,
+                final_index=shared_end,
+            )
+            if candidates:
+                _, selected = max(candidates, key=lambda item: item[0])
+                sampled = dict(selected)
+                sampled["source_period"] = sampled.get("period")
+                sampled["period"] = label
+                output.append(sampled)
+            # At a deliberately coarse cadence an empty bucket is omitted. The
+            # next published point is connected directly, rather than adding a
+            # synthetic null that visually cuts the insight in two.
+    return output
+
+
+def _bucket_label(
+    shared_start: int,
+    bucket: int,
+    interval_months: int,
+    *,
+    final_index: int,
+) -> str:
+    start = shared_start + bucket * interval_months
+    if interval_months == 24:
+        # A two-year point represents the last published value in the block, so
+        # its tick is the block's final year (capped for a partial final block).
+        end = min(start + interval_months - 1, final_index)
+        return f"{end // 12:04d}"
+    year, month_index = divmod(start, 12)
+    if interval_months == 3:
+        return f"{year:04d}-Q{month_index // 3 + 1}"
+    if interval_months == 6:
+        return f"{year:04d}-H{month_index // 6 + 1}"
+    if interval_months == 12:
+        return f"{year:04d}"
+    return f"{year:04d}-{month_index + 1:02d}"
+
+
 def _month_index(value: VisualizationValue) -> int | None:
     match = re.fullmatch(r"(\d{4})-(0[1-9]|1[0-2])", str(value or ""))
     if match is None:
@@ -868,7 +1131,12 @@ def _month_index(value: VisualizationValue) -> int | None:
 def _select_informative_line_rows(
     rows: Sequence[dict[str, VisualizationValue]],
 ) -> tuple[list[dict[str, VisualizationValue]], bool]:
-    """Bound long lines while preserving endpoints, extrema, jumps, and gaps."""
+    """Bound long lines while preserving endpoints, extrema, jumps, and gaps.
+
+    Multiple series must share one selected timeline. Sampling each entity
+    independently creates holes at perfectly valid periods when the frontend
+    pivots the long rows into line columns.
+    """
 
     grouped: dict[str, list[dict[str, VisualizationValue]]] = {}
     for row in rows:
@@ -876,6 +1144,8 @@ def _select_informative_line_rows(
         grouped.setdefault(entity, []).append(dict(row))
     if not grouped:
         return [], False
+    if len(grouped) > 1:
+        return _select_shared_line_periods(grouped)
     per_line = min(_MAX_POINTS_PER_LINE, max(12, _MAX_CHART_ROWS // len(grouped)))
     selected: list[dict[str, VisualizationValue]] = []
     sampled = False
@@ -915,29 +1185,98 @@ def _select_informative_line_rows(
     return selected, sampled
 
 
-def _trend_description(language: NameLanguage, sampled: bool, has_gaps: bool) -> str | None:
-    if not sampled and not has_gaps:
-        return None
-    if language is NameLanguage.ZH_HANT:
-        parts = []
-        if sampled:
-            parts.append("為了清楚呈現趨勢，圖表保留起點、終點、極值與最大變化點")  # noqa: RUF001
-        if has_gaps:
-            parts.append("線段中斷表示該期資料缺失，並非數值為零")  # noqa: RUF001
-        return "；".join(parts) + "。"  # noqa: RUF001
-    if language is NameLanguage.VIETNAMESE:
-        parts = []
-        if sampled:
-            parts.append("Biểu đồ giữ lại điểm đầu, điểm cuối, cực trị và các thay đổi lớn")
-        if has_gaps:
-            parts.append("đoạn đứt thể hiện kỳ thiếu dữ liệu, không phải giá trị bằng 0")
-        return ". ".join(parts) + "."
-    parts = []
-    if sampled:
-        parts.append("Selected points preserve endpoints, extrema, and the largest changes")
-    if has_gaps:
-        parts.append("A break marks a missing period, not a zero value")
-    return ". ".join(parts) + "."
+def _select_shared_line_periods(
+    grouped: Mapping[str, Sequence[dict[str, VisualizationValue]]],
+) -> tuple[list[dict[str, VisualizationValue]], bool]:
+    """Choose one chronological set of x-values for every visible series."""
+
+    ordered_by_entity = {
+        entity: sorted(points, key=lambda row: str(row.get("period") or ""))
+        for entity, points in grouped.items()
+    }
+    periods = sorted(
+        {
+            str(row["period"])
+            for points in ordered_by_entity.values()
+            for row in points
+            if isinstance(row.get("period"), str)
+        }
+    )
+    budget = min(_MAX_POINTS_PER_LINE, max(2, _MAX_CHART_ROWS // len(grouped)))
+    if len(periods) <= budget:
+        return _chronological_rows(ordered_by_entity, set(periods)), False
+
+    keep = {periods[0], periods[-1]}
+    period_position = {period: index for index, period in enumerate(periods)}
+    for points in ordered_by_entity.values():
+        numeric = [
+            (str(row["period"]), float(value))
+            for row in points
+            if isinstance(row.get("period"), str)
+            and isinstance(value := row.get("value"), int | float)
+        ]
+        if numeric:
+            keep.add(min(numeric, key=lambda item: item[1])[0])
+            keep.add(max(numeric, key=lambda item: item[1])[0])
+        for row in points:
+            if row.get("value") is not None or not isinstance(row.get("period"), str):
+                continue
+            position = period_position[str(row["period"])]
+            keep.update(periods[max(0, position - 1) : min(len(periods), position + 2)])
+
+    # Preserve a few largest turns across the whole panel, then spend the rest
+    # of the budget uniformly so the time axis does not bunch up at one end.
+    jumps: list[tuple[float, str]] = []
+    for points in ordered_by_entity.values():
+        numeric = [
+            (str(row["period"]), float(value))
+            for row in points
+            if isinstance(row.get("period"), str)
+            and isinstance(value := row.get("value"), int | float)
+        ]
+        jumps.extend((abs(right[1] - left[1]), right[0]) for left, right in pairwise(numeric))
+    for _, period in sorted(jumps, reverse=True):
+        if len(keep) >= min(budget, 8):
+            break
+        keep.add(period)
+
+    remaining = budget - len(keep)
+    if remaining > 0:
+        step = (len(periods) - 1) / (remaining + 1)
+        keep.update(periods[round(step * offset)] for offset in range(1, remaining + 1))
+    if len(keep) > budget:
+        # Endpoints are never negotiable; select the remaining positions evenly
+        # from the already meaningful candidates.
+        interior = sorted(keep - {periods[0], periods[-1]})
+        slots = max(0, budget - 2)
+        if len(interior) > slots:
+            interior = [
+                interior[round(index * (len(interior) - 1) / max(1, slots - 1))]
+                for index in range(slots)
+            ]
+        keep = {periods[0], periods[-1], *interior}
+    return _chronological_rows(ordered_by_entity, keep), True
+
+
+def _chronological_rows(
+    grouped: Mapping[str, Sequence[dict[str, VisualizationValue]]],
+    periods: set[str],
+) -> list[dict[str, VisualizationValue]]:
+    """Flatten long-form rows in x-axis order, with stable series ordering."""
+
+    rows = [
+        row
+        for entity in sorted(grouped)
+        for row in grouped[entity]
+        if str(row.get("period") or "") in periods
+    ]
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("period") or ""),
+            str(row.get("entity_id") or row.get("entity_name") or ""),
+        ),
+    )
 
 
 def _latest_common_period(series: ObservationSeries) -> str | None:
@@ -1084,7 +1423,17 @@ def _labels(question: str) -> dict[str, str]:
             "entity": "地區",
             "entity_count": "地區數量",
             "feature": "特徵",
+            "ageing_out": "超過35歲",
+            "base_value": "基期人數",
+            "driver": "變動來源",
+            "drivers_description": "年齡推移之外的淨變動包含遷徙、死亡與戶籍登記變動",
+            "drivers_title": "青年人口變動來源",
+            "entering": "年滿18歲",
+            "net_change": "年齡推移外淨變動",
+            "persons_change": "人數變動",
+            "year_range": "{start}至{end}年",
             "forecast_description": "預測值及其不確定性上下界",
+            "forecast_history_description": "同月份實際值與其後的預測值及不確定性上下界",
             "forecast_suffix": "預測",
             "forecast_table_title": "預測資料表",
             "forecast_value": "預測值",
@@ -1123,7 +1472,21 @@ def _labels(question: str) -> dict[str, str]:
         "entity": "Entity",
         "entity_count": "Entity count",
         "feature": "Feature",
+        "ageing_out": "Passing 35",
+        "base_value": "Base count",
+        "driver": "Driver",
+        "drivers_description": (
+            "Change beyond ageing combines migration, mortality, and registration changes"
+        ),
+        "drivers_title": "Youth population drivers",
+        "entering": "Reaching 18",
+        "net_change": "Change beyond ageing",
+        "persons_change": "Change in people",
+        "year_range": "{start} to {end}",
         "forecast_description": "Point forecasts with lower and upper uncertainty bounds",
+        "forecast_history_description": (
+            "Observed values for the same month, then point forecasts with uncertainty bounds"
+        ),
         "forecast_suffix": "forecast",
         "forecast_table_title": "Forecast data",
         "forecast_value": "Forecast value",

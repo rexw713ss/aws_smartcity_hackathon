@@ -39,6 +39,10 @@ labels, stable field encodings, inline grounded rows, and citation IDs.
 | `choropleth` | One district-keyed figure per area | Shaded administrative map |
 | `data_table` | Universal fallback and exact values | Sortable accessible table |
 
+Change choropleths use a zero-aware semantic ramp: stronger declines are darker red, stronger
+increases are darker green, and zero is neutral. One-sided change data uses only the relevant half
+of that ramp; ordinary positive quantities retain the sequential map scale.
+
 Since doc 30 a spec may also carry a `headline` (the finding, not the subject), `annotations`
 (interior peaks and troughs), `reference_lines` (the median across places), `focus_entities`
 (drawn forward while the rest recede), and `band_lower_field`/`band_upper_field` (a forecast's
@@ -51,6 +55,9 @@ scoring produces:
 - a ranking bar requires at least two eligible candidates with different scores;
 - a contribution bar requires at least two non-zero contributions;
 - a line requires at least two distinct periods per entity, and sparse entities are excluded;
+- monthly lines inspect the complete calendar span before rendering and may use quarterly,
+  half-yearly, yearly, or two-year points when that is the clearest cadence; tooltips retain the
+  source month and coarse charts connect the next published point without synthetic nulls;
 - a comparison question prefers one comparison bar when at least two entities are comparable;
 - a map requires explicit spatial intent, at least two resolved districts with differing values,
   and a period shared by every district shown;
@@ -62,6 +69,10 @@ scoring produces:
 To preserve legibility, ranking and comparison bars show at most 12 categories, contribution bars
 show at most 10, and line charts show at most 8 series. A limited chart is marked truncated; its
 source observations remain accessible from the cited evidence.
+
+Monthly trends are profiled before rendering. Depending on coverage and span, the chart uses a
+monthly, quarterly, half-year, yearly, or two-year cadence. The card shows only the grounded
+insight; sampling and missing-data diagnostics remain in the agent trace and evidence view.
 
 Forecasts use the same rules: a single forecast point is a table, not a line, and a forecast map
 uses the newest year shared by every district it displays.

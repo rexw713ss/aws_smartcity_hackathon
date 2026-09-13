@@ -49,6 +49,7 @@ _TOPIC_METRIC_CODES = {
 }
 
 _KNOWN_METRICS: dict[str, tuple[str, str | None, str]] = {
+    "households": ("permitted_households", "households", "sum"),
     "jobseekers": ("job_seekers", "persons", "sum"),
     "人數": ("person_count", "persons", "sum"),
     "人口": ("population_count", "persons", "sum"),
@@ -59,6 +60,8 @@ _KNOWN_METRICS: dict[str, tuple[str, str | None, str]] = {
     "平均數": ("average_income", None, "mean"),
     "中位數": ("median_income", None, "median"),
     "綜合所得總額": ("total_income", None, "sum"),
+    # A published rate for one age band and sex; never summed across rows.
+    "失業率": ("unemployment_rate", "percent", "ratio"),
 }
 
 
@@ -155,6 +158,24 @@ def validate_mapping(
     options = options or MappingOptions()
     issues: list[MappingValidationIssue] = []
     profile_columns = {column.name: column for column in profile.columns}
+
+    inferred_topic = _infer_topic(profile)
+    if (
+        options.topic_hint is not None
+        and inferred_topic != "unknown"
+        and options.topic_hint != inferred_topic
+    ):
+        issues.append(
+            _validation_issue(
+                "TOPIC_HINT_CONFLICT",
+                (
+                    f"Topic hint {options.topic_hint!r} conflicts with the source fields, "
+                    f"which identify this dataset as {inferred_topic!r}"
+                ),
+                field="topic",
+                blocking=True,
+            )
+        )
 
     source_columns = [mapping.source_column for mapping in proposal.columns]
     if len(source_columns) != len(set(source_columns)):
@@ -428,7 +449,9 @@ def _infer_topic(profile: DatasetProfile) -> str:
         if (rule := find_field_rule(column.name)) is not None
     }
     normalized_headers = {normalize_header(column.name) for column in profile.columns}
-    if "jobseekers" in normalized_headers:
+    if "jobseekers" in normalized_headers or any(
+        "失業" in column.name or "就業" in column.name for column in profile.columns
+    ):
         return "employment"
     if "direction" in targets and "counterpart_region" in targets:
         return "migration"

@@ -61,6 +61,22 @@ def _clean_name(value: str) -> str:
     return cleaned
 
 
+CITY_CODE = "65000"
+CITY_NAME = "新北市"
+_CITY_ALIASES = frozenset({"新北市", "臺灣省新北市", "台灣省新北市", "全市", "65000"})
+
+
+def is_city_scope(value: object) -> bool:
+    """True when a geography value names New Taipei as a whole, not one district.
+
+    City-wide statistics (the labour force survey, for one) are published only
+    at this level. Recognizing the city explicitly keeps them apart from an
+    unknown district name, which must still fail.
+    """
+
+    return value is not None and re.sub(r"\s+", "", str(value)) in _CITY_ALIASES
+
+
 def normalize_district(value: object) -> District | None:
     """Resolve a district code or common New Taipei City name alias."""
 
@@ -76,3 +92,25 @@ def normalize_district(value: object) -> District | None:
     if numeric_code is not None and numeric_code == numeric_code.to_integral_value():
         return _BY_CODE.get(f"{int(numeric_code):02d}")
     return _BY_NAME.get(_clean_name(raw))
+
+
+def extract_district(value: object) -> District | None:
+    """Resolve a district explicitly embedded in a New Taipei address or site."""
+
+    exact = normalize_district(value)
+    if exact is not None:
+        return exact
+    if value is None:
+        return None
+    compact = re.sub(r"\s+", "", str(value))
+    matches = [district for district in DISTRICTS if district.name in compact]
+    if len(matches) != 1:
+        return None
+    district = matches[0]
+    scope_prefix = compact[: compact.index(district.name)]
+    names_new_taipei = any(
+        prefix in scope_prefix for prefix in ("新北市", "臺灣省新北市", "台灣省新北市")
+    )
+    if ("市" in scope_prefix or "縣" in scope_prefix) and not names_new_taipei:
+        return None
+    return district

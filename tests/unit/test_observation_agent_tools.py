@@ -297,6 +297,35 @@ def test_a_metric_the_data_does_not_measure_is_refused_not_substituted() -> None
         )
 
 
+def test_broad_employment_topic_uses_the_only_declared_employment_measure() -> None:
+    from youth_compass.agent.observation_tools import _select_metric
+
+    selected = _select_metric(
+        ("job_seekers",),
+        _selection_query(
+            "Compare youth population and employment by district",
+            metric_terms=("population_count", "employment_count"),
+        ),
+        topic="employment",
+    )
+
+    assert selected == "job_seekers"
+
+
+def test_explicit_employment_count_is_not_replaced_by_another_measure() -> None:
+    from youth_compass.agent.observation_tools import _select_metric
+
+    with pytest.raises(QueryExecutionError, match="does not measure employment_count"):
+        _select_metric(
+            ("job_seekers",),
+            _selection_query(
+                "Compare the employment count by district",
+                metric_terms=("employment_count",),
+            ),
+            topic="employment",
+        )
+
+
 def test_the_only_published_metric_is_still_used_when_the_question_names_none() -> None:
     """The refusal must not fire on a question that never named a measure."""
 
@@ -318,3 +347,57 @@ def test_a_named_metric_that_is_published_is_selected_normally() -> None:
     )
 
     assert selected == "population_count"
+
+
+def test_a_rate_keeps_each_age_band_and_sex_as_its_own_series() -> None:
+    # Summing 15-24 male and female unemployment rates produced a number that is
+    # no rate at all. A non-additive unit keeps every published band apart.
+    columns = [*_DIMENSIONS, "age_label_original", "gender_label_original", "metric_value"]
+
+    def rate(year: int, age: str, sex: str, value: float) -> list[object]:
+        return [
+            year,
+            None,
+            "65000",
+            "新北市",
+            None,
+            None,
+            "unemployment_rate",
+            "percent",
+            "youth_specific",
+            False,
+            age,
+            sex,
+            value,
+        ]
+
+    engine = RecordingQueryEngine(
+        columns,
+        [
+            rate(2023, "15-24歲", "男", 9.0),
+            rate(2023, "15-24歲", "女", 8.0),
+            rate(2024, "15-24歲", "男", 9.5),
+            rate(2024, "15-24歲", "女", 7.5),
+        ],
+    )
+    inspection = _observation_inspection().model_copy(
+        update={
+            "metric_code": "unemployment_rate",
+            "available_metrics": ("unemployment_rate",),
+            "additive": False,
+        }
+    )
+    query = _observation_query(AnalysisFilters()).model_copy(
+        update={"metric_terms": ("unemployment_rate",)}
+    )
+
+    series = QueryObservationsTool(lambda _metadata: engine).execute(
+        query, inspection, _observation_metadata()
+    )
+
+    assert "age_label_original" in engine.specs[-1].dimensions
+    assert {point.entity_name for point in series.points} == {
+        "新北市 · 15\u201324歲 · 男",
+        "新北市 · 15\u201324歲 · 女",
+    }
+    assert sorted(point.value for point in series.points if point.period == "2024") == [7.5, 9.5]

@@ -32,6 +32,18 @@ def test_employment_mapping_is_deterministic_and_reviewable() -> None:
     assert any("Unknown district values" in item for item in analysis.proposal.warnings)
 
 
+def test_conflicting_topic_hint_cannot_publish_a_known_employment_source() -> None:
+    analysis = analyze_mapping(profile_csv(FIXTURE), MappingOptions(topic_hint="population"))
+
+    assert analysis.proposal.topic == "population"
+    assert analysis.validation.valid is False
+    conflict = next(
+        issue for issue in analysis.validation.issues if issue.code == "TOPIC_HINT_CONFLICT"
+    )
+    assert conflict.blocking is True
+    assert "employment" in conflict.message
+
+
 def test_no_age_dimension_is_context_not_youth_specific(tmp_path: Path) -> None:
     source = tmp_path / "education.csv"
     source.write_text(
@@ -47,6 +59,30 @@ def test_no_age_dimension_is_context_not_youth_specific(tmp_path: Path) -> None:
     assert analysis.proposal.metrics[0].metric_code == "education_population"
     assert analysis.validation.valid is True
     assert any("district context" in item for item in analysis.proposal.warnings)
+
+
+def test_building_permit_source_extracts_compact_date_district_and_record_grain(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "building-permits.csv"
+    source.write_text(
+        "license_number,building_site,date_licensing,households,number_of_stories\n"
+        "115林使字第00001號,新北市林口區新林段216-2地號,1150105,1,5\n"
+        "115板使字第00002號,新北市板橋區忠孝段146地號,1150105,0,1\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_mapping(profile_csv(source), MappingOptions(topic_hint="housing"))
+
+    assert analysis.validation.valid is True
+    assert analysis.proposal.grain.dimensions == [
+        "source_record_id",
+        "district_name",
+        "year_roc",
+    ]
+    assert {metric.source_column for metric in analysis.proposal.metrics} == {"households"}
+    assert analysis.proposal.metrics[0].metric_code == "permitted_households"
+    assert analysis.proposal.metrics[0].unit_code == "households"
 
 
 def test_empty_optional_age_columns_do_not_block_mapping(tmp_path: Path) -> None:

@@ -19,6 +19,7 @@ from youth_compass.config import ApiSettings, AppSettings
 ORIGIN = "https://dashboard.example.org"
 SECRET = "test-write-secret"
 ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:write-AbCdEf"
+ALLOWED_IP = "60.250.71.45"
 
 
 def _client(tmp_path: Path, **api_overrides: object) -> TestClient:
@@ -27,6 +28,28 @@ def _client(tmp_path: Path, **api_overrides: object) -> TestClient:
     app = create_app(tmp_path / "data")
     app.state.settings = settings
     return TestClient(app)
+
+
+class TestSourceIpAllowlist:
+    def test_unlisted_source_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("YOUTH_COMPASS_ALLOWED_SOURCE_IPS", ALLOWED_IP)
+        client = TestClient(create_app(tmp_path / "data"), client=("203.0.113.10", 50000))
+
+        response = client.get("/health")
+
+        assert response.status_code == 403
+
+    def test_listed_source_is_allowed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("YOUTH_COMPASS_ALLOWED_SOURCE_IPS", ALLOWED_IP)
+        client = TestClient(create_app(tmp_path / "data"), client=(ALLOWED_IP, 50000))
+
+        response = client.get("/health")
+
+        assert response.status_code == 200
 
 
 class TestCors:

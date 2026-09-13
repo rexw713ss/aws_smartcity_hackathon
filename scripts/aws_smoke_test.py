@@ -202,7 +202,7 @@ class SmokeTester:
         print(
             f"  s3 @ {COST_RATES['s3_request_usd']}/req   "
             f"glue @ {COST_RATES['glue_request_usd']}/req   "
-            f"athena @ {COST_RATES['athena_usd_per_tib']}/TiB   "
+            f"athena @ {COST_RATES['athena_usd_per_tb']}/TB   "
             f"sfn @ {COST_RATES['stepfunctions_usd_per_transition']}/transition"
         )
         print("Rates are ap-northeast-1 estimates; confirm against the AWS pricing calculator.")

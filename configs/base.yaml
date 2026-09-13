@@ -39,16 +39,6 @@ acquisition:
       topic_terms: [housing, infrastructure]
       metric_codes: [residential_completions, permitted_households]
       license: OGDL-1.0
-    - candidate_id: ntpc-bus-stops
-      connector_id: configured_http
-      title: New Taipei bus stop and route information
-      publisher: New Taipei City Government Transportation Department
-      download_url: https://data.ntpc.gov.tw/api/datasets/34b402a8-53d9-483d-9406-24a682c2d6dc/csv/file
-      file_name: ntpc-bus-stops.csv
-      source_format: csv
-      topic_terms: [transport, infrastructure]
-      metric_codes: [transit_stop_coverage]
-      license: OGDL-1.0
     - candidate_id: ntpc-hospitals
       connector_id: configured_http
       title: New Taipei hospital directory

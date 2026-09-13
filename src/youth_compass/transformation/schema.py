@@ -53,6 +53,7 @@ CANONICAL_OBSERVATION_SCHEMA = pa.schema(
         pa.field("source_topic", pa.string()),
         pa.field("source_agency", pa.string()),
         pa.field("source_dataset_name", pa.string()),
+        pa.field("source_record_id", pa.string()),
         pa.field("metric_code", pa.string(), nullable=False),
         pa.field("metric_value", pa.float64(), nullable=False),
         pa.field("metric_value_original", pa.float64(), nullable=False),

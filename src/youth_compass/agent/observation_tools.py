@@ -79,6 +79,9 @@ class InspectDatasetTool:
         # here, because its result depends only on the immutable dataset version
         # and on which metric the question selects.
         self._cache = cache if cache is not None else TtlCache()
+        #: Zero on a cache hit; otherwise the bytes reported by the inspection
+        #: query. Inspection is often the largest scan in a cold request.
+        self.last_scanned_bytes: int = 0
 
     def select(
         self, decomposition: DecomposedQuery, *, min_quality_score: float = 0.0
@@ -102,7 +105,7 @@ class InspectDatasetTool:
         self, decomposition: DecomposedQuery, *, min_quality_score: float = 0.0
     ) -> DatasetInspection:
         metadata = self.select(decomposition, min_quality_score=min_quality_score)
-        return self._inspect(metadata, decomposition)
+        return self._inspect(metadata, decomposition)[0]
 
     def execute_for_dataset(
         self,
@@ -112,6 +115,25 @@ class InspectDatasetTool:
         min_quality_score: float = 0.0,
     ) -> DatasetInspection:
         """Inspect one explicitly requested immutable published dataset."""
+
+        metadata = self._catalog.get(dataset_id)
+        if (
+            metadata.status is not DatasetStatus.PUBLISHED
+            or metadata.quality_score < min_quality_score
+        ):
+            raise QueryExecutionError(
+                f"dataset {dataset_id!r} is not published at the requested quality"
+            )
+        return self._inspect(metadata, decomposition)[0]
+
+    def execute_for_dataset_accounted(
+        self,
+        decomposition: DecomposedQuery,
+        dataset_id: str,
+        *,
+        min_quality_score: float = 0.0,
+    ) -> tuple[DatasetInspection, int]:
+        """Inspect one dataset and return scan bytes owned by this call."""
 
         metadata = self._catalog.get(dataset_id)
         if (
@@ -132,11 +154,11 @@ class InspectDatasetTool:
         version it is given and never selects or publishes anything.
         """
 
-        return self._inspect(metadata, decomposition)
+        return self._inspect(metadata, decomposition)[0]
 
     def _inspect(
         self, metadata: DatasetMetadata, decomposition: DecomposedQuery
-    ) -> DatasetInspection:
+    ) -> tuple[DatasetInspection, int]:
         # The version is in the key, so a republish addresses a different entry
         # rather than invalidating this one: there is no window where a stale
         # inspection can be served. The metric and subject terms are in the key
@@ -148,14 +170,21 @@ class InspectDatasetTool:
             decomposition.metric_terms,
             decomposition.subject_terms,
         )
-        inspection: DatasetInspection = self._cache.get_or_call(
-            key, lambda: self._inspect_uncached(metadata, decomposition)
-        )
-        return inspection
+        invocation_scan = 0
+
+        def produce() -> DatasetInspection:
+            nonlocal invocation_scan
+            inspection, invocation_scan = self._inspect_uncached(metadata, decomposition)
+            return inspection
+
+        inspection, cache_hit = self._cache.get_or_call_with_status(key, produce)
+        scanned_bytes = 0 if cache_hit else invocation_scan
+        self.last_scanned_bytes = scanned_bytes
+        return inspection, scanned_bytes
 
     def _inspect_uncached(
         self, metadata: DatasetMetadata, decomposition: DecomposedQuery
-    ) -> DatasetInspection:
+    ) -> tuple[DatasetInspection, int]:
         result = self._query_engine_factory(metadata).execute(
             QuerySpec(
                 table=metadata.dataset_id,
@@ -174,21 +203,26 @@ class InspectDatasetTool:
         if not records:
             raise QueryExecutionError("the selected published dataset has no observations")
         available_metrics = tuple(sorted({str(row["metric_code"]) for row in records}))
-        metric_code = _select_metric(available_metrics, decomposition)
+        metric_code = _select_metric(available_metrics, decomposition, topic=metadata.topic)
         metric_records = [row for row in records if row["metric_code"] == metric_code]
         periods = [_period(row) for row in metric_records]
         entities = {_entity_id(row) for row in metric_records if _entity_id(row)}
-        return DatasetInspection(
-            dataset_id=metadata.dataset_id,
-            dataset_version=metadata.version,
-            topic=metadata.topic,
-            grain=tuple(metadata.grain.dimensions),
-            metric_code=metric_code,
-            available_metrics=available_metrics,
-            period_start=min(periods),
-            period_end=max(periods),
-            entity_count=len(entities),
-            quality_score=metadata.quality_score,
+        return (
+            DatasetInspection(
+                dataset_id=metadata.dataset_id,
+                dataset_version=metadata.version,
+                topic=metadata.topic,
+                grain=tuple(metadata.grain.dimensions),
+                metric_code=metric_code,
+                available_metrics=available_metrics,
+                period_start=min(periods),
+                period_end=max(periods),
+                entity_count=len(entities),
+                quality_score=metadata.quality_score,
+                additive=not {str(row["unit_code"]) for row in metric_records}
+                & _NON_ADDITIVE_UNITS,
+            ),
+            result.scanned_bytes,
         )
 
 
@@ -213,6 +247,18 @@ class QueryObservationsTool:
         inspection: DatasetInspection,
         metadata: DatasetMetadata,
     ) -> ObservationSeries:
+        series, scanned_bytes = self.execute_accounted(decomposition, inspection, metadata)
+        self.last_scanned_bytes = scanned_bytes
+        return series
+
+    def execute_accounted(
+        self,
+        decomposition: DecomposedQuery,
+        inspection: DatasetInspection,
+        metadata: DatasetMetadata,
+    ) -> tuple[ObservationSeries, int]:
+        """Query observations and return scan bytes owned by this call."""
+
         if (
             metadata.status is not DatasetStatus.PUBLISHED
             or metadata.dataset_id != inspection.dataset_id
@@ -235,22 +281,34 @@ class QueryObservationsTool:
             decomposition.filters.age_upper,
             decomposition.filters.gender_code,
         )
-        self.last_scanned_bytes = 0
-        series: ObservationSeries = self._cache.get_or_call(
-            key, lambda: self._execute_uncached(decomposition, inspection, metadata)
-        )
-        return series
+        invocation_scan = 0
+
+        def produce() -> ObservationSeries:
+            nonlocal invocation_scan
+            series, invocation_scan = self._execute_uncached(decomposition, inspection, metadata)
+            return series
+
+        series, cache_hit = self._cache.get_or_call_with_status(key, produce)
+        scanned_bytes = 0 if cache_hit else invocation_scan
+        self.last_scanned_bytes = scanned_bytes
+        return series, scanned_bytes
 
     def _execute_uncached(
         self,
         decomposition: DecomposedQuery,
         inspection: DatasetInspection,
         metadata: DatasetMetadata,
-    ) -> ObservationSeries:
+    ) -> tuple[ObservationSeries, int]:
         filters = decomposition.filters
         dimensions = [*_INSPECTION_DIMENSIONS]
         if filters.age_lower is not None or filters.age_upper is not None:
             dimensions.extend(_AGE_DIMENSIONS)
+        # A rate or median cannot be summed across age bands or sexes. Those
+        # metrics keep each published band as its own series instead, which
+        # costs the wider grain only for the metrics that need it.
+        non_additive = not inspection.additive
+        if non_additive:
+            dimensions.extend(_BAND_DIMENSIONS)
         query_filters: dict[str, FilterValue] = {"metric_code": inspection.metric_code}
         if filters.gender_code is not None:
             # Pushed into the engine instead of projected. Adding gender to the
@@ -270,7 +328,6 @@ class QueryObservationsTool:
                 max_rows=100_000,
             )
         )
-        self.last_scanned_bytes = result.scanned_bytes
         if result.truncated:
             raise QueryExecutionError("observation query exceeded the safe 100000-row query limit")
         records = _records(result.columns, result.rows)
@@ -309,13 +366,21 @@ class QueryObservationsTool:
             entity_id = _entity_id(row)
             if not entity_id:
                 continue
+            entity_name = _entity_name(row)
+            if non_additive:
+                entity_id, entity_name = _band_entity(row, entity_id, entity_name)
             key = (entity_id, _period(row))
             value = _number(row["metric_value"])
             current = grouped.get(key)
+            if non_additive and current is not None:
+                raise QueryExecutionError(
+                    f"{inspection.metric_code} has more than one value for "
+                    f"{entity_name} in {key[1]} and cannot be summed"
+                )
             if current is None:
                 current = ObservationPoint(
                     entity_id=entity_id,
-                    entity_name=_entity_name(row),
+                    entity_name=entity_name,
                     period=key[1],
                     value=0,
                     estimated_value=0,
@@ -333,13 +398,16 @@ class QueryObservationsTool:
         points = _drop_structural_zero_sentinels(points, inspection.metric_code)
         if not points:
             raise QueryExecutionError("no entity-level observations are available")
-        return ObservationSeries(
-            dataset_id=inspection.dataset_id,
-            dataset_version=inspection.dataset_version,
-            metric_code=inspection.metric_code,
-            unit_code=next(iter(units)),
-            population_scope=next(iter(scopes)),
-            points=points,
+        return (
+            ObservationSeries(
+                dataset_id=inspection.dataset_id,
+                dataset_version=inspection.dataset_version,
+                metric_code=inspection.metric_code,
+                unit_code=next(iter(units)),
+                population_scope=next(iter(scopes)),
+                points=points,
+            ),
+            result.scanned_bytes,
         )
 
 
@@ -476,7 +544,9 @@ def _relevance(metadata: DatasetMetadata, terms: set[str], spoken: set[str]) -> 
     return lexical + named
 
 
-def _select_metric(metrics: tuple[str, ...], decomposition: DecomposedQuery) -> str:
+def _select_metric(
+    metrics: tuple[str, ...], decomposition: DecomposedQuery, *, topic: str | None = None
+) -> str:
     # A question that names canonical metrics none of the data carries has to be
     # refused, not rounded to whatever is published. `metric_terms` holds
     # canonical codes rather than free text, so an empty intersection here is an
@@ -489,6 +559,8 @@ def _select_metric(metrics: tuple[str, ...], decomposition: DecomposedQuery) -> 
     # one.
     named = tuple(dict.fromkeys(decomposition.metric_terms))
     if named and not set(named) & set(metrics):
+        if _uses_only_available_employment_measure(metrics, named, decomposition, topic):
+            return metrics[0]
         raise QueryExecutionError(
             "the published data does not measure "
             + ", ".join(named)
@@ -508,6 +580,45 @@ def _select_metric(metrics: tuple[str, ...], decomposition: DecomposedQuery) -> 
     if len(scored) > 1 and scored[0][0] == scored[1][0]:
         raise QueryExecutionError("metric selection is ambiguous; specify the metric code")
     return scored[0][1]
+
+
+def _uses_only_available_employment_measure(
+    metrics: tuple[str, ...],
+    named: tuple[str, ...],
+    decomposition: DecomposedQuery,
+    topic: str | None,
+) -> bool:
+    """Resolve broad “employment” to a dataset's sole declared measure.
+
+    The planner represents the topic word ``employment`` as
+    ``employment_count``. Real employment datasets may instead publish a single
+    clearly labelled indicator such as ``job_seekers`` or
+    ``unemployment_rate``. For a broad topic comparison that sole measure is
+    unambiguous and remains visibly labelled in the answer. An explicit request
+    for a count or rate still fails closed rather than substituting a measure.
+    """
+
+    if (
+        len(metrics) != 1
+        or "employment_count" not in named
+        or resolve_topic_name(topic or "") != "employment"
+    ):
+        return False
+    question = " ".join(decomposition.original_question.casefold().split())
+    explicit_measure = (
+        "employment count",
+        "number of employed",
+        "employed people",
+        "employment rate",
+        "job seekers",
+        "số người có việc làm",
+        "tỷ lệ việc làm",
+        "người tìm việc",
+        "就業人數",
+        "就業率",
+        "求職者",
+    )
+    return not any(phrase in question for phrase in explicit_measure)
 
 
 def _records(columns: list[str], rows: list[list[CellValue]]) -> list[dict[str, object]]:
@@ -530,6 +641,32 @@ def _period(row: dict[str, object]) -> str:
 
 def _entity_id(row: dict[str, object]) -> str:
     return str(row["district_code"] or row["city_code"] or "")
+
+
+_BAND_DIMENSIONS = ["age_label_original", "gender_label_original"]
+# Units whose values are rates or indices. They are read from ``unit_code``,
+# which every published table carries, rather than from the aggregation column
+# older tables may lack.
+_NON_ADDITIVE_UNITS = frozenset({"percent", "ratio", "score_0_100", "ntd_per_sqm"})
+
+
+def _band_entity(
+    row: dict[str, object], entity_id: str, entity_name: str | None
+) -> tuple[str, str | None]:
+    """One series per published age band and sex, named so a reader can tell them apart."""
+
+    # An en dash, because a hyphen reads as a machine separator to the name guard.
+    parts = [
+        str(row[field]).replace("-", "\u2013")
+        for field in ("age_label_original", "gender_label_original")
+        if row[field]
+    ]
+    if not parts:
+        return entity_id, entity_name
+    return (
+        ":".join([entity_id, *parts]),
+        " · ".join([entity_name or entity_id, *parts]),
+    )
 
 
 def _entity_key(value: str) -> str:

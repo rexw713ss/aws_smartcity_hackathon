@@ -7,7 +7,7 @@ from typing import Any, Self
 
 import yaml
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 
 from youth_compass.domain.errors import ConfigurationError
 from youth_compass.ports import SourceCandidate
@@ -60,6 +60,8 @@ class ModelProviderName(StrEnum):
 
 class ForecastProvider(StrEnum):
     LOCAL = "local"
+    # A published artifact and model card read from S3; no endpoint, no training.
+    S3 = "s3"
     SAGEMAKER = "sagemaker"
 
 
@@ -122,6 +124,14 @@ class ModelSettings(BaseModel):
 
 class ForecastSettings(BaseModel):
     provider: ForecastProvider = ForecastProvider.LOCAL
+    # Used by the ``s3`` provider: the artifact is ``<prefix>current.parquet`` and
+    # its card ``<prefix>model-card.json`` in ``bucket``.
+    bucket: str | None = None
+    prefix: str = Field(default="population/", pattern=r"^([A-Za-z0-9._-]+/)*$")
+    region: str = "us-east-1"
+    # How long a warm process trusts its downloaded copy before checking the
+    # object's ETag again.
+    refresh_seconds: int = Field(default=300, ge=0, le=86_400)
 
 
 class WebSearchSettings(BaseModel):
@@ -323,7 +333,7 @@ class AppSettings(BaseSettings):
     def from_yaml(cls, path: Path) -> "AppSettings":
         """Load a YAML file and then apply environment variable overrides."""
 
-        raw = _read_yaml(path)
+        raw = _deep_merge(_read_yaml(path), EnvSettingsSource(cls)())
         return cls(**raw)
 
     @classmethod
@@ -354,6 +364,10 @@ class AppSettings(BaseSettings):
             merged = _deep_merge(merged, _read_yaml(env_path))
             merged["environment"] = environment
 
+        # BaseSettings normally gives explicit constructor values priority over
+        # environment variables. Here those constructor values originate in
+        # YAML, while the documented application precedence puts env above YAML.
+        merged = _deep_merge(merged, EnvSettingsSource(cls)())
         if overrides:
             merged = _deep_merge(merged, overrides)
         return cls(**merged)

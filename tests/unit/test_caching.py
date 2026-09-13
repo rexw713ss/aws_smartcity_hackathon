@@ -27,6 +27,17 @@ def test_a_repeated_key_is_computed_once() -> None:
     assert cache.stats.misses == 1
 
 
+def test_cache_status_distinguishes_a_billable_miss_from_a_free_hit() -> None:
+    cache = TtlCache()
+
+    first, first_hit = cache.get_or_call_with_status("k", lambda: "value")
+    second, second_hit = cache.get_or_call_with_status("k", lambda: "not-called")
+
+    assert first == second == "value"
+    assert first_hit is False
+    assert second_hit is True
+
+
 def test_a_new_dataset_version_addresses_a_different_entry_rather_than_a_stale_one() -> None:
     """This is what makes the cache semantically safe rather than a tradeoff.
 

@@ -82,6 +82,8 @@ def build() -> Path:
         "step_functions_runner.py",
         "workflow_token_store.py",
         "dynamodb_checkpoint.py",
+        "forecast_refresh_lambda.py",
+        "s3_forecast_artifact.py",
     ):
         shutil.copy(_REPO_ROOT / "adapters" / "aws" / module, adapters_dir)
 
@@ -158,10 +160,26 @@ def build_api() -> Path:
         source = data_source / name
         if source.is_dir():
             shutil.copytree(source, data_target / name)
+    _write_registration_extract(data_source, data_target)
 
     _prune_bytecode(_API_BUILD_DIR)
     _report_size(_API_BUILD_DIR, "api")
     return _API_BUILD_DIR
+
+
+def _write_registration_extract(data_source: Path, data_target: Path) -> None:
+    """Package the What-if registration source as compact Parquet, not the 54 MB CSV."""
+    from youth_compass.forecasting.registration import (
+        REGISTRATION_EXTRACT_NAME,
+        write_registration_extract,
+    )
+
+    population = Path("source") / "01_人口"
+    source = data_source / population / "_全部年度_全區.csv"
+    if not source.is_file():
+        print(f"warning: {source} is missing; What-if will be unavailable in the package")
+        return
+    write_registration_extract(source, data_target / population / REGISTRATION_EXTRACT_NAME)
 
 
 def _prune_bytecode(root: Path) -> None:

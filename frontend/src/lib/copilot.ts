@@ -153,7 +153,7 @@ export type CopilotResponse = {
 }
 
 export type ImpactFinding = {
-  stage: 'population' | 'housing' | 'transport' | 'public_services'
+  stage: 'population' | 'housing' | 'public_services'
   label: string
   baseline_value: number | null
   scenario_value: number | null
@@ -163,14 +163,14 @@ export type ImpactFinding = {
 }
 
 export type ImpactDataGap = {
-  domain: 'housing' | 'transport' | 'public_services'
+  domain: 'housing' | 'public_services'
   required_metrics: string[]
   reason: string
 }
 
 export type InvestmentRecommendation = {
   priority: number
-  domain: 'housing' | 'transport' | 'public_services'
+  domain: 'housing' | 'public_services'
   action: string
   rationale: string
   confidence: 'low' | 'medium' | 'high'
@@ -223,6 +223,87 @@ export type IntakeOptions = {
   linkHosts: string[]
   uploadFormats: string[]
   maxUploadBytes: number
+  writeTokenRequired: boolean
+}
+
+export type IngestionStatus = 'pending' | 'running' | 'awaiting_approval' | 'published' | 'quarantined' | 'rejected' | 'failed'
+
+export type IngestionJob = {
+  jobId: string
+  datasetId: string | null
+  status: IngestionStatus
+  sourceFormat: string | null
+  currentStep: string
+  qualityScore: number | null
+  createdAt: string
+  warnings: string[]
+}
+
+export type MappingColumn = {
+  source_column: string
+  target_field: string
+  transformation: string
+  confidence: number
+  evidence: string
+}
+
+export type MetricMapping = {
+  source_column: string
+  metric_code: string
+  unit_code: string | null
+  population_scope: string
+  aggregation_method: string
+  confidence: number
+  evidence: string
+}
+
+export type ProfileColumn = {
+  name: string
+  inferred_type: string
+  semantic_role: string
+  null_rate: number
+  distinct_count: number
+  sample_values: string[]
+}
+
+export type MappingAnalysis = {
+  profile: {
+    file_name: string
+    file_format: string
+    file_size_bytes: number
+    row_count: number
+    column_count: number
+    columns: ProfileColumn[]
+    candidate_grain: string[]
+    warnings: Array<{ code: string; message: string; severity: string; field: string | null }>
+  }
+  proposal: {
+    topic: string
+    dataset_role: string
+    grain: { dimensions: string[] }
+    columns: MappingColumn[]
+    metrics: MetricMapping[]
+    overall_confidence: number
+    warnings: string[]
+    requires_human_approval: boolean
+  }
+  validation: {
+    valid: boolean
+    overall_confidence: number
+    requires_human_approval: boolean
+    issues: Array<{ code: string; message: string; severity: string; field: string | null; blocking: boolean }>
+  }
+}
+
+export type MappingSamplePreview = {
+  sourceColumn: string
+  targetField: string
+  transformation: string
+  samples: Array<{
+    source: string
+    canonical: Record<string, string | number | boolean | null>
+    error: string | null
+  }>
 }
 
 export const scenarioEvidenceKinds = ['official', 'derived', 'user_assumption'] as const
@@ -253,6 +334,32 @@ export type DistrictOverview = {
   trend: DistrictTrendPoint[]
   ageDistribution: DistrictBreakdown[]
   genderDistribution: DistrictBreakdown[]
+  /** Attached by the caller; null when no published forecast covers the district. */
+  forecast?: DistrictForecast | null
+}
+
+export type DistrictForecastPoint = {
+  year: number
+  period: string
+  value: number
+  lower: number
+  upper: number
+  entering: number | null
+  ageingOut: number | null
+  netChange: number | null
+}
+
+export type DistrictForecast = {
+  districtCode: string
+  metricCode: string
+  modelVersion: string
+  generatedAt: string
+  basePeriod: string | null
+  baseValue: number | null
+  smallArea: boolean
+  targetCoverage: number | null
+  points: DistrictForecastPoint[]
+  accuracy: { horizonYears: number; mapePercent: number; intervalCoverage: number | null }[]
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -260,6 +367,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isText = (value: unknown, max = 2000): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= max
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
 const optionalText = (value: unknown, max = 2000): value is string | null =>
   value === null || value === undefined || isText(value, max)
 
@@ -493,7 +601,7 @@ function parseImpactAnalysis(raw: unknown): ImpactAnalysis | null {
       !isText(raw.observed_period, 20) || !isNumber(raw.target_year) || !isNumber(raw.shock_people) ||
       !['insufficient', 'low', 'medium', 'high'].includes(String(raw.confidence))) throw new ContractError()
   const findings = array(raw.findings, 20).map(item => {
-    if (!isObject(item) || !['population', 'housing', 'transport', 'public_services'].includes(String(item.stage)) ||
+    if (!isObject(item) || !['population', 'housing', 'public_services'].includes(String(item.stage)) ||
         !isText(item.label, 400) || !optionalText(item.unit, 80) ||
         !(item.baseline_value === null || isNumber(item.baseline_value)) ||
         !(item.scenario_value === null || isNumber(item.scenario_value)) ||
@@ -502,13 +610,13 @@ function parseImpactAnalysis(raw: unknown): ImpactAnalysis | null {
     return item as ImpactFinding
   })
   const dataGaps = array(raw.data_gaps, 10).map(item => {
-    if (!isObject(item) || !['housing', 'transport', 'public_services'].includes(String(item.domain)) ||
+    if (!isObject(item) || !['housing', 'public_services'].includes(String(item.domain)) ||
         !isText(item.reason, 1000)) throw new ContractError()
     return { domain: item.domain, required_metrics: textList(item.required_metrics, 20, 120), reason: item.reason } as ImpactDataGap
   })
   const recommendations = array(raw.recommendations, 10).map(item => {
     if (!isObject(item) || !isNumber(item.priority) ||
-        !['housing', 'transport', 'public_services'].includes(String(item.domain)) ||
+        !['housing', 'public_services'].includes(String(item.domain)) ||
         !isText(item.action, 500) || !isText(item.rationale, 1000) ||
         !['low', 'medium', 'high'].includes(String(item.confidence))) throw new ContractError()
     return item as InvestmentRecommendation
@@ -542,6 +650,137 @@ function parseDataRequirement(raw: unknown): DataRequirement | null {
     time_expression: (raw.time_expression as string | undefined) ?? null,
     accepted_formats: textList(raw.accepted_formats, 10, 20),
   }
+}
+
+const ingestionStatuses = new Set<IngestionStatus>([
+  'pending', 'running', 'awaiting_approval', 'published', 'quarantined', 'rejected', 'failed',
+])
+
+function parseIngestionJob(raw: unknown): IngestionJob {
+  if (!isObject(raw) || !isText(raw.jobId, 200) || !isText(raw.status, 40) ||
+      !ingestionStatuses.has(raw.status as IngestionStatus) || !isText(raw.currentStep, 120) ||
+      !isText(raw.createdAt, 64)) throw new ContractError()
+  if (!optionalText(raw.datasetId, 200) || !optionalText(raw.sourceFormat, 40) ||
+      !(raw.qualityScore === null || raw.qualityScore === undefined || isNumber(raw.qualityScore))) {
+    throw new ContractError()
+  }
+  return {
+    jobId: raw.jobId,
+    datasetId: (raw.datasetId as string | null | undefined) ?? null,
+    status: raw.status as IngestionStatus,
+    sourceFormat: (raw.sourceFormat as string | null | undefined) ?? null,
+    currentStep: raw.currentStep,
+    qualityScore: (raw.qualityScore as number | null | undefined) ?? null,
+    createdAt: raw.createdAt,
+    warnings: textList(raw.warnings, 100, 2000),
+  }
+}
+
+const nullableText = (value: unknown, max = 2000): string | null => {
+  if (value === null || value === undefined) return null
+  if (!isText(value, max)) throw new ContractError()
+  return value
+}
+
+function parseMappingAnalysis(raw: unknown): MappingAnalysis {
+  if (!isObject(raw) || !isObject(raw.profile) || !isObject(raw.proposal) ||
+      !isObject(raw.validation)) throw new ContractError()
+  const profile = raw.profile
+  const proposal = raw.proposal
+  const validation = raw.validation
+  if (!isText(profile.file_name, 400) || !isText(profile.file_format, 40) ||
+      !isNumber(profile.file_size_bytes) || !isNumber(profile.row_count) ||
+      !isNumber(profile.column_count) || !isText(proposal.topic, 120) ||
+      !isText(proposal.dataset_role, 80) || !isObject(proposal.grain) ||
+      !isNumber(proposal.overall_confidence) || !isBoolean(proposal.requires_human_approval) ||
+      !isBoolean(validation.valid) || !isNumber(validation.overall_confidence) ||
+      !isBoolean(validation.requires_human_approval)) throw new ContractError()
+
+  const columns = array(profile.columns, 500).map(item => {
+    if (!isObject(item) || !isText(item.name, 400) || !isText(item.inferred_type, 80) ||
+        !isText(item.semantic_role, 80) || !isNumber(item.null_rate) ||
+        !isNumber(item.distinct_count)) throw new ContractError()
+    return {
+      name: item.name, inferred_type: item.inferred_type, semantic_role: item.semantic_role,
+      null_rate: item.null_rate, distinct_count: item.distinct_count,
+      sample_values: textList(item.sample_values, 5, 500),
+    }
+  })
+  const mappingColumns = array(proposal.columns, 500).map(item => {
+    if (!isObject(item) || !isText(item.source_column, 400) || !isText(item.target_field, 200) ||
+        !isText(item.transformation, 200) || !isNumber(item.confidence) ||
+        !isText(item.evidence, 2000)) throw new ContractError()
+    return {
+      source_column: item.source_column, target_field: item.target_field,
+      transformation: item.transformation, confidence: item.confidence, evidence: item.evidence,
+    }
+  })
+  const metrics = array(proposal.metrics, 500).map(item => {
+    if (!isObject(item) || !isText(item.source_column, 400) || !isText(item.metric_code, 200) ||
+        !optionalText(item.unit_code, 100) || !isText(item.population_scope, 100) ||
+        !isText(item.aggregation_method, 100) || !isNumber(item.confidence) ||
+        !isText(item.evidence, 2000)) throw new ContractError()
+    return {
+      source_column: item.source_column, metric_code: item.metric_code,
+      unit_code: nullableText(item.unit_code, 100), population_scope: item.population_scope,
+      aggregation_method: item.aggregation_method, confidence: item.confidence,
+      evidence: item.evidence,
+    }
+  })
+  const profileWarnings = array(profile.warnings, 100).map(item => {
+    if (!isObject(item) || !isText(item.code, 120) || !isText(item.message, 2000) ||
+        !isText(item.severity, 40) || !optionalText(item.field, 400)) throw new ContractError()
+    return { code: item.code, message: item.message, severity: item.severity, field: nullableText(item.field, 400) }
+  })
+  const issues = array(validation.issues, 100).map(item => {
+    if (!isObject(item) || !isText(item.code, 120) || !isText(item.message, 2000) ||
+        !isText(item.severity, 40) || !optionalText(item.field, 400) ||
+        !isBoolean(item.blocking)) throw new ContractError()
+    return { code: item.code, message: item.message, severity: item.severity, field: nullableText(item.field, 400), blocking: item.blocking }
+  })
+  return {
+    profile: {
+      file_name: profile.file_name, file_format: profile.file_format,
+      file_size_bytes: profile.file_size_bytes, row_count: profile.row_count,
+      column_count: profile.column_count, columns,
+      candidate_grain: textList(profile.candidate_grain, 100, 200), warnings: profileWarnings,
+    },
+    proposal: {
+      topic: proposal.topic, dataset_role: proposal.dataset_role,
+      grain: { dimensions: textList(proposal.grain.dimensions, 100, 200) },
+      columns: mappingColumns, metrics, overall_confidence: proposal.overall_confidence,
+      warnings: textList(proposal.warnings, 100, 2000),
+      requires_human_approval: proposal.requires_human_approval,
+    },
+    validation: {
+      valid: validation.valid, overall_confidence: validation.overall_confidence,
+      requires_human_approval: validation.requires_human_approval, issues,
+    },
+  }
+}
+
+function parseMappingPreview(raw: unknown): MappingSamplePreview[] {
+  return array(raw, 500).map(item => {
+    if (!isObject(item) || !isText(item.sourceColumn, 400) || !isText(item.targetField, 200) ||
+        !isText(item.transformation, 200)) throw new ContractError()
+    const samples = array(item.samples, 5).map(sample => {
+      if (!isObject(sample) || !isText(sample.source, 500) || !isObject(sample.canonical) ||
+          !optionalText(sample.error, 300)) throw new ContractError()
+      const canonical: Record<string, string | number | boolean | null> = {}
+      for (const [key, value] of Object.entries(sample.canonical)) {
+        if (!/^[a-z][a-z0-9_]*$/.test(key) ||
+            !(value === null || typeof value === 'string' || typeof value === 'boolean' || isNumber(value))) {
+          throw new ContractError()
+        }
+        canonical[key] = value
+      }
+      return { source: sample.source, canonical, error: nullableText(sample.error, 300) }
+    })
+    return {
+      sourceColumn: item.sourceColumn, targetField: item.targetField,
+      transformation: item.transformation, samples,
+    }
+  })
 }
 
 export function parseCopilotResponse(raw: unknown): CopilotResponse {
@@ -608,6 +847,40 @@ function parseDistrictOverview(raw: unknown): DistrictOverview {
   }
 }
 
+function parseDistrictForecast(raw: unknown): DistrictForecast {
+  const optionalNumber = (value: unknown): value is number | null | undefined =>
+    value === null || value === undefined || isNumber(value)
+  if (!isObject(raw) || !isText(raw.districtCode, 4) || !isText(raw.metricCode, 120) ||
+      !isText(raw.modelVersion, 200) || !isText(raw.generatedAt, 60) ||
+      !optionalText(raw.basePeriod, 20) || !optionalNumber(raw.baseValue) ||
+      !isBoolean(raw.smallArea) || !optionalNumber(raw.targetCoverage)) {
+    throw new ContractError()
+  }
+  const points = array(raw.points, 20).map(item => {
+    if (!isObject(item) || !isNumber(item.year) || !isText(item.period, 20) || !isNumber(item.value) ||
+        !isNumber(item.lower) || !isNumber(item.upper) || !(item.lower <= item.value && item.value <= item.upper) ||
+        !optionalNumber(item.entering) || !optionalNumber(item.ageingOut) || !optionalNumber(item.netChange)) {
+      throw new ContractError()
+    }
+    return {
+      year: item.year, period: item.period, value: item.value, lower: item.lower, upper: item.upper,
+      entering: item.entering ?? null, ageingOut: item.ageingOut ?? null, netChange: item.netChange ?? null,
+    }
+  })
+  if (!points.length) throw new ContractError()
+  const accuracy = array(raw.accuracy, 20).map(item => {
+    if (!isObject(item) || !isNumber(item.horizonYears) || !isNumber(item.mapePercent) ||
+        !optionalNumber(item.intervalCoverage)) throw new ContractError()
+    return { horizonYears: item.horizonYears, mapePercent: item.mapePercent, intervalCoverage: item.intervalCoverage ?? null }
+  })
+  return {
+    districtCode: raw.districtCode, metricCode: raw.metricCode, modelVersion: raw.modelVersion,
+    generatedAt: raw.generatedAt, basePeriod: (raw.basePeriod as string | undefined) ?? null,
+    baseValue: raw.baseValue ?? null, smallArea: raw.smallArea, targetCoverage: raw.targetCoverage ?? null,
+    points, accuracy,
+  }
+}
+
 function parseDatasetCatalogItem(raw: unknown): DatasetCatalogItem {
   if (!isObject(raw) || !isText(raw.datasetId, 200) || !isText(raw.topic, 200) ||
       !isText(raw.status, 80) || !isText(raw.datasetRole, 80) ||
@@ -627,10 +900,21 @@ function parseDatasetCatalogItem(raw: unknown): DatasetCatalogItem {
 
 export type CopilotQuery = {
   question: string
+  topicHint?: string
+  responseLanguage?: 'en' | 'zh-TW'
   entityIds?: string[]
   minQualityScore?: number
   sessionId?: string
 }
+
+export type CopilotStage = 'planning' | 'routing' | 'retrieval' | 'analysis' | 'composing'
+
+const copilotStages = new Set<CopilotStage>([
+  'planning', 'routing', 'retrieval', 'analysis', 'composing',
+])
+
+const isCopilotStage = (value: unknown): value is CopilotStage =>
+  typeof value === 'string' && copilotStages.has(value as CopilotStage)
 
 /** Only a configured API base; endpoints never come from chat or model text. */
 export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fetch) {
@@ -684,12 +968,15 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
     }
   }
 
-  const send = async (path: string, body: unknown, signal: AbortSignal) =>
+  const send = async (path: string, body: unknown, signal: AbortSignal, writeToken = '') =>
     read(await fetcher(root + path, {
       method: 'POST',
       credentials: 'same-origin',
       signal,
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json', Accept: 'application/json',
+        ...(writeToken ? { 'X-Youth-Compass-Token': writeToken } : {}),
+      },
       body: JSON.stringify(body),
     }))
 
@@ -699,12 +986,13 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
       return parseCopilotResponse(await send('/copilot/query', request, signal))
     },
 
-    /** POST /copilot/query/stream — NDJSON snapshots sourced from Bedrock
-     * ConverseStream followed by the complete validated response. */
+    /** POST /copilot/query/stream — workflow stages and raw Bedrock deltas,
+     * followed by the complete validated response. */
     async queryStream(
       request: CopilotQuery,
       signal: AbortSignal,
       onText: (text: string) => void,
+      onStage: (stage: CopilotStage) => void = () => undefined,
     ): Promise<CopilotResponse> {
       const response = await fetcher(root + '/copilot/query/stream', {
         method: 'POST',
@@ -724,6 +1012,88 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
       let bytes = 0
       let result: CopilotResponse | null = null
       let streamedText = ''
+      let revealedText = ''
+      let revealTimer: number | null = null
+      let streamFinished = false
+      let finalRevealStep = 2
+      let finishReveal: (() => void) | null = null
+      let stageTail = Promise.resolve()
+      let lastQueuedStage: CopilotStage | null = null
+      let revealUnlocked = false
+      let revealUnlock: Promise<void> | null = null
+      const revealIntervalMs = 24
+      const maximumFinalTailMs = 2_500
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+      const stageDurationMs: Record<CopilotStage, number> = reduceMotion ? {
+        planning: 0, routing: 0, retrieval: 0, analysis: 0, composing: 0,
+      } : {
+        planning: 650, routing: 550, retrieval: 900, analysis: 750, composing: 450,
+      }
+
+      const wait = (duration: number) => new Promise<void>(resolve => {
+        if (duration <= 0 || signal.aborted) {
+          resolve()
+          return
+        }
+        const timer = window.setTimeout(finish, duration)
+        function finish() {
+          signal.removeEventListener('abort', abort)
+          resolve()
+        }
+        function abort() {
+          window.clearTimeout(timer)
+          resolve()
+        }
+        signal.addEventListener('abort', abort, { once: true })
+      })
+
+      // Backend stages can complete within one browser frame. Queue their
+      // presentation so each real operation is perceptible instead of flashing
+      // past, while network consumption continues without artificial backpressure.
+      const queueStage = (stage: CopilotStage) => {
+        if (stage === lastQueuedStage) return
+        lastQueuedStage = stage
+        stageTail = stageTail.then(async () => {
+          onStage(stage)
+          await wait(stageDurationMs[stage])
+        })
+      }
+
+      // Network delivery and reading pace are separate concerns. Bedrock may
+      // produce a whole sentence in one burst; revealing that burst directly
+      // makes streaming look like a single completed response. Keep consuming
+      // the network at full speed while the UI reveals a few characters at a
+      // stable cadence. Once the response has finished, accelerate only enough
+      // to ensure the remaining tail never holds the validated result for long.
+      const reveal = () => {
+        revealTimer = null
+        const remaining = streamedText.length - revealedText.length
+        if (remaining <= 0) {
+          if (streamFinished) finishReveal?.()
+          return
+        }
+        const baseStep = 2
+        const step = streamFinished ? finalRevealStep : baseStep
+        revealedText = streamedText.slice(0, revealedText.length + step)
+        onText(revealedText)
+        if (revealedText.length < streamedText.length) {
+          revealTimer = window.setTimeout(reveal, revealIntervalMs)
+        }
+        else if (streamFinished) finishReveal?.()
+      }
+      const scheduleReveal = () => {
+        if (revealUnlocked && revealTimer === null && revealedText.length < streamedText.length) {
+          revealTimer = window.setTimeout(reveal, revealIntervalMs)
+        }
+      }
+
+      const unlockRevealAfterStages = () => {
+        if (revealUnlock !== null) return
+        revealUnlock = stageTail.then(() => {
+          revealUnlocked = true
+          scheduleReveal()
+        })
+      }
 
       const consume = (line: string) => {
         if (!line.trim()) return
@@ -732,16 +1102,26 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         catch { throw new ContractError('The backend returned an invalid stream event.') }
         if (!isObject(event) || !isText(event.type, 20)) throw new ContractError()
         if (event.type === 'delta' && isText(event.text, 100_000)) {
+          if (lastQueuedStage !== 'composing') queueStage('composing')
           streamedText += event.text
-          onText(streamedText)
+          unlockRevealAfterStages()
         }
         else if (event.type === 'text' && isText(event.text, 100_000)) {
+          if (lastQueuedStage !== 'composing') queueStage('composing')
+          // A post-validation fallback replaces provisional model output. If
+          // it is not an extension of what is already visible, restart the
+          // reveal from the verified replacement rather than splicing strings.
+          if (!event.text.startsWith(revealedText)) {
+            revealedText = ''
+            onText(revealedText)
+          }
           streamedText = event.text
-          onText(streamedText)
+          unlockRevealAfterStages()
         }
+        else if (event.type === 'stage' && isCopilotStage(event.stage)) queueStage(event.stage)
         else if (event.type === 'result') result = parseCopilotResponse(event.response)
         else if (event.type === 'error' && isText(event.message, 400)) throw new Error(event.message)
-        else if (event.type !== 'text') throw new ContractError('The backend returned an unknown stream event.')
+        else throw new ContractError('The backend returned an unknown stream event.')
       }
 
       try {
@@ -761,6 +1141,31 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         reader.releaseLock()
       }
       if (!result) throw new ContractError('The stream ended before the final response.')
+      await stageTail
+      revealUnlocked = true
+      streamFinished = true
+      const finalTicks = Math.max(1, Math.floor(maximumFinalTailMs / revealIntervalMs))
+      finalRevealStep = Math.max(2, Math.ceil(
+        (streamedText.length - revealedText.length) / finalTicks,
+      ))
+      if (revealedText.length < streamedText.length) {
+        if (signal.aborted) throw new DOMException('The request was aborted.', 'AbortError')
+        await new Promise<void>((resolve, reject) => {
+          const finish = () => {
+            signal.removeEventListener('abort', abort)
+            finishReveal = null
+            resolve()
+          }
+          const abort = () => {
+            if (revealTimer !== null) window.clearTimeout(revealTimer)
+            finishReveal = null
+            reject(new DOMException('The request was aborted.', 'AbortError'))
+          }
+          finishReveal = finish
+          signal.addEventListener('abort', abort, { once: true })
+          scheduleReveal()
+        })
+      }
       return result
     },
 
@@ -776,6 +1181,20 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         },
       ))
       return parseDistrictOverview(raw)
+    },
+
+    /** GET /districts/{code}/forecast — the published baseline forecast, never an agent turn. */
+    async districtForecast(districtCode: string, signal: AbortSignal): Promise<DistrictForecast> {
+      if (!/^\d{2}$/.test(districtCode)) throw new ContractError('Invalid district code.')
+      const raw = await read(await fetcher(
+        `${root}/districts/${encodeURIComponent(districtCode)}/forecast`,
+        {
+          credentials: 'same-origin',
+          signal,
+          headers: { Accept: 'application/json' },
+        },
+      ))
+      return parseDistrictForecast(raw)
     },
 
     /** GET /copilot/capabilities — the exact tools this runtime advertises. */
@@ -811,8 +1230,8 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
 
     /** POST /copilot/acquisitions — a reviewer submits a configured candidateId,
      * never a URL. The snapshot then enters the approval-gated ingestion flow. */
-    async acquire(candidateId: string, submittedBy: string, signal: AbortSignal): Promise<AcquisitionStart> {
-      const raw = await send('/copilot/acquisitions', { candidateId, submittedBy }, signal)
+    async acquire(candidateId: string, submittedBy: string, writeToken: string, signal: AbortSignal): Promise<AcquisitionStart> {
+      const raw = await send('/copilot/acquisitions', { candidateId, submittedBy }, signal, writeToken)
       if (!isObject(raw) || !isText(raw.ingestion_job_id, 200) || !isText(raw.ingestion_status, 80) ||
           !isText(raw.created_at, 64)) {
         throw new ContractError()
@@ -837,13 +1256,14 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         linkHosts: textList(raw.linkHosts, 40, 253),
         uploadFormats: textList(raw.uploadFormats, 10, 20),
         maxUploadBytes: raw.maxUploadBytes,
+        writeTokenRequired: raw.writeTokenRequired === true,
       }
     },
 
     /** POST /copilot/acquisitions/link — the backend fetches only from approved
      * hosts; anything else is refused with a reason. */
-    async acquireLink(url: string, submittedBy: string, topicHint: string | null, signal: AbortSignal): Promise<IntakeStart> {
-      const raw = await send('/copilot/acquisitions/link', { url, submittedBy, topicHint }, signal)
+    async acquireLink(url: string, submittedBy: string, topicHint: string | null, writeToken: string, signal: AbortSignal): Promise<IntakeStart> {
+      const raw = await send('/copilot/acquisitions/link', { url, submittedBy, topicHint }, signal, writeToken)
       if (!isObject(raw) || !isText(raw.ingestion_job_id, 200) || !isText(raw.ingestion_status, 80) ||
           !isText(raw.file_name, 400)) {
         throw new ContractError()
@@ -852,7 +1272,7 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
     },
 
     /** POST /datasets/upload — a reviewer's own file, into the same workflow. */
-    async uploadDataset(file: File, submittedBy: string, topicHint: string | null, signal: AbortSignal): Promise<IntakeStart> {
+    async uploadDataset(file: File, submittedBy: string, topicHint: string | null, writeToken: string, signal: AbortSignal): Promise<IntakeStart> {
       const form = new FormData()
       form.append('file', file)
       form.append('submitted_by', submittedBy)
@@ -861,11 +1281,52 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
         method: 'POST',
         credentials: 'same-origin',
         signal,
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          ...(writeToken ? { 'X-Youth-Compass-Token': writeToken } : {}),
+        },
         body: form,
       }))
       if (!isObject(raw) || !isText(raw.jobId, 200) || !isText(raw.status, 80)) throw new ContractError()
       return { job_id: raw.jobId, status: raw.status, file_name: file.name }
+    },
+
+    async ingestionJob(jobId: string, signal: AbortSignal): Promise<IngestionJob> {
+      if (!/^[-a-zA-Z0-9_]{1,200}$/.test(jobId)) throw new ContractError('Invalid job id.')
+      return parseIngestionJob(await read(await fetcher(`${root}/ingestion-jobs/${encodeURIComponent(jobId)}`, {
+        credentials: 'same-origin', signal, headers: { Accept: 'application/json' },
+      })))
+    },
+
+    async mappingAnalysis(jobId: string, signal: AbortSignal): Promise<MappingAnalysis> {
+      if (!/^[-a-zA-Z0-9_]{1,200}$/.test(jobId)) throw new ContractError('Invalid job id.')
+      return parseMappingAnalysis(await read(await fetcher(
+        `${root}/ingestion-jobs/${encodeURIComponent(jobId)}/mapping`,
+        { credentials: 'same-origin', signal, headers: { Accept: 'application/json' } },
+      )))
+    },
+
+    async mappingPreview(jobId: string, signal: AbortSignal): Promise<MappingSamplePreview[]> {
+      if (!/^[-a-zA-Z0-9_]{1,200}$/.test(jobId)) throw new ContractError('Invalid job id.')
+      return parseMappingPreview(await read(await fetcher(
+        `${root}/ingestion-jobs/${encodeURIComponent(jobId)}/mapping-preview`,
+        { credentials: 'same-origin', signal, headers: { Accept: 'application/json' } },
+      )))
+    },
+
+    async decideIngestion(
+      jobId: string,
+      decision: 'approve' | 'reject',
+      decidedBy: string,
+      comment: string,
+      writeToken: string,
+      signal: AbortSignal,
+    ): Promise<IngestionJob> {
+      if (!/^[-a-zA-Z0-9_]{1,200}$/.test(jobId)) throw new ContractError('Invalid job id.')
+      return parseIngestionJob(await send(
+        `/ingestion-jobs/${encodeURIComponent(jobId)}/decision`,
+        { decision, decidedBy, comment: comment || null }, signal, writeToken,
+      ))
     },
   }
 }

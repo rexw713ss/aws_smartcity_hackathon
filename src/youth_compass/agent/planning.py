@@ -18,6 +18,7 @@ from youth_compass.agent.contracts import (
     ToolCapability,
 )
 from youth_compass.domain.errors import ModelInvocationError
+from youth_compass.ontology import extract_topics
 from youth_compass.ports import ModelProvider, ModelRequest
 
 
@@ -76,6 +77,19 @@ class DeterministicQueryDecomposer:
         forecast = _contains(
             normalized, "forecast", "dự báo", "predict", "tương lai", "預測", "預估", "未來"
         )
+        overview = _contains(
+            normalized,
+            "overview",
+            "tổng quan",
+            "概覽",
+            "總覽",
+        )
+        # An overview of a named topic asks for the observations themselves.
+        # Keep it separate from catalog discovery: the UI appends
+        # ``Dataset topic: ...`` as scope metadata, and treating that internal
+        # word as user intent used to turn every overview suggestion into a
+        # list of all published datasets.
+        topic_overview = overview and bool(extract_topics(question))
         discover = _contains(
             normalized,
             "dataset",
@@ -158,14 +172,25 @@ class DeterministicQueryDecomposer:
                     AnalysisOperation.EXPLAIN_LINEAGE,
                 )
             )
-        elif trend or compare:
-            objective = "compare observations" if compare else "analyze a time trend"
+        elif trend or compare or topic_overview:
+            objective = (
+                "compare observations"
+                if compare
+                else "analyze a time trend"
+                if trend
+                else "summarize published observations"
+            )
             operations.extend(
                 (AnalysisOperation.INSPECT_DATASET, AnalysisOperation.QUERY_OBSERVATIONS)
             )
             if len(_metric_terms(normalized)) > 1:
                 operations.append(AnalysisOperation.JOIN_OBSERVATIONS)
-            operations.append(AnalysisOperation.COMPARE_ENTITIES)
+            # A topic overview must also work for a newly published dataset
+            # that has only one period. The series profiler and visualization
+            # builder can still summarize that snapshot without manufacturing
+            # a first-to-last comparison.
+            if trend or compare:
+                operations.append(AnalysisOperation.COMPARE_ENTITIES)
             operations.append(AnalysisOperation.EXPLAIN_LINEAGE)
         elif discover:
             operations.append(AnalysisOperation.INSPECT_DATASET)
@@ -441,6 +466,13 @@ class ModelQueryDecomposer:
                     "set it to null. Do not describe why it is unknown.\n"
                     "Start with search_catalog for anything the published catalog may "
                     "already hold; discover_sources is only for data the catalog lacks. "
+                    "Treat a line beginning `Dataset topic:` as scope metadata, never as a "
+                    "request to list datasets. An overview of a named or selected topic is an "
+                    "observation request: use search_catalog, inspect_dataset, "
+                    "query_observations, and explain_lineage. Add compare_entities only when "
+                    "the user explicitly asks for a trend or comparison. Reserve a catalog-only "
+                    "answer for an explicit inventory question such as which datasets or data "
+                    "sources are available. "
                     "For a multi-step what-if question, start with search_tools, then use "
                     "simulate_scenario and assess_capacity before discover_sources or "
                     "recommend_investment. "
@@ -486,6 +518,8 @@ class ModelQueryDecomposer:
                 }
             ),
             source=DecompositionSource.MODEL,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
         )
 
     def _operation_glossary(self) -> str:
@@ -782,7 +816,11 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "population_count": ("population", "dân số", "人口", "青年人口"),
     "employment_count": ("employment", "việc làm", "就業"),
     "unemployment_count": ("unemployment", "thất nghiệp", "失業"),
+    "unemployment_rate": ("unemployment rate", "tỷ lệ thất nghiệp", "失業率"),
 }
+# A rate alias contains its count alias ("失業率" holds "失業"), so naming the rate
+# must not also claim the count.
+_RATE_OF_COUNT = {"unemployment_rate": "unemployment_count"}
 
 
 def _metric_terms(text: str) -> tuple[str, ...]:
@@ -795,11 +833,13 @@ def _metric_terms(text: str) -> tuple[str, ...]:
     containment because those scripts are written without word separators.
     """
 
-    return tuple(
+    named = [
         metric
         for metric, terms in _METRIC_ALIASES.items()
         if any(_names_metric(text, term) for term in terms)
-    )
+    ]
+    shadowed = {_RATE_OF_COUNT[metric] for metric in named if metric in _RATE_OF_COUNT}
+    return tuple(metric for metric in named if metric not in shadowed)
 
 
 def _names_metric(text: str, term: str) -> bool:

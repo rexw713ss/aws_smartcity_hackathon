@@ -8,6 +8,7 @@ export type DistrictHighlight = {
   valueLabel: string | null
   unit: string | null
   rank: number | null
+  period: string | null
   /** Which visualization this reading came from, for the readout. */
   source: string
 }
@@ -104,6 +105,7 @@ export function districtHighlights(response: CopilotResponse | null): HighlightS
       valueLabel: reading?.label ?? null,
       unit: reading?.unit ?? null,
       rank: numeric(row.rank),
+      period: typeof row.period === 'string' ? row.period : null,
       source: best.spec.title,
     })
   }

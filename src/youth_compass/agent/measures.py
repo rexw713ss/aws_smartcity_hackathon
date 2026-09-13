@@ -76,6 +76,10 @@ def choose_measure(
 ) -> Measure:
     """Pick the unit that makes the question's comparison legible."""
 
+    if profile.unit_code == "percent":
+        # A rate is already normalized. Dividing it by population, indexing it,
+        # or taking a percent of it only hides the percentage points that moved.
+        return _measure(Transform.RAW, language, profile)
     wide = profile.spread_ratio is not None and profile.spread_ratio >= _WIDE_SPREAD_RATIO
     multi_entity = profile.entity_count >= 2
     collapsed = AnalysisOperation.COMPARE_ENTITIES in decomposition.operations

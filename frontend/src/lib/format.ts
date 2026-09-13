@@ -55,6 +55,9 @@ const unitLabels: Record<string, string | Partial<Record<Language, string>>> = {
   persons: { en: 'People', 'zh-TW': '人' },
   score_0_100: 'Score (0–100)',
   score_points: { en: 'Points', 'zh-TW': '分' },
+  stops: { en: 'Stops', 'zh-TW': '站位' },
+  routes: { en: 'Routes', 'zh-TW': '路線' },
+  stops_per_1000_youth: { en: 'Stops per 1,000 youth', 'zh-TW': '每千名青年站位數' },
 }
 
 export function formatUnit(unit: string, language: Language = 'en'): string {
@@ -69,11 +72,37 @@ export function formatNumber(value: number, language: Language = 'en'): string {
   return Number.isInteger(value) ? integer.format(value) : decimal.format(value)
 }
 
+const periodPattern = /^(\d{4})((?:[-/.](?:\d{1,2}|Q[1-4]|H[12]))*)$/
+
+/** Taiwan dates in the Minguo calendar: 2030 → "119 (2030)", 2025-06 → "114-06 (2025)".
+ * Only whole-value periods are converted, so ordinary numbers are never touched. */
+export function formatPeriod(value: VisualizationValue | undefined, language: Language = 'en'): string {
+  if (value === null || value === undefined) return ''
+  const text = String(value).trim()
+  if (language !== 'zh-TW') return text
+  const match = periodPattern.exec(text)
+  if (!match) return text
+  const year = Number(match[1])
+  if (year <= 1911) return text
+  return `${year - 1911}${match[2]} (${year})`
+}
+
+const hanText = /[\u4e00-\u9fff]/
+// A year only in an unmistakable date context — "2025 年", "2025-06", "2023 至 2025" —
+// so counts such as "2000 名" stay as written.
+const proseYear = /(?<![\d,.])(19[2-9]\d|2[01]\d\d)(?:([-/.]\d{1,2}(?:[-/.]\d{1,2})?)(?!\d)|(?=\s*(?:年|間|至|到|[–~－-]\s*(?:19|2[01])\d\d)))/g
+
+/** Chinese answer prose, streamed or complete: Gregorian years become Minguo years. */
+export function formatProseYears(text: string, language: Language = 'en'): string {
+  if (language !== 'zh-TW' || !hanText.test(text)) return text
+  return text.replace(proseYear, (_, year: string, rest?: string) => `${Number(year) - 1911}${rest ?? ''} (${year})`)
+}
+
 export function formatCell(value: VisualizationValue, language: Language = 'en'): string {
   if (value === null) return '—'
   if (typeof value === 'boolean') return value ? (language === 'zh-TW' ? '是' : 'Yes') : (language === 'zh-TW' ? '否' : 'No')
   if (typeof value === 'number') return formatNumber(value, language)
-  return value
+  return formatPeriod(value, language)
 }
 
 export function formatQuality(score: number, language: Language = 'en'): string {
@@ -83,7 +112,7 @@ export function formatQuality(score: number, language: Language = 'en'): string 
 export function formatTimestamp(value: string, language: Language = 'en'): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return new Intl.DateTimeFormat(language === 'zh-TW' ? 'zh-TW-u-ca-roc' : language, { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
 }
 
 export function localizedStatus(language: Language, status: CopilotStatus) {

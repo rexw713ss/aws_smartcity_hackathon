@@ -2,7 +2,7 @@
 
 An impact question ("what if 5,000 young people move to Sanxia by 2030?") mixes
 one thing the data can answer with several it cannot. The population step is
-projected from observed single-year cohorts; the housing, transport, and service
+projected from observed single-year cohorts; the housing and public-service
 links are refused unless published capacity evidence exists, and the refusal
 names the metrics that would close the gap. Nothing here infers a downstream
 effect from a population number alone.
@@ -21,6 +21,7 @@ from youth_compass.agent.contracts import (
     RoutedToolPlan,
     ToolTrace,
     VisualizationEncoding,
+    VisualizationReferenceLine,
     VisualizationSpec,
     VisualizationType,
 )
@@ -31,13 +32,16 @@ from youth_compass.agent.support import (
     unavailable_trace,
 )
 from youth_compass.decisioning import (
+    DistrictScenarioResult,
     PopulationBalanceMode,
     ScenarioAdjustment,
     ScenarioOperation,
+    ScenarioTrajectoryPoint,
     YouthPopulationScenarioResult,
     YouthPopulationScenarioService,
 )
 from youth_compass.domain.errors import YouthCompassError
+from youth_compass.ontology import NameLanguage, localized_district_name
 
 
 def answer_impact_scenario(
@@ -52,7 +56,7 @@ def answer_impact_scenario(
     """Run the grounded part of an impact chain and fail closed at data gaps.
 
     The chain is deliberately partial: the population step is projected from
-    observed cohorts, and every downstream link (housing, transport, services)
+    observed cohorts, and every downstream link (housing and public services)
     is refused unless the capacity evidence for it is published. A refusal names
     the exact metrics that would close the gap.
     """
@@ -212,7 +216,7 @@ def answer_impact_scenario(
         requirement, source_candidates, discovery_error = None, (), None
         answer = _impact_population_answer(impact, decomposition.original_question)
         status = CopilotStatus.ANSWERED
-    visualizations = _impact_visualizations(scenario, decomposition.original_question)
+    visualizations = _impact_visualizations(scenario, district, decomposition.original_question)
     support.trace_visualizations(trace, visualizations)
     return CopilotResponse(
         status=status,
@@ -228,7 +232,7 @@ def answer_impact_scenario(
             "recent district transition rates.",
         ),
         warnings=(
-            "No housing, transport, or service impact is inferred without compatible "
+            "No housing or public-service impact is inferred without compatible "
             "capacity and demand data.",
             "The population scenario is not evidence that a policy caused migration.",
             *discovery_warning(discovery_error),
@@ -297,26 +301,6 @@ def _impact_data_gaps(question: str) -> tuple[ImpactDataGap, ...]:
         )
     if generic or any(
         term in normalized
-        for term in ("giao thông", "transit", "transport", "metro", "bus", "交通", "捷運", "公車")
-    ):
-        gaps.append(
-            ImpactDataGap(
-                domain="transport",
-                required_metrics=(
-                    "transit_stop_coverage",
-                    "transit_boardings",
-                    "service_frequency",
-                    "passenger_capacity",
-                    "youth_mode_share",
-                ),
-                reason=(
-                    "Transport pressure requires observed demand, service frequency, usable "
-                    "capacity, and a youth travel-mode share."
-                ),
-            )
-        )
-    if generic or any(
-        term in normalized
         for term in ("dịch vụ", "service", "y tế", "childcare", "醫療", "公共服務")
     ):
         gaps.append(
@@ -344,46 +328,22 @@ def _impact_gap_answer(
     *,
     discovery_failed: bool = False,
 ) -> str:
+    del candidates_found, discovery_failed
     finding = impact.findings[0]
     gap_names = ", ".join(gap.domain.replace("_", " ") for gap in impact.data_gaps)
     if response_language_for_fallback(question) == "vi":
-        if candidates_found:
-            discovery = "Agent đã tìm thấy nguồn chính thức có thể đưa vào quy trình kiểm duyệt."
-        elif discovery_failed:
-            discovery = (
-                "Việc tìm nguồn bên ngoài không chạy được, nên chưa thể kết luận là không "
-                "có nguồn phù hợp."
-            )
-        else:
-            discovery = (
-                "Agent đã tìm trong catalog và danh sách nguồn được phép nhưng chưa có "
-                "nguồn phù hợp."
-            )
         return (
             f"Đến {impact.target_year}, baseline của {impact.district_name} là "
             f"{finding.baseline_value:,.0f} người 18-35 tuổi. Với giả định "
-            f"{impact.shock_people:+,} người, scenario là {finding.scenario_value:,.0f}.\n\n"
-            f"Chưa thể khuyến nghị đầu tư cho {gap_names}: dữ liệu sức chứa và mức sử dụng "
-            f"chưa đủ để ước tính chuỗi tác động. {discovery}"
-        )
-    if candidates_found:
-        discovery = "The agent found allowlisted official sources that can enter review."
-    elif discovery_failed:
-        discovery = (
-            "The external source search could not run, so no conclusion can be drawn about "
-            "whether a compatible source exists."
-        )
-    else:
-        discovery = (
-            "The agent searched the catalog and allowlisted sources but found no compatible source."
+            f"{impact.shock_people:+,} người, scenario là {finding.scenario_value:,.0f}. "
+            f"Chưa đủ dữ liệu {gap_names} để khuyến nghị đầu tư."
         )
     return (
         f"By {impact.target_year}, the {impact.district_name} baseline is "
         f"{finding.baseline_value:,.0f} residents aged 18-35. With the "
         f"{impact.shock_people:+,} person assumption, the scenario is "
-        f"{finding.scenario_value:,.0f}.\n\n"
-        f"I cannot yet recommend investment in {gap_names}: capacity and utilization evidence "
-        f"is incomplete. {discovery}"
+        f"{finding.scenario_value:,.0f}. More {gap_names} data is needed before recommending "
+        "investment."
     )
 
 
@@ -406,107 +366,152 @@ _IMPACT_CHART_LABELS: dict[str, dict[str, str]] = {
     "en": {
         "year": "Year",
         "residents": "Residents aged 18-35",
-        "difference": "Scenario minus baseline",
-        "trajectory_title": "Youth population impact through {year}",
-        "trajectory_description": (
-            "Observed cohorts under the baseline and user-supplied population shock."
+        "baseline": "Baseline",
+        "scenario": "Scenario",
+        "observed_level": "{year} level",
+        "title": "{district} youth population through {year}",
+        "description": (
+            "The baseline ages {district}'s observed single-year cohorts forward; the "
+            "scenario adds the stated shock. The dashed line marks the {observed} level."
         ),
-        "difference_title": "Gap between the scenario and the baseline through {year}",
-        "difference_description": (
-            "Scenario minus baseline for each year. The two absolute paths sit within a "
-            "few thousand people of each other, so the gap is plotted on its own axis "
-            "instead of being left invisible on a shared one."
-        ),
+        "share": "{shock} people is {percent} of {district}'s {year} baseline",
+        "offsets_decline": ", offsetting {offset} of its projected decline since {observed}.",
+        "reverses_decline": ", more than reversing its projected decline since {observed}.",
+        "adds_to_growth": ", on top of projected growth of {growth} since {observed}.",
+        "deepens_decline": ", deepening its projected decline since {observed}.",
+        "end": ".",
     },
     "zh": {
         "year": "年份",
         "residents": "18-35 歲居民",
-        "difference": "情境減基線",
-        "trajectory_title": "青年人口影響（至 {year} 年）",  # noqa: RUF001
-        "trajectory_description": "在基線與使用者設定的人口變動下，觀測世代的推估結果。",  # noqa: RUF001
-        "difference_title": "情境與基線的差距（至 {year} 年）",  # noqa: RUF001
-        "difference_description": (
-            "每一年的情境值減去基線值。兩條絕對數線相差僅數千人，"  # noqa: RUF001
-            "放在同一座標軸上看不出差異，因此差距另外以自己的軸呈現。"  # noqa: RUF001
+        "baseline": "基線",
+        "scenario": "情境",
+        "observed_level": "{year} 年水準",
+        "title": "{district}青年人口（至 {year} 年）",  # noqa: RUF001
+        "description": (
+            "基線以{district}觀測到的單一年齡世代往後推估；情境再加上設定的人口變動。"  # noqa: RUF001
+            "虛線為 {observed} 年的水準。"
         ),
+        "share": "{shock} 人相當於{district} {year} 年基線的 {percent}",
+        "offsets_decline": "，可抵銷自 {observed} 年起推估減少量的 {offset}。",  # noqa: RUF001
+        "reverses_decline": "，足以扭轉自 {observed} 年起推估的減少。",  # noqa: RUF001
+        "adds_to_growth": "，並疊加在自 {observed} 年起推估成長的 {growth} 人之上。",  # noqa: RUF001
+        "deepens_decline": "，使自 {observed} 年起推估的減少更加明顯。",  # noqa: RUF001
+        "end": "。",
     },
     "vi": {
         "year": "Năm",
         "residents": "Cư dân 18-35 tuổi",
-        "difference": "Kịch bản trừ baseline",
-        "trajectory_title": "Tác động dân số thanh niên đến {year}",
-        "trajectory_description": (
-            "Các thế hệ quan sát được theo baseline và mức thay đổi dân số do người dùng đặt."
+        "baseline": "Baseline",
+        "scenario": "Kịch bản",
+        "observed_level": "Mức {year}",
+        "title": "Dân số thanh niên {district} đến {year}",
+        "description": (
+            "Baseline đẩy các thế hệ theo từng tuổi quan sát được ở {district} về phía trước; "
+            "kịch bản cộng thêm mức thay đổi đã nêu. Đường nét đứt là mức năm {observed}."
         ),
-        "difference_title": "Chênh lệch giữa kịch bản và baseline đến {year}",
-        "difference_description": (
-            "Kịch bản trừ baseline theo từng năm. Hai đường tuyệt đối chỉ cách nhau vài "
-            "nghìn người nên chênh lệch được vẽ trên trục riêng thay vì biến mất trên "
-            "trục chung."
-        ),
+        "share": "{shock} người bằng {percent} baseline {year} của {district}",
+        "offsets_decline": ", bù được {offset} mức giảm dự báo kể từ {observed}.",
+        "reverses_decline": ", đủ đảo ngược mức giảm dự báo kể từ {observed}.",
+        "adds_to_growth": ", cộng thêm vào mức tăng dự báo {growth} người kể từ {observed}.",
+        "deepens_decline": ", làm mức giảm dự báo kể từ {observed} sâu thêm.",
+        "end": ".",
     },
 }
 
 
 def _impact_visualizations(
-    scenario: YouthPopulationScenarioResult, question: str
+    scenario: YouthPopulationScenarioResult,
+    district: DistrictScenarioResult,
+    question: str,
 ) -> tuple[VisualizationSpec, ...]:
-    """Chart the gap first, then the two absolute paths.
+    """Chart the district's own path, and say what the shock means against it.
 
-    A shock of a few thousand people against a city total near a million is
-    about a quarter of one percent: on a shared axis the baseline and scenario
-    lines are one stroke, which reads as "nothing changed". The difference
-    series carries the same grounded numbers on an axis where it is legible;
-    the absolute trajectory stays so the level is not lost.
+    The shock is the user's input, so plotting it alone restates the question.
+    What the reader cannot see without help is its size relative to where the
+    district is already heading: that goes in the headline, and the observed
+    level is drawn as a reference so a jump reads against today, not zero.
     """
 
-    labels = _IMPACT_CHART_LABELS[response_language_for_fallback(question)]
-    difference_rows: tuple[dict[str, str | int | float | bool | None], ...] = tuple(
-        {"year": point.year, "difference": point.absolute_delta} for point in scenario.trajectory
+    language = response_language_for_fallback(question)
+    labels = _IMPACT_CHART_LABELS[language]
+    points = district.trajectory
+    if not points:
+        return ()
+    name = (
+        localized_district_name(district.district_code, NameLanguage.ZH_HANT)
+        if language == "zh"
+        else None
+    ) or district.district_name
+    start, end = points[0], points[-1]
+    # The scenario leaves the baseline at the last unchanged year, so a one-off
+    # shock appears as the jump it is rather than as a line drawn from nowhere.
+    first_change = next(
+        (index for index, point in enumerate(points) if point.absolute_delta != 0), None
     )
-    trajectory_rows: tuple[dict[str, str | int | float | bool | None], ...] = tuple(
-        {
-            "year": point.year,
-            "path": path,
-            "population": value,
-        }
-        for point in scenario.trajectory
-        for path, value in (
-            ("Baseline", point.baseline_value),
-            ("Scenario", point.scenario_value),
-        )
+    scenario_from = max(0, first_change - 1) if first_change is not None else len(points)
+    rows: list[dict[str, str | int | float | bool | None]] = [
+        {"year": point.year, "path": labels["baseline"], "population": point.baseline_value}
+        for point in points
+    ]
+    rows.extend(
+        {"year": point.year, "path": labels["scenario"], "population": point.scenario_value}
+        for point in points[scenario_from:]
     )
-    difference = VisualizationSpec(
-        visualization_id="impact-population-difference",
-        type=VisualizationType.COMPARISON_BAR,
-        title=labels["difference_title"].format(year=scenario.target_year),
-        description=labels["difference_description"],
-        x=VisualizationEncoding(
-            field="year", label=labels["year"], data_type="temporal", unit=None
+    return (
+        VisualizationSpec(
+            visualization_id="impact-population-trajectory",
+            type=VisualizationType.LINE,
+            title=labels["title"].format(district=name, year=scenario.target_year),
+            headline=_impact_headline(labels, name, start, end),
+            description=labels["description"].format(district=name, observed=start.year),
+            x=VisualizationEncoding(
+                field="year", label=labels["year"], data_type="temporal", unit=None
+            ),
+            y=VisualizationEncoding(
+                field="population",
+                label=labels["residents"],
+                data_type="quantitative",
+                unit="persons",
+            ),
+            series_field="path",
+            reference_lines=(
+                VisualizationReferenceLine(
+                    label=labels["observed_level"].format(year=start.year),
+                    value=start.baseline_value,
+                ),
+            ),
+            rows=tuple(rows),
         ),
-        y=VisualizationEncoding(
-            field="difference",
-            label=labels["difference"],
-            data_type="quantitative",
-            unit="persons",
-        ),
-        rows=difference_rows,
     )
-    trajectory = VisualizationSpec(
-        visualization_id="impact-population-trajectory",
-        type=VisualizationType.LINE,
-        title=labels["trajectory_title"].format(year=scenario.target_year),
-        description=labels["trajectory_description"],
-        x=VisualizationEncoding(
-            field="year", label=labels["year"], data_type="temporal", unit=None
-        ),
-        y=VisualizationEncoding(
-            field="population",
-            label=labels["residents"],
-            data_type="quantitative",
-            unit="persons",
-        ),
-        series_field="path",
-        rows=trajectory_rows,
+
+
+def _impact_headline(
+    labels: dict[str, str],
+    name: str,
+    start: ScenarioTrajectoryPoint,
+    end: ScenarioTrajectoryPoint,
+) -> str | None:
+    delta = end.absolute_delta
+    if delta == 0 or end.baseline_value <= 0:
+        return None
+    share = labels["share"].format(
+        shock=f"{delta:+,}",
+        percent=f"{abs(delta) / end.baseline_value:.1%}",
+        district=name,
+        year=end.year,
     )
-    return (difference, trajectory)
+    trend = end.baseline_value - start.baseline_value
+    observed = start.year
+    if start.year == end.year or trend == 0:
+        return share + labels["end"]
+    if trend < 0 and delta > 0:
+        if delta >= -trend:
+            return share + labels["reverses_decline"].format(observed=observed)
+        offset = f"{delta / -trend:.0%}"
+        return share + labels["offsets_decline"].format(offset=offset, observed=observed)
+    if trend > 0 and delta > 0:
+        return share + labels["adds_to_growth"].format(growth=f"{trend:+,}", observed=observed)
+    if trend < 0 and delta < 0:
+        return share + labels["deepens_decline"].format(observed=observed)
+    return share + labels["end"]

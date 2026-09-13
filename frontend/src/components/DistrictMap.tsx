@@ -3,7 +3,7 @@ import atlas from '../data/district-map.json'
 import type { CoverageGap } from '../lib/copilot'
 import type { HighlightSet } from '../lib/districtHighlights'
 import { resolveDistrict, type District } from '../lib/districts'
-import { compactFor, districtLabel, formatNumber, formatUnit } from '../lib/format'
+import { compactFor, districtLabel, formatNumber, formatPeriod, formatUnit } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 
 type Camera = { x: number; y: number; scale: number }
@@ -17,6 +17,16 @@ const shadeFloor = 18
 const shadeCeiling = 88
 const shade = (share: number): string =>
   `color-mix(in srgb, var(--accent) ${shadeFloor + share * (shadeCeiling - shadeFloor)}%, var(--map-base))`
+
+const changeShade = (value: number, magnitude: number): string => {
+  if (value === 0 || magnitude <= 0) return 'var(--map-cited)'
+  const share = Math.max(0, Math.min(1, Math.abs(value) / magnitude))
+  const strength = 10 + share * 78
+  const colour = value < 0 ? 'var(--chart-negative)' : 'var(--chart-positive)'
+  return `color-mix(in srgb, ${colour} ${strength}%, var(--map-cited))`
+}
+
+const changeWords = /\b(change|growth|decline|increase|decrease)\b|增減|變動|成長|下降|thay đổi|tăng|giảm/i
 
 /** Atlas areas joined to the canonical dictionary by name. The atlas `number`
  * field is alphabetical by English name and is deliberately never read. */
@@ -75,14 +85,14 @@ export default function DistrictMap({
     })
   }, [])
 
-  const readoutCode = hovered ?? selected[selected.length - 1] ?? null
-  const readout = readoutCode ? highlights.byCode.get(readoutCode) ?? null : null
-  const readoutDistrict = readoutCode
-    ? areas.find(area => area.district.code === readoutCode)?.district ?? null
-    : null
   const selectedDistricts = selected.flatMap(code =>
     areas.find(area => area.district.code === code)?.district ?? [],
   )
+  // Paint the hovered name last so its enlarged label stays above nearby
+  // labels in the dense urban cluster.
+  const labelAreas = hovered
+    ? [...areas.filter(area => area.district.code !== hovered), ...areas.filter(area => area.district.code === hovered)]
+    : areas
 
   // Pointed-at first so a hover reads above a standing selection.
   const emphasis = ([
@@ -95,14 +105,20 @@ export default function DistrictMap({
       return area ? [{ ...item, code: item.code, path: area.path }] : []
     })
 
+  const firstReading = highlights.byCode.values().next().value ?? null
+  const changeScale =
+    highlights.minimum < 0 || changeWords.test(firstReading?.valueLabel ?? '')
+  const changeMagnitude = Math.max(Math.abs(highlights.minimum), Math.abs(highlights.maximum))
+
   const fillFor = (code: string): string => {
     const hit = highlights.byCode.get(code)
     if (!hit) return 'var(--map-base)'
     const span = highlights.maximum - highlights.minimum
-    if (hit.value === null || span <= 0) return 'var(--map-cited)'
-    // Ember intensity encodes the backend's own figure, scaled across the
-    // observed range so a wholly negative metric still reads. Nothing is
-    // recomputed: the ratio is an opacity, never a number shown to the reader.
+    if (hit.value === null) return 'var(--map-cited)'
+    if (changeScale) return changeShade(hit.value, changeMagnitude)
+    if (span <= 0) return 'var(--map-cited)'
+    // Non-change quantities retain the neutral-to-ember sequential ramp.
+    // Nothing is recomputed: the ratio is an opacity, never a displayed value.
     const share = Math.max(0, Math.min(1, (hit.value - highlights.minimum) / span))
     return shade(share)
   }
@@ -115,8 +131,41 @@ export default function DistrictMap({
     if (!highlights.byCode.size) return null
     const span = highlights.maximum - highlights.minimum
     if (span <= 0) return null
-    const reading = highlights.byCode.values().next().value ?? null
+    const reading = firstReading
     const compact = compactFor(language)
+    if (changeScale) {
+      if (highlights.maximum <= 0) {
+        return {
+          label: reading?.valueLabel ?? t('value'),
+          unit: reading?.unit ?? null,
+          stops: [0, highlights.minimum / 2, highlights.minimum].map(value => compact.format(value)),
+          low: formatNumber(highlights.minimum, language),
+          high: formatNumber(0, language),
+          scale: 'negative' as const,
+          gradient: 'linear-gradient(to bottom, var(--map-cited), var(--chart-negative))',
+        }
+      }
+      if (highlights.minimum >= 0) {
+        return {
+          label: reading?.valueLabel ?? t('value'),
+          unit: reading?.unit ?? null,
+          stops: [highlights.maximum, highlights.maximum / 2, 0].map(value => compact.format(value)),
+          low: formatNumber(0, language),
+          high: formatNumber(highlights.maximum, language),
+          scale: 'positive' as const,
+          gradient: 'linear-gradient(to bottom, var(--chart-positive), var(--map-cited))',
+        }
+      }
+      return {
+        label: reading?.valueLabel ?? t('value'),
+        unit: reading?.unit ?? null,
+        stops: [changeMagnitude, 0, -changeMagnitude].map(value => compact.format(value)),
+        low: formatNumber(-changeMagnitude, language),
+        high: formatNumber(changeMagnitude, language),
+        scale: 'diverging' as const,
+        gradient: 'linear-gradient(to bottom, var(--chart-positive), var(--map-cited) 50%, var(--chart-negative))',
+      }
+    }
     return {
       label: reading?.valueLabel ?? t('value'),
       unit: reading?.unit ?? null,
@@ -124,8 +173,12 @@ export default function DistrictMap({
       stops: [1, 0.5, 0].map(share => compact.format(highlights.minimum + share * span)),
       low: formatNumber(highlights.minimum, language),
       high: formatNumber(highlights.maximum, language),
+      scale: 'sequential' as const,
+      gradient: undefined,
     }
   })()
+
+  const hoveredHit = hovered ? highlights.byCode.get(hovered) ?? null : null
 
   return (
     <section className="district-map" aria-label={t('mapLabel')}>
@@ -200,7 +253,7 @@ export default function DistrictMap({
                       : t('mapAreaPlain', { name: districtLabel(area.district, language) })
                   }
                   data-district={code}
-                  className={`map-district${isSelected ? ' is-selected' : ''}${hit ? ' is-cited' : ''}`}
+                  className={`map-district${isSelected ? ' is-selected' : ''}${hovered === code ? ' is-hovered' : ''}${hit ? ' is-cited' : ''}`}
                   onClick={() => onSelect(isSelected ? selected.filter(item => item !== code) : [...selected, code])}
                   onPointerEnter={() => { if (!drag.current?.moved) setHovered(code) }}
                   onPointerLeave={() => setHovered(null)}
@@ -210,7 +263,6 @@ export default function DistrictMap({
                     onSelect(isSelected ? selected.filter(item => item !== code) : [...selected, code])
                   }}
                 >
-                  <title>{districtLabel(area.district, language)}</title>
                   <path d={area.path} fillRule="evenodd" fill={fillFor(code)} />
                 </g>
               )
@@ -236,6 +288,30 @@ export default function DistrictMap({
               />
             ))}
 
+            {/* Labels are a final layer so narrow neighbouring districts cannot
+                paint over one another's names. They share selection and hover
+                state with the matching district shape. */}
+            <g className="map-district-labels" aria-hidden="true">
+              {labelAreas.map(area => {
+                const code = area.district.code
+                const isSelected = selected.includes(code)
+                return (
+                  <text
+                    key={code}
+                    className={`map-district-label${isSelected ? ' is-selected' : ''}${hovered === code ? ' is-hovered' : ''}`}
+                    data-district-label={code}
+                    x={area.label.x}
+                    y={area.label.y}
+                    onClick={() => onSelect(isSelected ? selected.filter(item => item !== code) : [...selected, code])}
+                    onPointerEnter={() => { if (!drag.current?.moved) setHovered(code) }}
+                    onPointerLeave={() => setHovered(null)}
+                  >
+                    {area.district.name.replace(/區$/, '')}
+                  </text>
+                )
+              })}
+            </g>
+
             <g className="map-labels" aria-hidden="true">
               {atlas.neighbors.map(area => (
                 <text key={area.name} x={area.label.x} y={area.label.y}>{area.name}</text>
@@ -248,7 +324,7 @@ export default function DistrictMap({
           <div
             className="map-legend"
             role="img"
-            aria-label={t('mapScaleAria', {
+            aria-label={t(changeScale ? 'mapChangeScaleAria' : 'mapScaleAria', {
               label: legend.label,
               low: legend.low,
               high: legend.high,
@@ -259,7 +335,12 @@ export default function DistrictMap({
               {legend.unit ? <i>{formatUnit(legend.unit, language)}</i> : null}
             </span>
             <div className="map-legend-body">
-              <span className="map-legend-ramp" aria-hidden="true" />
+              <span
+                className="map-legend-ramp"
+                data-scale={legend.scale}
+                style={legend.gradient ? { background: legend.gradient } : undefined}
+                aria-hidden="true"
+              />
               <ol className="map-legend-stops" aria-hidden="true">
                 {legend.stops.map((text, index) => (
                   <li key={index}>{text}</li>
@@ -273,6 +354,18 @@ export default function DistrictMap({
           </div>
         ) : null}
 
+        {hoveredHit ? (
+          <div className="map-hover-card" role="status">
+            <strong>{districtLabel(hoveredHit.district, language)}</strong>
+            <span>
+              {hoveredHit.valueLabel ?? t('value')}{' '}
+              <b>{hoveredHit.value === null ? t('notStated') : formatNumber(hoveredHit.value, language)}</b>
+              {hoveredHit.unit ? ` ${formatUnit(hoveredHit.unit, language)}` : ''}
+            </span>
+            {hoveredHit.period ? <small>{formatPeriod(hoveredHit.period, language)}</small> : null}
+          </div>
+        ) : null}
+
         <div className="map-controls" role="group" aria-label={t('mapZoom')}>
           <button type="button" aria-label={t('zoomOut')} disabled={camera.scale <= minScale}
             onClick={() => move({ ...camera, scale: camera.scale - 0.5 })}>−</button>
@@ -283,12 +376,12 @@ export default function DistrictMap({
         </div>
       </div>
 
-      <div className="map-readout" aria-live="polite">
-        {selected.length ? (
+      {selected.length ? (
+        <div className="map-readout" aria-live="polite">
           <div className="map-selection-summary">
             <div className="map-selection">
               <span>{t('districtsSelected', { count: selected.length })}</span>
-              <button type="button" onClick={() => onSelect([])}>{t('clearSelection')}</button>
+              <button className="map-clear-selection" type="button" onClick={() => onSelect([])}>{t('clearSelection')}</button>
             </div>
             <ul className="map-selected-districts" aria-label={t('selectedDistrictNames')}>
               {selectedDistricts.map(district => (
@@ -302,50 +395,22 @@ export default function DistrictMap({
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
-        {readoutDistrict ? (
-          <>
-            <div className="map-readout-head">
-              <strong>{districtLabel(readoutDistrict, language)}</strong>
-              <span className="cjk-safe">
-                {language === 'zh-TW' ? readoutDistrict.english : readoutDistrict.name}
-              </span>
-              <code>{readoutDistrict.code}</code>
-            </div>
-            {readout ? (
-              <>
-                <p className="map-reading">
-                  {readout.valueLabel ?? t('value')}
-                  <b>{readout.value === null ? '—' : formatNumber(readout.value, language)}</b>
-                  {readout.unit ? <i>{formatUnit(readout.unit, language)}</i> : null}
-                  {readout.rank !== null ? <span className="map-rank">{t('rankLabel', { rank: readout.rank })}</span> : null}
-                </p>
-                <p className="map-source">{t('fromSource', { name: readout.source })}</p>
-              </>
-            ) : (
-              <p className="map-source">{t('notInAnswer')}</p>
-            )}
             <button
               type="button"
               className="ghost map-ask"
-              onClick={() => onExplore(selectedDistricts.length ? selectedDistricts : [readoutDistrict])}
+              onClick={() => onExplore(selectedDistricts)}
             >
               {selected.length > 1
                 ? t('viewSelectedOverview', { count: selected.length })
                 : t('viewOverview', {
-                    name: districtLabel(selectedDistricts[0] ?? readoutDistrict, language),
+                    name: selectedDistricts[0]
+                      ? districtLabel(selectedDistricts[0], language)
+                      : selected[0],
                   })}
             </button>
-          </>
-        ) : (
-          <p className="map-source">
-            {highlights.byCode.size
-              ? t('mapHintCited', { count: highlights.byCode.size })
-              : t('mapHintEmpty')}
-          </p>
-        )}
-      </div>
+          </div>
+        </div>
+      ) : null}
 
       {coverage && coverage.missing_entity_names.length ? (
         <p className="map-note">

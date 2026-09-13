@@ -15,7 +15,7 @@ from youth_compass.agent.contracts import (
     ComposedAnswer,
 )
 from youth_compass.domain.errors import ModelInvocationError
-from youth_compass.ontology import NameLanguage, question_language
+from youth_compass.ontology import NameLanguage, question_language, visible_question
 from youth_compass.ports import ModelProvider, ModelRequest
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,6 +43,25 @@ _DATA_TEXT_BOUNDARY = (
     "SAFE_ANSWER_TEMPLATE states."
 )
 
+# Keep the narrative requirement shared by JSON and streaming composition.  The
+# chat endpoint normally takes the streaming path, so leaving the richer writing
+# guidance only in ``compose`` makes local tests look good while production still
+# returns terse, number-heavy answers.
+_NARRATIVE_GUIDANCE = (
+    "Write a substantive, natural answer in RESPONSE_LANGUAGE; that field is "
+    "authoritative. Do not merely list values or return a bare numerical result. "
+    "Except for a refusal or clarification, use 2 to 4 short paragraphs. Start "
+    "with a direct answer to the user's question, then explain 1 to 3 meaningful, "
+    "evidence-grounded insights in plain language. An insight may describe the "
+    "direction of change, a supported contrast between places or periods, a "
+    "notable pattern or outlier already present in GROUNDED_FACTS, or what the "
+    "evidence does and does not support. Translate the cited figures into meaning "
+    "for the reader, but never calculate a new value or speculate about a cause. "
+    "Close with the most useful practical interpretation and preserve any relevant "
+    "limitation from SAFE_ANSWER_TEMPLATE. If the evidence is too thin for a "
+    "strong insight, say that plainly instead of inventing one. "
+)
+
 
 class AnswerComposer(Protocol):
     """Convert grounded public facts into a user-facing narrative."""
@@ -52,7 +71,7 @@ class AnswerComposer(Protocol):
         context: AnswerCompositionContext,
         on_text: Callable[[str], Awaitable[None]] | None = None,
     ) -> ComposedAnswer:
-        """Return a narrative without changing the structured source of truth."""
+        """Return a narrative; ``on_text`` receives raw text deltas when provided."""
         ...
 
 
@@ -97,9 +116,9 @@ class ModelAnswerComposer:
         response = await self._provider.generate(
             ModelRequest(
                 system=(
-                    "Write a concise, natural answer in RESPONSE_LANGUAGE; that field is "
-                    "authoritative. Answer the user's actual question directly instead of exposing "
-                    "an analysis template. For an observation comparison, lead with the clearest "
+                    _NARRATIVE_GUIDANCE
+                    + "Answer the user's actual question directly instead of exposing an analysis "
+                    "template. For an observation comparison, lead with the clearest "
                     "trend in one conversational sentence, including the place, period, start and "
                     "end values, and change. For a decision ranking, start with the "
                     "recommendation, "
@@ -124,7 +143,7 @@ class ModelAnswerComposer:
                 ),
                 prompt=json.dumps(
                     {
-                        "question": context.question,
+                        "question": visible_question(context.question),
                         "response_language": _response_language(context.question),
                         "analysis_type": context.analysis_type,
                         "grounded_facts": grounded_facts,
@@ -177,7 +196,11 @@ class ModelAnswerComposer:
         answer = ""
         async for delta in stream:
             answer += delta
-            await on_text(answer)
+            # Preserve the provider's delta semantics all the way to the HTTP
+            # transport. Sending the whole accumulated answer on every token
+            # made the API diff snapshots only for the browser to join them
+            # again, producing quadratic copying on longer answers.
+            await on_text(delta)
         citation_ids = tuple(dict.fromkeys(_CITATION.findall(answer)))
         _validate_grounding(answer, citation_ids, context, numeric_source)
         return ComposedAnswer(answer=answer, citation_ids=citation_ids, mode="model")
@@ -205,10 +228,10 @@ class FallbackAnswerComposer:
             # exactly like a working one. The response trace still reports
             # mode='deterministic'; this makes it visible in the logs too.
             _LOGGER.warning("answer composer fell back to the deterministic template: %s", exc)
-            # Replace any provisional model text with the verified template.
-            if on_text is None:
-                return await self._fallback.compose(context)
-            return await self._fallback.compose(context, on_text)
+            # Do not append the fallback to provisional model deltas. The
+            # transport compares the completed answer with the streamed text
+            # and emits one replacement event when they differ.
+            return await self._fallback.compose(context)
 
 
 def _streaming_request(context: AnswerCompositionContext) -> tuple[ModelRequest, str]:
@@ -222,8 +245,9 @@ def _streaming_request(context: AnswerCompositionContext) -> tuple[ModelRequest,
     )
     request = ModelRequest(
         system=(
-            "Write only the final concise answer, with no JSON wrapper, HTML, Markdown heading, "
-            "or table. Write in RESPONSE_LANGUAGE. Use only GROUNDED_FACTS and follow "
+            _NARRATIVE_GUIDANCE
+            + "Write only the final answer, with no JSON wrapper, HTML, Markdown heading, "
+            "or table. Use only GROUNDED_FACTS and follow "
             "SAFE_ANSWER_TEMPLATE. Put an allowed citation ID in square brackets immediately "
             "after each evidence claim. Never add facts, entities, numbers, causal claims, or "
             "citations. Every number must be copied character-for-character from "
@@ -231,7 +255,7 @@ def _streaming_request(context: AnswerCompositionContext) -> tuple[ModelRequest,
         ),
         prompt=json.dumps(
             {
-                "question": context.question,
+                "question": visible_question(context.question),
                 "response_language": _response_language(context.question),
                 "analysis_type": context.analysis_type,
                 "grounded_facts": grounded_facts,

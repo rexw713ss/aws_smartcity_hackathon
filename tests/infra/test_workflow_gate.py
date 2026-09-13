@@ -43,6 +43,7 @@ def definition(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
         standardized_bucket_name="standardized",
         curated_bucket_name="curated",
         quarantined_bucket_name="quarantined",
+        forecasts_bucket_name="forecasts",
         metadata_table_name="metadata",
         glue_database_name="youth_compass_hackathon",
         region=PLACEHOLDER_REGION,
@@ -90,3 +91,16 @@ class TestConfidenceGate:
     def test_unknown_confidence_falls_through_to_human_review(self, definition: dict) -> None:
         # Not a crash, and not a silent publish.
         assert _gate(definition)["Default"] == "AwaitApproval"
+
+
+class TestForecastRefresh:
+    def test_a_publish_is_followed_by_a_forecast_refresh(self, definition: dict) -> None:
+        states = definition["States"]
+        assert states["Publish"]["Next"] == "RefreshForecast"
+        payload = states["RefreshForecast"]["Parameters"]["Payload"]
+        assert payload["published.$"] == "$.publish.Payload.published"
+
+    def test_a_refresh_failure_never_fails_the_ingestion(self, definition: dict) -> None:
+        (catch,) = definition["States"]["RefreshForecast"]["Catch"]
+        assert catch["ErrorEquals"] == ["States.ALL"]
+        assert definition["States"][catch["Next"]]["Type"] == "Pass"

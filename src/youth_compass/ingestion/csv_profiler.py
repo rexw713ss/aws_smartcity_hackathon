@@ -23,9 +23,9 @@ from youth_compass.domain.types import (
     SemanticRole,
     WarningSeverity,
 )
-from youth_compass.mapping.geography import normalize_district
+from youth_compass.mapping.geography import extract_district, is_city_scope, normalize_district
 from youth_compass.mapping.registry import find_field_rule, header_has_metric_hint
-from youth_compass.mapping.time import parse_year
+from youth_compass.mapping.time import parse_compact_date, parse_year
 
 _NULL_TOKENS = {"", "null", "none", "n/a", "na", "nan"}
 _BOOLEAN_TOKENS = {"true", "false", "yes", "no", "是", "否"}
@@ -138,8 +138,6 @@ def infer_semantic_role(name: str, inferred_type: PrimitiveType) -> tuple[Semant
         if inferred_type in {PrimitiveType.INTEGER, PrimitiveType.FLOAT}:
             return SemanticRole.METRIC, 0.90
         return SemanticRole.METRIC, 0.65
-    if inferred_type in {PrimitiveType.INTEGER, PrimitiveType.FLOAT}:
-        return SemanticRole.METRIC, 0.45
     return SemanticRole.UNKNOWN, 0.0
 
 
@@ -236,6 +234,7 @@ def profile_csv(path: Path, options: CsvProfileOptions | None = None) -> Dataset
     months_by_year: defaultdict[int, set[int]] = defaultdict(set)
     district_codes: set[str] = set()
     unknown_districts: set[str] = set()
+    city_level = False
     truncated = False
 
     with path.open("r", encoding=encoding, newline="") as stream:
@@ -280,11 +279,26 @@ def profile_csv(path: Path, options: CsvProfileOptions | None = None) -> Dataset
             for accumulator, value in zip(accumulators, row, strict=True):
                 accumulator.observe(value)
 
-            parsed_year = parse_year(row[year_index]) if year_index is not None else None
+            year_rule = find_field_rule(headers[year_index]) if year_index is not None else None
+            parsed_date = (
+                parse_compact_date(row[year_index])
+                if year_index is not None
+                and year_rule is not None
+                and year_rule.transformation == "parse_compact_date"
+                else None
+            )
+            parsed_year = (
+                parse_year(row[year_index])
+                if year_index is not None and parsed_date is None
+                else parsed_date
+            )
             if parsed_year is not None:
                 year_systems[parsed_year.detected_system] += 1
                 gregorian_years.add(parsed_year.year_gregorian)
-                if month_index is not None:
+                if parsed_date is not None and parsed_date.month is not None:
+                    months.add(parsed_date.month)
+                    months_by_year[parsed_date.year_gregorian].add(parsed_date.month)
+                elif month_index is not None:
                     parsed_month = _parse_month(row[month_index])
                     if parsed_month is not None:
                         months.add(parsed_month)
@@ -292,8 +306,16 @@ def profile_csv(path: Path, options: CsvProfileOptions | None = None) -> Dataset
 
             if district_index is not None:
                 raw_district = row[district_index].strip()
-                if raw_district:
-                    district = normalize_district(raw_district)
+                if raw_district and is_city_scope(raw_district):
+                    city_level = True
+                elif raw_district:
+                    district_rule = find_field_rule(headers[district_index])
+                    district = (
+                        extract_district(raw_district)
+                        if district_rule is not None
+                        and district_rule.transformation == "extract_district"
+                        else normalize_district(raw_district)
+                    )
                     if district is None:
                         if len(unknown_districts) < 20:
                             unknown_districts.add(raw_district)
@@ -452,6 +474,7 @@ def profile_csv(path: Path, options: CsvProfileOptions | None = None) -> Dataset
             district_count=len(district_codes) + len(unknown_districts),
             recognized_district_count=len(district_codes),
             unknown_values=sorted(unknown_districts),
+            city_level=city_level,
         ),
         warnings=warnings,
         truncated_by_max_rows=truncated,

@@ -5,8 +5,9 @@ import ipaddress
 import re
 from datetime import UTC, datetime
 from email.message import Message
+from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -35,6 +36,13 @@ _FORMAT_BY_CONTENT_TYPE = {
     "application/json": FileFormat.JSON,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": FileFormat.EXCEL,
 }
+_HTML_CONTENT_TYPES = {"application/xhtml+xml", "text/html"}
+_MAX_LANDING_PAGE_BYTES = 1_000_000
+_MAX_LANDING_LINKS = 8
+_DATA_API_PATH = re.compile(
+    r"/api/datasets/[A-Za-z0-9-]{1,100}/(?:csv|json|xlsx)(?:/file)?(?:[?#][^\s<>\"']*)?",
+    re.IGNORECASE,
+)
 
 
 class _RejectRedirects(HTTPRedirectHandler):
@@ -182,7 +190,7 @@ class AllowlistedLinkFetcher:
         return tuple(sorted(self._allowed_hosts))
 
     def fetch_link(self, url: str) -> LinkSnapshot:
-        """Download one reviewer link and name it by the format it actually is."""
+        """Download data directly or resolve it from one allowlisted landing page."""
 
         _validate_url(url, self._allowed_hosts)
         try:
@@ -191,17 +199,39 @@ class AllowlistedLinkFetcher:
                 allowed_hosts=self._allowed_hosts,
                 max_download_bytes=self._max_download_bytes,
                 timeout_seconds=self._timeout_seconds,
+                allow_html=True,
             )
         except _TransportError as exc:
             raise SourceAcquisitionError("the link could not be downloaded") from exc.__cause__
-        source_format = _link_format(url, content_type)
+        resolved_url = url
+        if content_type in _HTML_CONTENT_TYPES:
+            resolved_url, content, content_type = self._resolve_landing_page(url, content)
+        source_format = _link_format(resolved_url, content_type)
         return LinkSnapshot(
-            url=url,
-            host=(urlparse(url).hostname or "").casefold(),
-            file_name=_link_file_name(url, source_format),
+            url=resolved_url,
+            host=(urlparse(resolved_url).hostname or "").casefold(),
+            file_name=_link_file_name(resolved_url, source_format),
             source_format=source_format,
             content=content,
             retrieved_at=datetime.now(UTC),
+        )
+
+    def _resolve_landing_page(self, url: str, content: bytes) -> tuple[str, bytes, str]:
+        candidates = _landing_page_data_links(url, content, self._allowed_hosts)
+        for candidate in candidates:
+            try:
+                payload, content_type = _download(
+                    candidate,
+                    allowed_hosts=self._allowed_hosts,
+                    max_download_bytes=self._max_download_bytes,
+                    timeout_seconds=self._timeout_seconds,
+                )
+            except (SourceAcquisitionError, _TransportError):
+                continue
+            return candidate, payload, content_type
+        raise SourceAcquisitionError(
+            "source URL is an HTML landing page and no downloadable CSV, JSON, or Excel "
+            "link on that page passed validation"
         )
 
 
@@ -215,29 +245,97 @@ def _download(
     allowed_hosts: frozenset[str],
     max_download_bytes: int,
     timeout_seconds: float,
+    allow_html: bool = False,
 ) -> tuple[bytes, str]:
+    accepted_types = _CONTENT_TYPES | (_HTML_CONTENT_TYPES if allow_html else set())
+    response_limit = (
+        min(max_download_bytes, _MAX_LANDING_PAGE_BYTES) if allow_html else max_download_bytes
+    )
     request = Request(
         url,
-        headers={"Accept": ", ".join(sorted(_CONTENT_TYPES)), "User-Agent": "YouthCompass/0.1"},
+        headers={"Accept": ", ".join(sorted(accepted_types)), "User-Agent": "YouthCompass/0.1"},
     )
     try:
         with build_opener(_RejectRedirects()).open(request, timeout=timeout_seconds) as response:
             _validate_url(response.geturl(), allowed_hosts)
             content_type = response.headers.get_content_type().casefold()
-            if content_type not in _CONTENT_TYPES:
+            if content_type not in accepted_types:
+                if content_type in {"text/html", "application/xhtml+xml"}:
+                    raise SourceAcquisitionError(
+                        "source URL is an HTML landing page, not a direct CSV, JSON, or Excel "
+                        "download; choose the page's download link instead"
+                    )
                 raise SourceAcquisitionError(
                     f"source returned unsupported content type {content_type!r}"
                 )
-            content = response.read(max_download_bytes + 1)
+            content = response.read(response_limit + 1)
     except SourceAcquisitionError:
         raise
     except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
         raise _TransportError() from exc
-    if len(content) > max_download_bytes:
-        raise SourceAcquisitionError(f"source exceeds the {max_download_bytes}-byte download limit")
+    if len(content) > response_limit:
+        raise SourceAcquisitionError(f"source exceeds the {response_limit}-byte download limit")
     if not content:
         raise SourceAcquisitionError("source returned an empty response")
     return content, content_type
+
+
+class _LandingPageParser(HTMLParser):
+    """Collect bounded href candidates without executing page content."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.casefold() != "a" or len(self.hrefs) >= _MAX_LANDING_LINKS * 4:
+            return
+        attributes = dict(attrs)
+        href = attributes.get("href")
+        if href:
+            self.hrefs.append(href)
+
+
+def _landing_page_data_links(
+    page_url: str,
+    content: bytes,
+    allowed_hosts: frozenset[str],
+) -> tuple[str, ...]:
+    """Extract only same-host links that plausibly identify supported tabular data."""
+
+    text = content.decode("utf-8", errors="replace")
+    parser = _LandingPageParser()
+    parser.feed(text)
+    raw_links = [*parser.hrefs, *(match.group(0) for match in _DATA_API_PATH.finditer(text))]
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for raw_link in raw_links:
+        candidate = urljoin(page_url, raw_link)
+        if candidate in seen or not _looks_like_data_link(candidate):
+            continue
+        try:
+            _validate_url(candidate, allowed_hosts)
+        except SourceAcquisitionError:
+            continue
+        candidates.append(candidate)
+        seen.add(candidate)
+        if len(candidates) >= _MAX_LANDING_LINKS:
+            break
+    return tuple(candidates)
+
+
+def _looks_like_data_link(url: str) -> bool:
+    parsed = urlparse(url)
+    path = parsed.path.casefold()
+    if any(
+        path.endswith(extension)
+        for extensions in _EXTENSIONS.values()
+        for extension in extensions
+    ):
+        return True
+    if _DATA_API_PATH.search(path):
+        return True
+    return "download" in path or "download" in parsed.query.casefold()
 
 
 def _validate_url(url: str, allowed_hosts: frozenset[str]) -> None:

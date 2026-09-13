@@ -4,7 +4,7 @@ import {
   ReferenceDot, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts'
 import type { VisualizationSpec, VisualizationValue } from '../lib/copilot'
-import { colorFor, compactFor, formatCell, formatNumber, formatUnit } from '../lib/format'
+import { colorFor, compactFor, formatCell, formatNumber, formatPeriod, formatProseYears, formatUnit } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import ChartMotion from './ChartMotion'
 
@@ -12,18 +12,24 @@ const tick = { fill: 'var(--chart-muted)', fontSize: 12 }
 const axisLabel = { fill: 'var(--chart-muted)', fontSize: 11 }
 
 function Tip({ active, payload, label, unit }: any) {
-  const { language } = useI18n()
+  const { language, t } = useI18n()
   if (!active || !payload?.length) return null
   return (
     <div className="mono-tooltip">
-      <p>{label}</p>
-      {payload.map((item: any) => (
-        <span key={item.dataKey} className="tooltip-row">
-          <i className="tooltip-swatch" style={{ background: item.color }} />
-          {item.name}
-          <strong>{formatNumber(Number(item.value), language)}</strong>
-        </span>
-      ))}
+      <p>{formatPeriod(label, language)}</p>
+      {payload.map((item: any) => {
+        const sourcePeriod = item.payload?.[sourcePeriodKey(String(item.dataKey))]
+        return (
+          <span key={item.dataKey} className="tooltip-row">
+            <i className="tooltip-swatch" style={{ background: item.color }} />
+            {item.name}
+            <strong>{formatNumber(Number(item.value), language)}</strong>
+            {sourcePeriod && sourcePeriod !== label ? (
+              <small>{t('sourcePeriod')}: {formatPeriod(sourcePeriod, language)}</small>
+            ) : null}
+          </span>
+        )
+      })}
       {unit ? <span className="tooltip-unit">{formatUnit(unit, language)}</span> : null}
     </div>
   )
@@ -46,6 +52,11 @@ function barFill(
     return 'var(--chart-neutral)'
   }
   if (spec.type === 'ranking_bar') {
+    // A named focus outranks position: the reader asked about that entity, not the leader.
+    if (spec.focus_entities.length) {
+      const category = spec.x?.data_type === 'quantitative' ? spec.y?.field : spec.x?.field
+      return spec.focus_entities.includes(String(row[category ?? ''] ?? '')) ? 'var(--chart-highlight)' : 'var(--chart-neutral)'
+    }
     return index === 0 ? 'var(--chart-highlight)' : 'var(--chart-neutral)'
   }
   if (value < 0) return 'var(--chart-negative)'
@@ -80,6 +91,9 @@ function BarView({ spec }: { spec: VisualizationSpec }) {
             <XAxis
               type={horizontal ? 'number' : 'category'}
               dataKey={horizontal ? undefined : category.field}
+              // A negative bar prints its figure past its left end; without room
+              // there, the longest one runs into the category labels.
+              padding={horizontal && hasNegative ? { left: 48, right: 0 } : undefined}
               axisLine={false}
               tickLine={false}
               tick={tick}
@@ -88,7 +102,7 @@ function BarView({ spec }: { spec: VisualizationSpec }) {
               angle={!horizontal && longestLabel > 4 ? -30 : 0}
               textAnchor={!horizontal && longestLabel > 4 ? 'end' : 'middle'}
               height={!horizontal && longestLabel > 4 ? 62 : 34}
-              tickFormatter={horizontal ? v => compact.format(Number(v)) : undefined}
+              tickFormatter={horizontal ? v => compact.format(Number(v)) : v => formatPeriod(v, language)}
               label={{ value: horizontal ? value.label : category.label, position: 'insideBottom', offset: -14, style: axisLabel }}
             />
             <YAxis
@@ -101,6 +115,22 @@ function BarView({ spec }: { spec: VisualizationSpec }) {
               tickFormatter={horizontal ? undefined : v => compact.format(Number(v))}
             />
             {hasNegative ? <ReferenceLine {...(horizontal ? { x: 0 } : { y: 0 })} stroke="var(--chart-cursor)" /> : null}
+            {spec.reference_lines
+              .filter(line => (line.axis === 'x') === horizontal)
+              .map((line, index) => (
+                <ReferenceLine
+                  key={line.label}
+                  {...(horizontal ? { x: line.value } : { y: line.value })}
+                  stroke={index === 0 ? 'var(--chart-muted)' : 'var(--chart-highlight)'}
+                  strokeDasharray="4 4"
+                  label={{
+                    value: `${formatProseYears(line.label, language)} ${formatNumber(line.value, language)}`,
+                    position: index === 0 ? 'insideBottomRight' : 'insideTopRight',
+                    fill: 'var(--chart-muted)',
+                    fontSize: 11,
+                  }}
+                />
+              ))}
             <Tooltip content={<Tip unit={value.unit} />} cursor={{ fill: 'var(--chart-hover)' }} />
             {/* Square bars: precision over softness, matching the 0px button edge. */}
             <Bar
@@ -158,6 +188,9 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
     // A duplicate (period, series) pair would mean the backend sent conflicting
     // grounded values; surface the first and never silently sum them.
     if (bucket[name] === undefined) bucket[name] = row[y.field]
+    if (row.source_period !== undefined) {
+      bucket[sourcePeriodKey(name)] = row.source_period
+    }
     // Recharts draws a band as one area between two numbers, so the interval
     // travels as [lower, upper] on its own key beside the point estimate.
     if (lowerField && upperField && bucket[bandKey(name)] === undefined) {
@@ -169,7 +202,12 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
     }
     byX.set(key, bucket)
   }
-  const data = [...byX.values()]
+  // Specs should already be chronological, but sorting again at the rendering
+  // boundary prevents long-form series insertion order from folding the x-axis
+  // back onto an earlier year.
+  const data = [...byX.values()].sort((left, right) =>
+    String(left[x.field] ?? '').localeCompare(String(right[x.field] ?? '')),
+  )
   const values = data.flatMap(row =>
     seriesNames
       .flatMap(name => [row[name], ...((row[bandKey(name)] as unknown as number[]) ?? [])])
@@ -198,6 +236,7 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
               tick={tick}
               dy={6}
               minTickGap={18}
+              tickFormatter={v => formatPeriod(v, language)}
               label={{ value: x.label, position: 'insideBottom', offset: -14, style: axisLabel }}
             />
             <YAxis
@@ -220,7 +259,7 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
                 x={line.axis === 'x' ? line.value : undefined}
                 stroke="var(--chart-muted)"
                 strokeDasharray="4 4"
-                label={{ value: line.label, position: 'insideTopRight', fill: 'var(--chart-muted)', fontSize: 11 }}
+                label={{ value: formatProseYears(line.label, language), position: 'insideTopRight', fill: 'var(--chart-muted)', fontSize: 11 }}
               />
             ))}
             {spec.annotations.map(annotation =>
@@ -265,8 +304,9 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
                 strokeWidth={isFocused(spec, name) ? 2 : 1.25}
                 strokeLinecap="round"
                 dot={data.length <= 24 ? { r: 2, strokeWidth: 0, fill: colorFor(index) } : false}
-                // A gap means the backend published no value for that period.
-                connectNulls={false}
+                // Missingness is disclosed in evidence/trace. Keep the insight
+                // path continuous across an unavailable observation.
+                connectNulls
                 isAnimationActive={false}
               />
             ))}
@@ -280,6 +320,10 @@ function LineView({ spec }: { spec: VisualizationSpec }) {
 /** Recharts keys a band by one data key holding [lower, upper]. */
 function bandKey(name: string): string {
   return `${name}__band`
+}
+
+function sourcePeriodKey(name: string): string {
+  return `${name}__source_period`
 }
 
 /** Two periods, many entities: one segment each, labelled at both ends. A line
@@ -317,6 +361,7 @@ function SlopeView({ spec }: { spec: VisualizationSpec }) {
               tick={tick}
               dy={6}
               padding={{ left: 24, right: 24 }}
+              tickFormatter={v => formatPeriod(v, language)}
               label={{ value: x.label, position: 'insideBottom', offset: -14, style: axisLabel }}
             />
             <YAxis

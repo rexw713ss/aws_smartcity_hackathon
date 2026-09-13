@@ -6,6 +6,7 @@ restart) can still resume a paused job — the exact gap PR2 called out.
 """
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import boto3
 import pytest
@@ -14,6 +15,8 @@ from moto import mock_aws
 from adapters.aws.step_functions_runner import StepFunctionsRunner
 from adapters.aws.workflow_token_store import WorkflowTokenStore
 from youth_compass.domain.errors import WorkflowStateError
+from youth_compass.ingestion import profile_csv
+from youth_compass.mapping import analyze_mapping
 from youth_compass.ports.workflow_runner import ApprovalDecision, JobStatus
 
 REGION = "us-east-1"
@@ -79,3 +82,15 @@ class TestDurableWorkflowState:
         store.put_token("job-3", "t")
         store.clear_token("job-3")
         assert store.get_token("job-3") is None
+
+    def test_mapping_review_survives_a_runner_restart(self, _table: None) -> None:
+        analysis = analyze_mapping(profile_csv(Path("data/samples/population_demo.csv")))
+        WorkflowTokenStore(TABLE, REGION).put_mapping_analysis("job-review", analysis)
+
+        fresh = StepFunctionsRunner(
+            "arn:aws:states:us-east-1:000000000000:stateMachine:x",
+            REGION,
+            token_store=WorkflowTokenStore(TABLE, REGION),
+        )
+
+        assert fresh.get_mapping_analysis("job-review") == analysis

@@ -6,12 +6,16 @@ isolation; `tests/integration/test_answer_eval_suite.py` runs the real agent.
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
 
 from youth_compass.agent.answer_evals import (
     AnswerDimension,
     AnswerEvalCase,
     AnswerEvalHarness,
     grade_answer,
+    load_answer_eval_cases,
 )
 from youth_compass.agent.contracts import (
     CopilotResponse,
@@ -337,3 +341,11 @@ def test_the_report_names_which_dimensions_broke_across_the_suite() -> None:
     assert report.passed == 1
     assert report.pass_rate == 0.5
     assert report.failing_dimensions == ("status",)
+
+
+def test_an_empty_answer_eval_dataset_is_rejected(tmp_path: Path) -> None:
+    cases = tmp_path / "empty.jsonl"
+    cases.write_text("# comments are not cases\n\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="answer eval dataset is empty"):
+        load_answer_eval_cases(cases)

@@ -13,7 +13,6 @@ excerpted, which language a fallback narrative is written in).
 """
 
 import json
-import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -42,6 +41,7 @@ from youth_compass.domain.contracts import DatasetMetadata
 from youth_compass.domain.errors import SourceAcquisitionError
 from youth_compass.ontology import (
     NameLanguage,
+    extract_topics,
     humanize_code,
     question_language,
     readable_entity_name,
@@ -168,21 +168,47 @@ def data_gap_answer(
 
     if not source_candidates:
         if discovery_failed:
+            if question_language(question) is NameLanguage.ZH_HANT:
+                return f"{fallback} 外部資料來源搜尋無法執行，因此目前無法判斷是否存在合適來源。"  # noqa: RUF001
             return (
                 f"{fallback} The external source search could not run, so I cannot say "
                 "whether a suitable source exists."
             )
         return fallback
-    if re.search(r"[\u3400-\u9fff]", question):
-        return (
-            f"目前已發布的資料不足，但找到{len(source_candidates)}個允許使用的外部資料來源。"  # noqa: RUF001
-            "請選擇來源並完成資料映射與品質審核後，再繼續分析。"  # noqa: RUF001
-        )
+    if question_language(question) is NameLanguage.ZH_HANT:
+        return f"找到{len(source_candidates)}個可能補足資料缺口的官方來源。"
     return (
-        f"The published catalog is insufficient, but {len(source_candidates)} allowlisted "
-        "external source candidate(s) were found. Select a source and complete mapping and "
-        "quality review before continuing the analysis."
+        f"I found {len(source_candidates)} official source candidate(s) that may fill the data gap."
     )
+
+
+_ZH_METRICS = {
+    "employment_count": "就業人數",
+    "unemployment_count": "失業人數",
+    "unemployment_rate": "失業率",
+    "population_count": "人口數",
+}
+
+
+def _observation_gap_copy(question: str, warning: str) -> tuple[str, str]:
+    """Localize the known observation-gap fallback without hiding its reason."""
+
+    language = question_language(question)
+    if language is not NameLanguage.ZH_HANT:
+        return "There is not enough compatible observation data for this analysis.", warning
+    prefix = "the published data does not measure "
+    if warning.startswith(prefix) and "; available: " in warning:
+        missing, available = warning.removeprefix(prefix).split("; available: ", 1)
+        missing_names = "、".join(
+            _ZH_METRICS.get(item.strip(), humanize_code(item.strip()))
+            for item in missing.split(",")
+        )
+        available_names = "、".join(
+            _ZH_METRICS.get(item.strip(), humanize_code(item.strip()))
+            for item in available.split(",")
+        )
+        warning = f"已發布資料未包含{missing_names}；目前可用指標：{available_names}。"  # noqa: RUF001
+    return "沒有足夠且相容的觀測資料可完成這項分析。", warning
 
 
 class AnswerSupport:
@@ -306,8 +332,9 @@ class AnswerSupport:
         search never happened is a wrong answer rather than a missing one.
         """
 
+        named_topics = extract_topics(decomposition.original_question)
         requirement = DataRequirement(
-            topic_terms=decomposition.subject_terms,
+            topic_terms=named_topics or decomposition.subject_terms,
             metric_codes=metric_codes or decomposition.metric_terms,
             entity_ids=decomposition.entity_ids,
             time_expression=decomposition.time_expression,
@@ -353,6 +380,9 @@ class AnswerSupport:
         # Missing data is a question to the reader, asked in the conversation
         # from data_requirement and source_candidates. It is not a chart.
         visualizations: tuple[VisualizationSpec, ...] = ()
+        fallback, localized_warning = _observation_gap_copy(
+            decomposition.original_question, warning
+        )
         return CopilotResponse(
             status=(
                 CopilotStatus.ACQUISITION_REQUIRED
@@ -362,7 +392,7 @@ class AnswerSupport:
             answer=data_gap_answer(
                 decomposition.original_question,
                 source_candidates,
-                "There is not enough compatible observation data for this analysis.",
+                fallback,
                 discovery_failed=discovery_error is not None,
             ),
             generated_at=now,
@@ -371,7 +401,7 @@ class AnswerSupport:
             dataset_inspection=inspection,
             observation_series=series,
             tool_trace=tuple(trace),
-            warnings=(warning, *discovery_warning(discovery_error)),
+            warnings=(localized_warning, *discovery_warning(discovery_error)),
             data_requirement=requirement,
             source_candidates=source_candidates,
             visualizations=visualizations,

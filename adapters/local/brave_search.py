@@ -64,27 +64,38 @@ class BraveWebSearchProvider:
             items = raw.get("web", {}).get("results", [])
             if not isinstance(items, list):
                 raise TypeError("web.results is not a list")
-            results: list[WebSearchResult] = []
-            seen_urls: set[str] = set()
-            for item in items[: request.count]:
-                if not isinstance(item, dict):
-                    continue
-                url = item.get("url")
-                title = item.get("title")
-                if not isinstance(url, str) or not isinstance(title, str) or url in seen_urls:
-                    continue
-                published_at = _parse_datetime(item.get("page_age"))
-                result = WebSearchResult(
-                    title=title.strip(),
-                    url=url,
-                    description=str(item.get("description") or "").strip(),
-                    published_at=published_at,
-                )
-                results.append(result)
-                seen_urls.add(url)
-            return tuple(results)
-        except (json.JSONDecodeError, TypeError, ValidationError, ValueError) as exc:
+        except (json.JSONDecodeError, AttributeError, TypeError) as exc:
             raise WebSearchError("Brave Web Search returned an invalid response") from exc
+
+        results: list[WebSearchResult] = []
+        seen_urls: set[str] = set()
+        for item in items[: request.count]:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            title = item.get("title")
+            if (
+                not isinstance(url, str)
+                or not url.startswith("https://")
+                or not isinstance(title, str)
+                or not title.strip()
+                or url in seen_urls
+            ):
+                continue
+            try:
+                result = WebSearchResult(
+                    title=title.strip()[:500],
+                    url=url,
+                    description=str(item.get("description") or "").strip()[:2_000],
+                    published_at=_parse_datetime(item.get("page_age")),
+                )
+            except (ValidationError, ValueError):
+                # One malformed provider item must not discard the other valid
+                # results in the same successful Brave response.
+                continue
+            results.append(result)
+            seen_urls.add(url)
+        return tuple(results)
 
 
 def _parse_datetime(value: object) -> datetime | None:

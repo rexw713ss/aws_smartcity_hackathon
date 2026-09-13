@@ -41,6 +41,7 @@ def template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Template:
         incoming_bucket_name="incoming-bucket",
         curated_bucket_name="curated-bucket",
         metadata_bucket_name="metadata-bucket",
+        forecasts_bucket_name="forecasts-bucket",
         metadata_table_name="metadata-table",
         glue_database_name="youth_compass_hackathon",
         athena_workgroup_name="youthcompass-analytics",
@@ -119,6 +120,41 @@ class TestApiFunction:
             },
         )
 
+    def test_api_is_restricted_to_the_approved_source_ips(self, template: Template) -> None:
+        variables = self._api_environment(template)
+        assert variables["YOUTH_COMPASS_ALLOWED_SOURCE_IPS"].split(",") == list(
+            api_module._ALLOWED_SOURCE_IPS
+        )
+
+
+class TestSiteIpAllowlist:
+    def test_cloudfront_runs_the_ip_allowlist_on_every_viewer_request(
+        self, template: Template
+    ) -> None:
+        template.has_resource_properties(
+            "AWS::CloudFront::Function",
+            {
+                "FunctionConfig": Match.object_like(
+                    {"Runtime": "cloudfront-js-2.0", "Comment": Match.string_like_regexp("IP")}
+                ),
+                "FunctionCode": Match.string_like_regexp("60\\.250\\.71\\.45"),
+            },
+        )
+        template.has_resource_properties(
+            "AWS::CloudFront::Distribution",
+            {
+                "DistributionConfig": {
+                    "DefaultCacheBehavior": Match.object_like(
+                        {
+                            "FunctionAssociations": [
+                                Match.object_like({"EventType": "viewer-request"})
+                            ]
+                        }
+                    )
+                }
+            },
+        )
+
 
 class TestApiPermissions:
     def _statements(self, template: Template) -> list[dict]:
@@ -164,6 +200,25 @@ class TestApiPermissions:
             and "curated-bucket" in json.dumps(statement.get("Resource"))
         ]
         assert curated_writes == []
+
+    def test_forecast_is_read_from_s3_without_write_access(self, template: Template) -> None:
+        variables = TestApiFunction()._api_environment(template)
+        assert variables["YOUTH_COMPASS_FORECAST__PROVIDER"] == "s3"
+        assert variables["YOUTH_COMPASS_FORECAST__BUCKET"] == "forecasts-bucket"
+        assert variables["YOUTH_COMPASS_FORECAST__PREFIX"] == "population/"
+        forecast_statements = [
+            statement
+            for statement in self._statements(template)
+            if "forecasts-bucket" in json.dumps(statement.get("Resource"))
+        ]
+        actions = {
+            action
+            for statement in forecast_statements
+            for action in _as_list(statement.get("Action"))
+        }
+        assert "s3:GetObject*" in actions
+        assert not {"s3:PutObject", "s3:DeleteObject*", "s3:DeleteObject"} & actions
+        assert "population/*" in json.dumps([item["Resource"] for item in forecast_statements])
 
     def test_can_query_athena_but_not_mutate_the_catalog(self, template: Template) -> None:
         actions = {

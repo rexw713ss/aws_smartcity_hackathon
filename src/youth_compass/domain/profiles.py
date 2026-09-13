@@ -47,6 +47,8 @@ class GeographyCoverage(BaseModel):
     district_count: int = Field(default=0, ge=0)
     recognized_district_count: int = Field(default=0, ge=0)
     unknown_values: list[str] = Field(default_factory=list)
+    # Some rows describe the whole city rather than one district.
+    city_level: bool = False
 
 
 class DatasetProfile(BaseModel):

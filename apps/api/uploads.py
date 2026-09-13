@@ -27,13 +27,13 @@ from adapters.aws.step_functions_runner import StepFunctionsRunner
 from adapters.aws.workflow_token_store import WorkflowTokenStore
 from apps.api.schemas import ApiModel
 from apps.api.security import require_write_token
+from youth_compass.domain.contracts import MappingAnalysis
 from youth_compass.domain.errors import YouthCompassError
 from youth_compass.ports import (
     ApprovalDecision,
     IngestionRequest,
     JobReference,
     JobStatus,
-    WorkflowRunner,
 )
 
 # Both routes here mutate state: one hands out a signed write into the incoming
@@ -102,7 +102,7 @@ def _signer(request: Request) -> S3UploadSigner:
     return cached[1]
 
 
-def _runner(request: Request) -> WorkflowRunner:
+def _runner(request: Request) -> StepFunctionsRunner:
     state_machine_arn = os.environ.get("YOUTH_COMPASS_STATE_MACHINE_ARN")
     if not state_machine_arn:
         raise HTTPException(
@@ -215,6 +215,12 @@ def resume_aws_job(request: Request, job_id: str, decision: ApprovalDecision) ->
     """Resume an AWS-backed job from the shared review endpoint."""
 
     _runner(request).resume_after_approval(job_id, decision)
+
+
+def get_aws_mapping_analysis(request: Request, job_id: str) -> MappingAnalysis:
+    """Read the mapping persisted by the workflow before its approval pause."""
+
+    return _runner(request).get_mapping_analysis(job_id)
 
 
 def _started_response(reference: JobReference) -> StartedIngestionResponse:

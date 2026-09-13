@@ -56,6 +56,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _LAMBDA_ASSET = str(_REPO_ROOT / "build" / "transform_lambda")
 _TRANSFORM_HANDLER = "adapters.aws.transform_lambda.handler"
 _UPLOAD_EVENT_HANDLER = "adapters.aws.upload_event_handler.handler"
+_FORECAST_REFRESH_HANDLER = "adapters.aws.forecast_refresh_lambda.handler"
+# Key prefix of the published youth population forecast; the API reads the same.
+FORECAST_PREFIX = "population/"
 _LAMBDA_TIMEOUT = Duration.minutes(5)
 _LAMBDA_MEMORY_MB = 1024
 
@@ -73,6 +76,7 @@ class WorkflowStack(TaggedStack):
         standardized_bucket_name: str,
         curated_bucket_name: str,
         quarantined_bucket_name: str,
+        forecasts_bucket_name: str,
         metadata_table_name: str,
         glue_database_name: str,
         region: str,
@@ -84,6 +88,7 @@ class WorkflowStack(TaggedStack):
         standardized = s3.Bucket.from_bucket_name(self, "StandardizedRef", standardized_bucket_name)
         curated = s3.Bucket.from_bucket_name(self, "CuratedRef", curated_bucket_name)
         quarantined = s3.Bucket.from_bucket_name(self, "QuarantinedRef", quarantined_bucket_name)
+        forecasts = s3.Bucket.from_bucket_name(self, "ForecastsRef", forecasts_bucket_name)
         metadata_table = dynamodb.Table.from_table_name(self, "MetadataRef", metadata_table_name)
 
         code = lambda_.Code.from_asset(_LAMBDA_ASSET)
@@ -126,6 +131,27 @@ class WorkflowStack(TaggedStack):
             )
         )
 
+        # --- Forecast refresh Lambda: rebuild the forecast from a published upload ---
+        # It reads the raw upload (the curated population table keeps only ages
+        # 18-35, too few for the cohort model) and writes only the forecast prefix.
+        self.forecast_refresh_fn = lambda_.Function(
+            self,
+            "ForecastRefreshFunction",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
+            handler=_FORECAST_REFRESH_HANDLER,
+            code=code,
+            timeout=_LAMBDA_TIMEOUT,
+            memory_size=2048,
+            environment={
+                **common_env,
+                "YOUTH_COMPASS_FORECASTS_BUCKET": forecasts_bucket_name,
+                "YOUTH_COMPASS_FORECAST_PREFIX": FORECAST_PREFIX,
+            },
+        )
+        incoming.grant_read(self.forecast_refresh_fn)
+        forecasts.grant_put(self.forecast_refresh_fn, f"{FORECAST_PREFIX}*")
+
         # --- Step Functions Standard Workflow ---
         # 1. Profile + map the uploaded file.
         analyze = tasks.LambdaInvoke(
@@ -167,6 +193,27 @@ class WorkflowStack(TaggedStack):
             ),
             result_path="$.publish",
         )
+        # After a publish, try to refresh the forecast from the same upload. The
+        # step reports "skipped" for uploads that do not qualify, and any error is
+        # caught so a forecast problem can never undo a successful ingestion.
+        refresh_forecast = tasks.LambdaInvoke(
+            self,
+            "RefreshForecast",
+            lambda_function=self.forecast_refresh_fn,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "source_uri": sfn.JsonPath.string_at("$.source_uri"),
+                    "published": sfn.JsonPath.object_at("$.publish.Payload.published"),
+                }
+            ),
+            result_path="$.forecast",
+        )
+        refresh_forecast.add_catch(
+            sfn.Pass(self, "ForecastRefreshFailed"),
+            errors=["States.ALL"],
+            result_path="$.forecastError",
+        )
+        publish.next(refresh_forecast)
 
         # 2. Real human-approval pause: waitForTaskToken. The Lambda persists the
         # token so the API can resume this exact execution later; the state
@@ -181,6 +228,7 @@ class WorkflowStack(TaggedStack):
                     "action": "await_approval",
                     "job_id": sfn.JsonPath.string_at("$.job_id"),
                     "task_token": sfn.JsonPath.task_token,
+                    "mapping_analysis": sfn.JsonPath.object_at("$.analysis.Payload.result"),
                 }
             ),
             result_path="$.approval",
@@ -226,6 +274,7 @@ class WorkflowStack(TaggedStack):
             timeout=Duration.hours(24),
         )
         self.transform_fn.grant_invoke(self.state_machine)
+        self.forecast_refresh_fn.grant_invoke(self.state_machine)
 
         # --- Upload-event Lambda: S3 event -> start Step Functions ---
         self.upload_event_fn = lambda_.Function(

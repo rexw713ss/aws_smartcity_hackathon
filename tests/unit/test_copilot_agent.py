@@ -17,6 +17,7 @@ from youth_compass.agent import (
     GroundedCopilotService,
     ModelQueryDecomposer,
 )
+from youth_compass.agent.service import _question_with_topic_hint
 from youth_compass.decisioning import (
     DEFAULT_DECISION_PROFILES,
     DEFAULT_FEATURES,
@@ -69,6 +70,29 @@ class RecordingAnswerComposer:
             citation_ids=(),
             mode="model",
         )
+
+
+def test_selected_topic_scopes_a_generic_question_without_overriding_an_explicit_topic() -> None:
+    assert _question_with_topic_hint("Give me an overview", "population") == (
+        "Give me an overview\nDataset topic: population"
+    )
+    assert _question_with_topic_hint("Show the employment trend", "population") == (
+        "Show the employment trend"
+    )
+
+
+def test_topic_overview_queries_observations_instead_of_listing_the_catalog() -> None:
+    question = _question_with_topic_hint("Give me an overview", "education")
+    planned = asyncio.run(DeterministicQueryDecomposer().decompose(question, ())).query
+
+    assert planned.needs_clarification is False
+    assert planned.objective == "summarize published observations"
+    assert planned.operations == (
+        AnalysisOperation.SEARCH_CATALOG,
+        AnalysisOperation.INSPECT_DATASET,
+        AnalysisOperation.QUERY_OBSERVATIONS,
+        AnalysisOperation.EXPLAIN_LINEAGE,
+    )
 
 
 def _value(entity: str, feature: str, value: float, *, quality: float = 0.9) -> FeatureValue:

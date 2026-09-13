@@ -14,6 +14,10 @@ from youth_compass.ports.checkpoint_store import CheckpointStore, WorkflowCheckp
 from youth_compass.ports.clock import Clock
 from youth_compass.ports.event_bus import DomainEvent, EventBus
 from youth_compass.ports.forecast_service import (
+    CandidateEvaluation,
+    ForecastAccuracy,
+    ForecastComponents,
+    ForecastEvaluation,
     ForecastPoint,
     ForecastRequest,
     ForecastResult,
@@ -48,12 +52,16 @@ from youth_compass.ports.workflow_runner import (
 __all__ = [
     "AcquiredSource",
     "ApprovalDecision",
+    "CandidateEvaluation",
     "CheckpointStore",
     "Clock",
     "DataCatalog",
     "DataRequirement",
     "DomainEvent",
     "EventBus",
+    "ForecastAccuracy",
+    "ForecastComponents",
+    "ForecastEvaluation",
     "ForecastPoint",
     "ForecastRequest",
     "ForecastResult",

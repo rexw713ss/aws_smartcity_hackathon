@@ -51,6 +51,7 @@ CANONICAL_FIELDS = (
     "source_topic",
     "source_agency",
     "source_dataset_name",
+    "source_record_id",
     "metric_code",
     "metric_value",
     "metric_value_original",

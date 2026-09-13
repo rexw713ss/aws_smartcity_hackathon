@@ -1,4 +1,4 @@
-"""Baseline forecasting: a deterministic log-linear trend with uncertainty."""
+"""Forecasting: the log-linear baseline and the cohort change ratio model."""
 
 from youth_compass.forecasting.baseline import (
     MODEL_VERSION,

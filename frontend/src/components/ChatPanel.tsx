@@ -1,75 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   CopilotResponse,
-  DataLimitations,
-  DatasetCatalogItem,
+  CopilotStage,
   EvidenceCitation,
-  RegistrationBasis,
   WebCitation,
 } from '../lib/copilot'
 import {
-  formatEntityLabel,
   formatLabel,
-  formatQuality,
+  formatProseYears,
   localizedStatus,
 } from '../lib/format'
 import { useI18n } from '../lib/i18n'
-import MissingDataRequest, { requestsData, type DataIntake } from './MissingDataRequest'
+import MissingDataRequest, { requestsData, type DataIntake, type RetryRequest } from './MissingDataRequest'
 import { useDashboardMotion } from './MotionProvider'
-
-/** Reader-facing name for the population a metric counts. The caveat text
- * itself comes from the backend note, so this is only a short label. */
-/** The backend's own audit of how far the evidence can be trusted: how old each
- * source is, how much of the city it covers, and which population it counts.
- * Every figure here is computed by the backend from the evidence it used. */
-function Limitations({ limitations }: { limitations: DataLimitations }) {
-  const { language, t } = useI18n()
-  const basisLabels: Record<RegistrationBasis, string> = {
-    registered_household: t('basisRegistered'), resident: t('basisResident'), unknown: t('basisUnknown'),
-  }
-  const { freshness, coverage, notes } = limitations
-  if (!freshness.length && !coverage && !notes.length) return null
-  return (
-    <details className="turn-detail data-limits">
-      <summary>{t('dataLimitations')}</summary>
-
-      <p className="limit-basis">{basisLabels[limitations.registration_basis]}</p>
-
-      {freshness.length ? (
-        <ul className="limit-sources">
-          {freshness.map(item => (
-            <li key={item.citation_id}>
-              <code>{item.citation_id}</code> {formatLabel(item.dataset_id)} @ {item.dataset_version}
-              <span className="limit-age">
-                {item.age_days === 0 ? t('publishedToday') : t('publishedDaysAgo', { count: item.age_days })}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {coverage ? (
-        <p className="limit-coverage">
-          {t('coverage', { observed: coverage.observed_entity_count, expected: coverage.expected_entity_count })}
-          {coverage.missing_entity_names.length
-            ? ` ${t('noEvidenceFor', { names: coverage.missing_entity_names.join(', ') })}`
-            : ` ${t('noGaps')}`}
-          {coverage.unmapped_entity_ids.length
-            ? ` ${t('outsideDistricts', { names: coverage.unmapped_entity_ids.map(formatEntityLabel).join(', ') })}`
-            : ''}
-        </p>
-      ) : null}
-
-      {notes.length ? (
-        <ul>
-          {notes.map((item, index) => (
-            <li key={index}>{item}</li>
-          ))}
-        </ul>
-      ) : null}
-    </details>
-  )
-}
 
 function CitedAnswer({
   response,
@@ -79,9 +22,9 @@ function CitedAnswer({
   response: CopilotResponse
   /** The part of the answer revealed so far; the whole answer once typed. */
   text: string
-  onCitation: (citationId: string) => void
+  onCitation: (citationId: string, sourceResponse?: CopilotResponse) => void
 }) {
-  const { t } = useI18n()
+  const { language, t } = useI18n()
   type CitationTarget =
     | { kind: 'data'; citation: EvidenceCitation; number: number }
     | { kind: 'web'; citation: WebCitation; number: number }
@@ -107,7 +50,7 @@ function CitedAnswer({
           <sup className="inline-citation" key={`${keyPrefix}-${source.citation.citation_id}-${index}`}>
             <button
               type="button"
-              onClick={() => onCitation(source.citation.citation_id)}
+              onClick={() => onCitation(source.citation.citation_id, response)}
               aria-label={t('showSource', { number: source.number, name: formatLabel(source.citation.dataset_id) })}
               title={`${formatLabel(source.citation.dataset_id)} · ${source.citation.dataset_version}`}
             >
@@ -116,7 +59,7 @@ function CitedAnswer({
           </sup>
         )
       })
-  const blocks = text.trim().split(/\n{2,}/)
+  const blocks = formatProseYears(text, language).trim().split(/\n{2,}/)
 
   return (
     <div className="answer-text">
@@ -140,8 +83,10 @@ function CitedAnswer({
 export type Turn =
   | { kind: 'question'; id: string; text: string }
   | { kind: 'streaming'; id: string; text: string }
-  | { kind: 'answer'; id: string; response: CopilotResponse }
+  | { kind: 'answer'; id: string; response: CopilotResponse; retry: RetryRequest }
   | { kind: 'error'; id: string; text: string }
+
+export type TopicSwitchPrompt = { question: string; from: string; to: string }
 
 function Answer({
   response,
@@ -152,7 +97,7 @@ function Answer({
 }: {
   response: CopilotResponse
   live: boolean
-  onCitation: (citationId: string) => void
+  onCitation: (citationId: string, sourceResponse?: CopilotResponse) => void
   onTyped: () => void
   onGrow: () => void
 }) {
@@ -177,17 +122,6 @@ function Answer({
 
       {/* The caveats belong to a finished statement, so they arrive with the
           last character rather than sitting under a half-typed sentence. */}
-      {done && response.assumptions.length ? (
-        <details className="turn-detail">
-          <summary>{t('assumptions')} ({response.assumptions.length})</summary>
-          <ul>
-            {response.assumptions.map((item, index) => (
-              <li key={index}>{item}</li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-
       {done && response.warnings.length ? (
         <div className="turn-warnings" role="note">
           <strong>{t('limitations')}</strong>
@@ -199,13 +133,20 @@ function Answer({
         </div>
       ) : null}
 
-      {done && response.limitations ? <Limitations limitations={response.limitations} /> : null}
+      {done && response.assumptions.length ? (
+        <details className="turn-detail answer-assumptions">
+          <summary>{t('assumptions')} ({response.assumptions.length})</summary>
+          <ul>
+            {response.assumptions.map((item, index) => (
+              <li key={index}>{item}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {done && response.status === 'answered' && !response.citations.length && !response.web_citations.length ? (
         <p className="turn-flag">{t('noCitationWarning')}</p>
       ) : null}
-
-      <span className={`status-pill tone-${status.tone}`}>{status.label}</span>
     </div>
   )
 }
@@ -223,12 +164,14 @@ function AnswerTurn({
   live,
   onCitation,
   intake,
+  retry,
   onGrow,
 }: {
   response: CopilotResponse
   live: boolean
-  onCitation: (citationId: string) => void
+  onCitation: (citationId: string, sourceResponse?: CopilotResponse) => void
   intake: DataIntake
+  retry: RetryRequest
   onGrow: () => void
 }) {
   const { t } = useI18n()
@@ -262,39 +205,41 @@ function AnswerTurn({
       ) : null}
       {asks && asked ? (
         <div className="turn answer follow-up">
-          <MissingDataRequest response={response} intake={intake} />
+          <MissingDataRequest response={response} intake={intake} retry={retry} />
         </div>
       ) : null}
     </>
   )
 }
 
-const thinkingKeys = [
-  'thinkingReading', 'thinkingRetrieving', 'thinkingComputing', 'thinkingChecking',
-] as const
+const stageKeys: Record<CopilotStage, 'stagePlanning' | 'stageRouting' | 'stageRetrieval' | 'stageAnalysis' | 'stageComposing'> = {
+  planning: 'stagePlanning',
+  routing: 'stageRouting',
+  retrieval: 'stageRetrieval',
+  analysis: 'stageAnalysis',
+  composing: 'stageComposing',
+}
 
-/** A spinner and a line that moves through what the backend is actually doing:
- * reading the catalog, retrieving, calculating, checking the evidence. */
-function Thinking() {
+/** A spinner labelled with the stage the backend is actually executing. */
+function Thinking({ stage }: { stage: CopilotStage | null }) {
   const { t } = useI18n()
-  const { reducedMotion } = useDashboardMotion()
-  const [step, setStep] = useState(0)
-
-  useEffect(() => {
-    if (reducedMotion) return
-    const timer = window.setInterval(
-      () => setStep(value => (value + 1) % thinkingKeys.length),
-      2200,
-    )
-    return () => window.clearInterval(timer)
-  }, [reducedMotion])
 
   return (
-    <div className="turn pending">
-      <span className="spinner" aria-hidden="true" />
+    <div className="turn pending" data-stage={stage ?? 'waiting'}>
+      <span className="agent-orbit" aria-hidden="true">
+        <span className="agent-core" />
+        <span className="agent-satellite" />
+      </span>
       {/* One stable announcement; the cycling line is decoration. */}
       <span className="sr-only" aria-live="polite">{t('pending')}</span>
-      <span className="thinking-label" aria-hidden="true">{t(thinkingKeys[step])}</span>
+      <span className="thinking-copy" aria-hidden="true">
+        <span className="thinking-label" key={stage ?? 'waiting'}>
+          {t(stage ? stageKeys[stage] : 'pending')}
+        </span>
+        <span className="activity-lines">
+          <i /><i /><i />
+        </span>
+      </span>
     </div>
   )
 }
@@ -302,26 +247,40 @@ function Thinking() {
 export default function ChatPanel({
   turns,
   pending,
+  stage,
   suggestions,
-  datasets,
+  topics,
+  selectedTopic,
+  onSelectTopic,
+  topicSwitch,
+  onAcceptTopicSwitch,
+  onRejectTopicSwitch,
   catalogLoading,
   draft,
   onDraft,
   onSubmit,
   onCancel,
+  onNewConversation,
   onCitation,
   intake,
 }: {
   turns: Turn[]
   pending: boolean
+  stage: CopilotStage | null
   suggestions: string[]
-  datasets: DatasetCatalogItem[]
+  topics: string[]
+  selectedTopic: string | null
+  onSelectTopic: (topic: string | null) => void
+  topicSwitch: TopicSwitchPrompt | null
+  onAcceptTopicSwitch: () => void
+  onRejectTopicSwitch: () => void
   catalogLoading: boolean
   draft: string
   onDraft: (value: string) => void
   onSubmit: (question: string) => void
   onCancel: () => void
-  onCitation: (citationId: string) => void
+  onNewConversation: () => void
+  onCitation: (citationId: string, sourceResponse?: CopilotResponse) => void
   intake: DataIntake
 }) {
   const { language, t } = useI18n()
@@ -345,47 +304,49 @@ export default function ChatPanel({
 
   return (
     <section className="chat-panel" aria-label={t('assistantLabel')}>
+      <header className="chat-toolbar">
+        <button type="button" className="ghost" onClick={onNewConversation} disabled={!turns.length && !draft.trim()}>
+          <span aria-hidden="true">＋</span>
+          {t('newConversation')}
+        </button>
+      </header>
       <div className="chat-scroll" ref={scroller}>
         {turns.length === 0 ? (
           <div className="chat-intro">
             <h2>{t('introTitle')}</h2>
             <p>{t('intro')}</p>
-            <section className="dataset-guide" aria-label={t('availableDatasets')}>
-              <header>
-                <h3>{t('availableDatasets')}</h3>
-                <span>{t('publishedOnly')}</span>
-              </header>
-              {catalogLoading ? (
-                <p>{t('loadingCatalog')}</p>
-              ) : datasets.length ? (
-                <ul>
-                  {datasets.map(item => (
-                    <li key={item.datasetId}>
-                      <div>
-                        <strong>{formatLabel(item.datasetId)}</strong>
-                        <span>{formatLabel(item.topic)}</span>
-                      </div>
-                      <p>
-                        {t('breakdowns')}: {item.grain.map(formatLabel).join(' · ')}
-                      </p>
-                      <small>{t('quality')} {formatQuality(item.qualityScore, language)}</small>
+            <section className="topic-guide" aria-label={t('topic')}>
+              <h3>{catalogLoading ? t('loadingCatalog') : t('selectTopic')}</h3>
+              <div className="topic-options" role="radiogroup" aria-label={t('topic')}>
+                {topics.map(topic => (
+                  <button
+                    key={topic}
+                    type="button"
+                    role="radio"
+                    aria-checked={selectedTopic === topic}
+                    className={selectedTopic === topic ? 'is-selected' : undefined}
+                    onClick={() => onSelectTopic(topic)}
+                    disabled={catalogLoading}
+                  >
+                    {topic === 'others' ? t('otherTopics') : formatLabel(topic)}
+                  </button>
+                ))}
+              </div>
+            </section>
+            {selectedTopic ? (
+              <section className="topic-suggestions" aria-label={t('tryAsking')}>
+                <h3 className="suggestion-heading">{t('tryAsking')}</h3>
+                <ul className="suggestion-list">
+                  {suggestions.map(item => (
+                    <li key={item}>
+                      <button type="button" onClick={() => onSubmit(item)} disabled={pending}>
+                        {item}
+                      </button>
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p>{t('noDatasets')}</p>
-              )}
-            </section>
-            <h3 className="suggestion-heading">{t('tryAsking')}</h3>
-            <ul className="suggestion-list">
-              {suggestions.map(item => (
-                <li key={item}>
-                  <button type="button" onClick={() => onSubmit(item)} disabled={pending}>
-                    {item}
-                  </button>
-                </li>
-              ))}
-            </ul>
+              </section>
+            ) : null}
           </div>
         ) : (
           turns.map(turn =>
@@ -395,7 +356,7 @@ export default function ChatPanel({
               </div>
             ) : turn.kind === 'streaming' ? (
               <div className="turn answer streaming-answer" key={turn.id} aria-live="polite">
-                <div className="answer-text"><p>{turn.text}</p></div>
+                <div className="answer-text"><p>{formatProseYears(turn.text, language)}</p></div>
               </div>
             ) : turn.kind === 'answer' ? (
               <AnswerTurn
@@ -405,6 +366,7 @@ export default function ChatPanel({
                 live={turn.id === turns[turns.length - 1]?.id}
                 onCitation={onCitation}
                 intake={intake}
+                retry={turn.retry}
                 onGrow={stickToBottom}
               />
             ) : (
@@ -415,7 +377,20 @@ export default function ChatPanel({
           )
         )}
 
-        {pending && turns[turns.length - 1]?.kind !== 'streaming' ? <Thinking /> : null}
+        {topicSwitch ? (
+          <div className="turn topic-switch" role="alert">
+            <p>{t('confirmTopicSwitch', {
+              from: formatLabel(topicSwitch.from),
+              to: formatLabel(topicSwitch.to),
+            })}</p>
+            <div>
+              <button type="button" className="primary" onClick={onAcceptTopicSwitch}>{t('switchTopic')}</button>
+              <button type="button" className="ghost" onClick={onRejectTopicSwitch}>{t('keepTopic')}</button>
+            </div>
+          </div>
+        ) : null}
+
+        {pending && turns[turns.length - 1]?.kind !== 'streaming' ? <Thinking stage={stage} /> : null}
       </div>
 
       <form
@@ -425,6 +400,24 @@ export default function ChatPanel({
           send()
         }}
       >
+        {turns.length ? (
+          <label className="composer-topic" htmlFor="composer-topic">
+            <span>{t('topic')}</span>
+            <select
+              id="composer-topic"
+              value={selectedTopic ?? ''}
+              onChange={event => onSelectTopic(event.target.value || null)}
+              disabled={pending || catalogLoading}
+            >
+              <option value="">{t('selectTopic')}</option>
+              {topics.map(topic => (
+                <option key={topic} value={topic}>
+                  {topic === 'others' ? t('otherTopics') : formatLabel(topic)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <textarea
           ref={composer}
           value={draft}

@@ -1,93 +1,87 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import type { CopilotResponse, DistrictOverview as DistrictOverviewData, ImpactAnalysis, VisualizationSpec } from '../lib/copilot'
+import type { CopilotResponse, DistrictOverview as DistrictOverviewData, VisualizationSpec } from '../lib/copilot'
 import { districtHighlights } from '../lib/districtHighlights'
 import type { District } from '../lib/districts'
-import { districtLabel, formatLabel, formatQuality, formatTimestamp } from '../lib/format'
+import { districtLabel, formatLabel, formatPeriod, formatProseYears, formatQuality, formatTimestamp } from '../lib/format'
 import ChartView from './ChartView'
 import DistrictMap from './DistrictMap'
 import DistrictOverview from './DistrictOverview'
 import { useI18n } from '../lib/i18n'
 
-type Tab = 'charts' | 'map' | 'impact' | 'evidence' | 'trace'
+type Tab = 'map' | 'charts' | 'evidence' | 'trace'
 
-function ImpactChain({ analysis }: { analysis: ImpactAnalysis }) {
-  const { t } = useI18n()
-  return (
-    <section className="impact-chain">
-      <header>
-        <span>{t('impactChain')}</span>
-        <h3>{analysis.district_name} · {analysis.target_year}</h3>
-        <p>{t('confidence')}: {analysis.confidence}</p>
-      </header>
-      <ol>
-        {analysis.findings.map((finding, index) => (
-          <li key={`${finding.stage}-${index}`} data-state="complete">
-            <span>{String(index + 1).padStart(2, '0')}</span>
-            <div>
-              <strong>{formatLabel(finding.stage)}</strong>
-              <p>{finding.label}</p>
-              {finding.baseline_value !== null && finding.scenario_value !== null ? (
-                <em>
-                  {finding.baseline_value.toLocaleString()} → {finding.scenario_value.toLocaleString()}
-                  {finding.absolute_delta !== null ? ` (${finding.absolute_delta > 0 ? '+' : ''}${finding.absolute_delta.toLocaleString()} ${finding.unit})` : ''}
-                </em>
-              ) : null}
-            </div>
-          </li>
-        ))}
-        {analysis.data_gaps.map((gap, index) => (
-          <li key={gap.domain} data-state="blocked">
-            <span>{String(analysis.findings.length + index + 1).padStart(2, '0')}</span>
-            <div>
-              <strong>{formatLabel(gap.domain)} {t('capacity')}</strong>
-              <p>{gap.reason}</p>
-              <small>{t('needs')}: {gap.required_metrics.map(formatLabel).join(' · ')}</small>
-            </div>
-          </li>
-        ))}
-        <li data-state={analysis.recommendations.length ? 'complete' : 'withheld'}>
-          <span>{String(analysis.findings.length + analysis.data_gaps.length + 1).padStart(2, '0')}</span>
-          <div>
-            <strong>{t('recommendation')}</strong>
-            {analysis.recommendations.length ? analysis.recommendations.map(item => (
-              <p key={`${item.priority}-${item.domain}`}>{item.priority}. {item.action} — {item.rationale}</p>
-            )) : <p>{t('withheld')}</p>}
-          </div>
-        </li>
-      </ol>
-    </section>
-  )
-}
-
-function VisualizationCard({ spec }: { spec: VisualizationSpec }) {
-  const { t } = useI18n()
+function VisualizationCard({
+  spec,
+  response,
+  onCitation,
+}: {
+  spec: VisualizationSpec
+  response: CopilotResponse
+  onCitation: (citationId: string) => void
+}) {
+  const { language, t } = useI18n()
+  const years = (text: string) => formatProseYears(text, language)
+  const citations = new Map<string, { number: number; label: string; url: string | null }>([
+    ...response.citations.map((citation, index) => [
+      citation.citation_id,
+      {
+        number: index + 1,
+        label: formatLabel(citation.dataset_id),
+        url: null,
+      },
+    ] as const),
+    ...response.web_citations.map((citation, index) => [
+      citation.citation_id,
+      {
+        number: response.citations.length + index + 1,
+        label: citation.title,
+        url: citation.url,
+      },
+    ] as const),
+  ])
   return (
     <figure className="viz-card" data-viz-id={spec.visualization_id} data-viz-type={spec.type}>
       <figcaption>
         {/* The headline is the finding; the title names the subject. A reader
             who only skims the answer should still leave with the finding. */}
-        {spec.headline ? <h3 className="viz-headline">{spec.headline}</h3> : <h3>{spec.title}</h3>}
-        {spec.headline ? <p className="viz-subject">{spec.title}</p> : null}
-        {spec.description ? <p>{spec.description}</p> : null}
+        {spec.headline ? <h3 className="viz-headline">{years(spec.headline)}</h3> : <h3>{years(spec.title)}</h3>}
+        {spec.headline ? <p className="viz-subject">{years(spec.title)}</p> : null}
+        {spec.description ? <p>{years(spec.description)}</p> : null}
       </figcaption>
       <ChartView spec={spec} />
       <footer>
-        {spec.truncated ? (
-          <span
-            className="viz-flag"
-            title={t('showingRows', { count: spec.rows.length })}
-          >
-            {t('showingRows', { count: spec.rows.length })}
-          </span>
-        ) : null}
-        {spec.citation_ids.length ? (
-          <span className="viz-cites">
-            {t('cited')}
-            {spec.citation_ids.map(id => (
-              <code key={id}>{id}</code>
-            ))}
-          </span>
-        ) : null}
+        <span className={spec.truncated ? 'viz-flag' : undefined}>
+          {t('showingRows', { count: spec.rows.length })}
+          {spec.citation_ids.length ? <>{' '}{t('fromSources')}{' '}</> : null}
+          {spec.citation_ids.map(id => {
+            const citation = citations.get(id)
+            if (!citation) return null
+            return citation.url ? (
+              <sup className="inline-citation" key={id}>
+                <a
+                  href={citation.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={t('openWebSource', { number: citation.number, name: citation.label })}
+                  title={citation.label}
+                >
+                  [{citation.number}]
+                </a>
+              </sup>
+            ) : (
+              <sup className="inline-citation" key={id}>
+                <button
+                  type="button"
+                  onClick={() => onCitation(id)}
+                  aria-label={t('showSource', { number: citation.number, name: citation.label })}
+                  title={citation.label}
+                >
+                  [{citation.number}]
+                </button>
+              </sup>
+            )
+          })}
+        </span>
       </footer>
     </figure>
   )
@@ -104,17 +98,22 @@ function Empty({ title, detail }: { title: string; detail: string }) {
 
 export default function InsightPanel({
   response,
+  history,
   pending,
   onExploreDistrict,
   citationFocus,
+  onCitation,
 }: {
   response: CopilotResponse | null
+  history: { id: string; question: string; response: CopilotResponse }[]
   pending: boolean
   onExploreDistrict: (districtCode: string) => Promise<DistrictOverviewData>
   citationFocus: { citationId: string; requestId: number } | null
+  onCitation: (citationId: string, sourceResponse?: CopilotResponse) => void
 }) {
   const { language, t } = useI18n()
-  const [tab, setTab] = useState<Tab>('charts')
+  const [tab, setTab] = useState<Tab>('map')
+  const [chartHistoryId, setChartHistoryId] = useState<string | null>(null)
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([])
   const [overviews, setOverviews] = useState<DistrictOverviewData[]>([])
   // The district, not its name: the label follows the language picker.
@@ -124,21 +123,29 @@ export default function InsightPanel({
   const overviewRequest = useRef(0)
   const evidenceRefs = useRef(new Map<string, HTMLLIElement>())
   const highlights = useMemo(() => districtHighlights(response), [response])
+  const chartHistoryItem = history.find(item => item.id === chartHistoryId) ?? history[history.length - 1]
+  const chartResponse = chartHistoryItem?.response ?? response
   // A choropleth is the map's own spec. Showing it again as a table here would
   // print the same figures twice, so the Charts tab lists everything else.
   const charts = useMemo(
-    () => response?.visualizations.filter(spec => spec.type !== 'choropleth') ?? [],
-    [response],
+    () => chartResponse?.visualizations.filter(spec => spec.type !== 'choropleth') ?? [],
+    [chartResponse],
   )
 
-  // A new answer always returns the reader to the charts it produced.
+  useEffect(() => {
+    const latestItem = history[history.length - 1]
+    if (latestItem) setChartHistoryId(latestItem.id)
+  }, [history])
+
+  // The map is the primary spatial overview. Other views open only after an
+  // explicit chart, district-overview, citation, or trace action.
   useEffect(() => {
     if (response) {
       setOverviews([])
       setOverviewDistricts([])
       setSelectedDistricts([])
       setOverviewError(null)
-      setTab(response.impact_analysis ? 'impact' : 'charts')
+      setTab('map')
     }
   }, [response])
 
@@ -178,11 +185,11 @@ export default function InsightPanel({
 
   const overviewNames = overviewDistricts.map(district => districtLabel(district, language))
   const overviewName = overviewNames.join(language === 'zh-TW' ? '、' : ', ')
+  const displayedResponse = tab === 'charts' ? chartResponse : response
 
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'charts', label: t('charts'), count: overviews.length ? 3 : charts.length },
     { id: 'map', label: t('map'), count: highlights.byCode.size },
-    { id: 'impact', label: t('impact'), count: response?.impact_analysis ? 1 : 0 },
+    { id: 'charts', label: t('charts'), count: overviews.length ? 3 : charts.length },
     { id: 'evidence', label: t('evidence'), count: (response?.citations.length ?? 0) + (response?.web_citations.length ?? 0) },
     { id: 'trace', label: t('trace'), count: response?.tool_trace.length ?? 0 },
   ]
@@ -207,16 +214,45 @@ export default function InsightPanel({
             </button>
           ))}
         </div>
-        {response ? (
-          <p className="panel-stamp">{t('generated')} {formatTimestamp(response.generated_at, language)}</p>
+        {displayedResponse ? (
+          <p className="panel-stamp">{t('generated')} {formatTimestamp(displayedResponse.generated_at, language)}</p>
         ) : null}
       </header>
 
-      <div className="panel-body" id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
+      <div
+        className={`panel-body${tab === 'map' ? ' is-map' : ''}`}
+        id={`panel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+      >
         {pending && !response ? <div className="panel-loading" aria-live="polite">{t('calculating')}</div> : null}
 
         {tab === 'charts' ? (
-          overviewPending ? (
+          <>
+          {history.length ? (
+            <div className="chart-history-tabs" role="tablist" aria-label={t('chartHistory')}>
+              {history.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={item.id === chartHistoryItem?.id}
+                  className={item.id === chartHistoryItem?.id ? 'is-active' : undefined}
+                  title={item.question}
+                  onClick={() => {
+                    setChartHistoryId(item.id)
+                    setOverviews([])
+                    setOverviewDistricts([])
+                    setOverviewError(null)
+                  }}
+                >
+                  <span className="chart-history-number" aria-hidden="true">{index + 1}</span>
+                  <span className="chart-history-label">{item.question}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {overviewPending ? (
             <div className="panel-loading" aria-live="polite">{t('loadingOverview', { name: overviewName })}</div>
           ) : overviewError ? (
             <Empty title={t('overviewUnavailable')} detail={overviewError} />
@@ -227,7 +263,12 @@ export default function InsightPanel({
           ) : charts.length ? (
             <>
               {charts.map(spec => (
-                <VisualizationCard key={spec.visualization_id} spec={spec} />
+                <VisualizationCard
+                  key={spec.visualization_id}
+                  spec={spec}
+                  response={chartResponse!}
+                  onCitation={citationId => onCitation(citationId, chartResponse ?? undefined)}
+                />
               ))}
             </>
           ) : (
@@ -235,13 +276,14 @@ export default function InsightPanel({
               <Empty
                 title={t('noCharts')}
                 detail={
-                  response
+                  chartResponse
                     ? t('noChartsAnswer')
                     : t('noChartsPrompt')
                 }
               />
             )
-          )
+          )}
+          </>
         ) : null}
 
         {tab === 'map' ? (
@@ -252,12 +294,6 @@ export default function InsightPanel({
             onSelect={setSelectedDistricts}
             onExplore={exploreDistricts}
           />
-        ) : null}
-
-        {tab === 'impact' ? (
-          response?.impact_analysis
-            ? <ImpactChain analysis={response.impact_analysis} />
-            : !pending && <Empty title={t('noImpact')} detail={t('noImpactDetail')} />
         ) : null}
 
         {tab === 'evidence' ? (
@@ -315,7 +351,7 @@ export default function InsightPanel({
                                     <code>{row.metric_code}</code>
                                   </td>
                                   <td>
-                                    {row.period ?? (row.observed_at ? formatTimestamp(row.observed_at, language) : t('snapshot'))}
+                                    {row.period ? formatPeriod(row.period, language) : (row.observed_at ? formatTimestamp(row.observed_at, language) : t('snapshot'))}
                                   </td>
                                   <td className="numeric">{row.value.toLocaleString()}</td>
                                 </tr>

@@ -37,7 +37,7 @@ PERMITTED = {
     "catalog": ("sqlite", "glue"),
     "query": ("duckdb", "athena"),
     "model": ("ollama", "bedrock"),
-    "forecast": ("local", "sagemaker"),
+    "forecast": ("local", "s3", "sagemaker"),
 }
 
 

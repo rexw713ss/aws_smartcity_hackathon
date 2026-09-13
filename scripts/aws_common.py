@@ -31,7 +31,7 @@ _REDACT_PATTERNS = (
 COST_RATES = {
     "s3_request_usd": 0.0000047,
     "glue_request_usd": 0.000001,
-    "athena_usd_per_tib": 5.00,
+    "athena_usd_per_tb": 5.00,
     "stepfunctions_usd_per_transition": 0.000025,
 }
 

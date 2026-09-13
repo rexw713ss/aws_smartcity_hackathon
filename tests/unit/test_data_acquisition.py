@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 import pytest
 
 from adapters.local import AllowlistedHttpSourceConnector, AllowlistedLinkFetcher
-from adapters.local.http_source import LinkSnapshot, _link_file_name, _link_format
+from adapters.local.http_source import (
+    LinkSnapshot,
+    _landing_page_data_links,
+    _link_file_name,
+    _link_format,
+)
 from youth_compass.acquisition import AcquiredSource, DataAcquisitionService
 from youth_compass.domain import FileFormat, SourceAcquisitionError
 from youth_compass.ports import (
@@ -212,3 +217,89 @@ def test_link_file_name_keeps_a_real_name_and_invents_a_safe_one_otherwise() -> 
     invented = _link_file_name("https://data.ntpc.gov.tw/api/datasets/abc/csv/file", FileFormat.CSV)
     assert invented.startswith("data-ntpc-gov-tw-")
     assert invented.endswith(".csv")
+
+
+def test_landing_page_extracts_same_host_data_links_without_executing_html() -> None:
+    content = b"""
+        <html><body>
+          <a href="/files/housing.csv">CSV</a>
+          <a href="https://evil.example.com/stolen.csv">external</a>
+          <script>const api = '/api/datasets/abc-123/json';</script>
+        </body></html>
+    """
+
+    links = _landing_page_data_links(
+        "https://data.ntpc.gov.tw/datasets/housing",
+        content,
+        frozenset({"data.ntpc.gov.tw"}),
+    )
+
+    assert links == (
+        "https://data.ntpc.gov.tw/files/housing.csv",
+        "https://data.ntpc.gov.tw/api/datasets/abc-123/json",
+    )
+
+
+def test_landing_page_does_not_treat_ordinary_navigation_as_data() -> None:
+    links = _landing_page_data_links(
+        "https://data.ntpc.gov.tw/datasets/housing",
+        b'<a href="/about">About</a><a href="/datasets/other">Other dataset</a>',
+        frozenset({"data.ntpc.gov.tw"}),
+    )
+
+    assert links == ()
+
+
+def test_link_fetcher_resolves_landing_page_before_creating_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Headers:
+        def __init__(self, content_type: str) -> None:
+            self._content_type = content_type
+
+        def get_content_type(self) -> str:
+            return self._content_type
+
+    class Response:
+        def __init__(self, url: str, content_type: str, content: bytes) -> None:
+            self._url = url
+            self.headers = Headers(content_type)
+            self._content = content
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def geturl(self) -> str:
+            return self._url
+
+        def read(self, limit: int) -> bytes:
+            return self._content[:limit]
+
+    landing_url = "https://data.ntpc.gov.tw/datasets/housing"
+    csv_url = "https://data.ntpc.gov.tw/api/datasets/abc-123/csv"
+    responses = iter(
+        (
+            Response(landing_url, "text/html", b'<a href="/api/datasets/abc-123/csv">CSV</a>'),
+            Response(csv_url, "text/csv", b"district,value\nLinkou,100\n"),
+        )
+    )
+    requested: list[str] = []
+
+    class Opener:
+        def open(self, request: object, *, timeout: float) -> Response:
+            del timeout
+            requested.append(request.full_url)  # type: ignore[attr-defined]
+            return next(responses)
+
+    monkeypatch.setattr("adapters.local.http_source.build_opener", lambda *args: Opener())
+    fetcher = AllowlistedLinkFetcher(allowed_hosts=frozenset({"data.ntpc.gov.tw"}))
+
+    snapshot = fetcher.fetch_link(landing_url)
+
+    assert requested == [landing_url, csv_url]
+    assert snapshot.url == csv_url
+    assert snapshot.source_format is FileFormat.CSV
+    assert snapshot.content == b"district,value\nLinkou,100\n"

@@ -6,7 +6,7 @@ DEST ?= ./exports/aws
 
 .DEFAULT_GOAL := help
 
-.PHONY: help demo-features agent-evals local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
+.PHONY: help demo-features forecast forecast-publish-aws agent-evals benchmark-system local-api dashboard hackathon-bootstrap aws-preflight aws-synth aws-smoke \
         aws-export aws-teardown test lint typecheck format
 
 help:  ## Show this help
@@ -22,8 +22,19 @@ dashboard:  ## Run the temporary Streamlit dashboard on port 8501
 demo-features:  ## Materialize an offline feature snapshot for the copilot demo
 	uv run python -m scripts.materialize_demo_features
 
+forecast:  ## Backtest and publish the cohort youth population forecast + model card
+	uv run python -m ml.youth_population_forecast
+
+forecast-publish-aws:  ## Publish the forecast locally, then upload it for the deployed API (creds)
+	uv run python -m ml.youth_population_forecast \
+		--s3-bucket $${YOUTH_COMPASS_FORECAST_BUCKET:?set YOUTH_COMPASS_FORECAST_BUCKET} \
+		--region $${YOUTH_COMPASS_REGION:-us-east-1}
+
 agent-evals:  ## Grade planning and answers offline (routing + answer suites)
 	uv run python -m scripts.run_agent_evals --suite all
+
+benchmark-system:  ## Measure copilot latency, throughput, quality, and projected variable cost
+	uv run python -m scripts.benchmark_system
 
 hackathon-bootstrap:  ## Empty account to verified stack (creds). ASSUME_YES=1 to skip prompt
 	uv run python -m scripts.aws_bootstrap $(if $(ASSUME_YES),--assume-yes,)

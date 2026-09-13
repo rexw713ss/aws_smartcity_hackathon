@@ -57,6 +57,7 @@ from constructs import Construct
 
 from infra.environments import EnvironmentConfig
 from infra.stacks.base import TaggedStack
+from infra.stacks.workflow import FORECAST_PREFIX
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _API_ASSET = str(_REPO_ROOT / "build" / "api_lambda")
@@ -115,6 +116,17 @@ _API_MEMORY_MB = 1024
 #: of the URL, neither of which this stack has yet.
 _API_RESERVED_CONCURRENCY = 20
 
+# The hackathon venue/judging network is the only public caller allowed to
+# reach the deployed demo. Keep the same list on both public surfaces: the
+# CloudFront viewer-request function protects the static site, while the API
+# reads the environment value and validates the Function URL source address.
+_ALLOWED_SOURCE_IPS = (
+    "60.250.71.45",
+    "61.222.117.53",
+    "59.125.121.41",
+    "60.250.71.43",
+)
+
 
 class ApiStack(TaggedStack):
     """Public API and static frontend hosting."""
@@ -128,6 +140,7 @@ class ApiStack(TaggedStack):
         incoming_bucket_name: str,
         curated_bucket_name: str,
         metadata_bucket_name: str,
+        forecasts_bucket_name: str,
         metadata_table_name: str,
         glue_database_name: str,
         athena_workgroup_name: str,
@@ -154,6 +167,22 @@ class ApiStack(TaggedStack):
             auto_delete_objects=True,
         )
 
+        ip_allowlist = cloudfront.Function(
+            self,
+            "IpAllowlistFunction",
+            runtime=cloudfront.FunctionRuntime.JS_2_0,
+            comment="Allow only the four approved hackathon source IPs.",
+            code=cloudfront.FunctionCode.from_inline(
+                "function handler(event) {\n"
+                "  var allowed = {\n"
+                + "".join(f'    "{ip}": true,\n' for ip in _ALLOWED_SOURCE_IPS)
+                + "  };\n"
+                "  if (allowed[event.viewer.ip]) { return event.request; }\n"
+                "  return { statusCode: 403, statusDescription: 'Forbidden' };\n"
+                "}"
+            ),
+        )
+
         self.distribution = cloudfront.Distribution(
             self,
             "SiteDistribution",
@@ -162,6 +191,12 @@ class ApiStack(TaggedStack):
                 origin=origins.S3BucketOrigin.with_origin_access_control(self.site_bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                function_associations=[
+                    cloudfront.FunctionAssociation(
+                        function=ip_allowlist,
+                        event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
+                    )
+                ],
             ),
             # Single-page apps route client-side: unknown paths must still serve
             # index.html rather than CloudFront's XML error document.
@@ -189,7 +224,9 @@ class ApiStack(TaggedStack):
             self,
             "WriteSecret",
             secret_name=f"{env_config.stack_prefix}-api-write-secret",
-            description="Shared secret required by the New Taipei Youth Policy API write endpoints.",
+            description=(
+                "Shared secret required by the New Taipei Youth Policy API write endpoints."
+            ),
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 password_length=48,
                 # The value travels in an HTTP header, so keep it to characters
@@ -204,6 +241,7 @@ class ApiStack(TaggedStack):
         incoming = s3.Bucket.from_bucket_name(self, "IncomingRef", incoming_bucket_name)
         curated = s3.Bucket.from_bucket_name(self, "CuratedRef", curated_bucket_name)
         metadata = s3.Bucket.from_bucket_name(self, "MetadataBucketRef", metadata_bucket_name)
+        forecasts = s3.Bucket.from_bucket_name(self, "ForecastsRef", forecasts_bucket_name)
         metadata_table = dynamodb.Table.from_table_name(self, "MetadataRef", metadata_table_name)
         # The analytics workgroup is owned by the DataStack (it owns the data
         # lake and its query infra) and passed in by name, so there is exactly
@@ -243,7 +281,13 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_QUERY__PROVIDER": "athena",
                 "YOUTH_COMPASS_QUERY__WORKGROUP": athena_workgroup_name,
                 "YOUTH_COMPASS_QUERY__OUTPUT_BUCKET": metadata_bucket_name,
-                "YOUTH_COMPASS_FORECAST__PROVIDER": "local",
+                # The published forecast and model card are read from S3, so a
+                # new forecast ships by upload (make forecast-publish-aws), not
+                # by rebuilding this package.
+                "YOUTH_COMPASS_FORECAST__PROVIDER": "s3",
+                "YOUTH_COMPASS_FORECAST__BUCKET": forecasts_bucket_name,
+                "YOUTH_COMPASS_FORECAST__PREFIX": FORECAST_PREFIX,
+                "YOUTH_COMPASS_FORECAST__REGION": region,
                 # Bedrock: ap-northeast-1 is SCP-denied on the hackathon
                 # account, so the model region follows this stack's region.
                 "YOUTH_COMPASS_MODEL__PROVIDER": "bedrock",
@@ -251,6 +295,7 @@ class ApiStack(TaggedStack):
                 "YOUTH_COMPASS_MODEL__REGION": region,
                 "YOUTH_COMPASS_API__CORS_ALLOWED_ORIGINS": site_origin,
                 "YOUTH_COMPASS_API__WRITE_SECRET_ARN": self.write_secret.secret_arn,
+                "YOUTH_COMPASS_ALLOWED_SOURCE_IPS": ",".join(_ALLOWED_SOURCE_IPS),
                 # Lambda scales to many concurrent instances, so follow-up
                 # session scope must live in the shared table rather than in one
                 # process. Records expire through the table's TTL attribute.
@@ -276,6 +321,7 @@ class ApiStack(TaggedStack):
         # object metadata back.
         incoming.grant_read_write(self.api_fn)
         curated.grant_read(self.api_fn)
+        forecasts.grant_read(self.api_fn, f"{FORECAST_PREFIX}*")
         metadata_table.grant_read_write_data(self.api_fn)
 
         self.api_fn.add_to_role_policy(

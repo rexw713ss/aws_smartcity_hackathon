@@ -3,6 +3,8 @@
 Doc 30, stage 1.
 """
 
+import pytest
+
 from youth_compass.agent.contracts import ObservationPoint, ObservationSeries
 from youth_compass.agent.data_shape import (
     Direction,
@@ -79,6 +81,60 @@ def test_granularity_distinguishes_years_months_and_a_mixed_result() -> None:
 
     assert months.granularity is Granularity.MONTH
     assert mixed.granularity is Granularity.MIXED
+
+
+def test_monthly_profile_counts_absent_calendar_periods_and_recommends_a_cadence() -> None:
+    profile = profile_series(
+        _series(
+            _trend(
+                "banqiao",
+                {
+                    "2023-01": 1.0,
+                    "2023-02": 2.0,
+                    "2023-04": 4.0,
+                    "2023-05": 5.0,
+                    "2023-06": 6.0,
+                },
+            )
+        )
+    )
+
+    assert profile.expected_monthly_points == 6
+    assert profile.missing_monthly_points == 1
+    assert profile.monthly_coverage_ratio == pytest.approx(5 / 6)
+    assert profile.plot_interval_months == 3
+
+
+def test_complete_long_monthly_profile_uses_quarters_to_stay_within_chart_budget() -> None:
+    profile = profile_series(
+        _series(
+            tuple(
+                _point("banqiao", f"{year:04d}-{month:02d}", float(year * 100 + month))
+                for year in range(2018, 2024)
+                for month in range(1, 13)
+            )
+        )
+    )
+
+    assert profile.missing_monthly_points == 0
+    assert profile.monthly_coverage_ratio == 1.0
+    assert profile.plot_interval_months == 3
+
+
+def test_a_missing_year_in_a_long_series_uses_two_year_blocks() -> None:
+    profile = profile_series(
+        _series(
+            tuple(
+                _point("banqiao", f"{year:04d}-{month:02d}", float(year * 100 + month))
+                for year in range(2011, 2027)
+                if year != 2017
+                for month in range(1, 13)
+            )
+        )
+    )
+
+    assert profile.missing_monthly_points == 12
+    assert profile.plot_interval_months == 24
 
 
 def test_a_signal_reports_movement_against_the_series_own_volatility() -> None:

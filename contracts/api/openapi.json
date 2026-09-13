@@ -138,6 +138,30 @@
         "title": "Body_upload_dataset_api_v1_datasets_upload_post",
         "type": "object"
       },
+      "CandidateEvaluation": {
+        "description": "One backtested model and its accuracy by horizon.",
+        "properties": {
+          "accuracy": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastAccuracy"
+            },
+            "minItems": 1,
+            "title": "Accuracy",
+            "type": "array"
+          },
+          "model": {
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "accuracy"
+        ],
+        "title": "CandidateEvaluation",
+        "type": "object"
+      },
       "CandidateInsight": {
         "description": "Ranked candidate projection safe for an API response.",
         "properties": {
@@ -461,6 +485,21 @@
             "title": "Question",
             "type": "string"
           },
+          "responseLanguage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "en",
+                  "zh-TW"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responselanguage"
+          },
           "sessionId": {
             "anyOf": [
               {
@@ -472,6 +511,18 @@
               }
             ],
             "title": "Sessionid"
+          },
+          "topicHint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topichint"
           }
         },
         "required": [
@@ -798,12 +849,17 @@
             },
             "title": "Uploadformats",
             "type": "array"
+          },
+          "writeTokenRequired": {
+            "title": "Writetokenrequired",
+            "type": "boolean"
           }
         },
         "required": [
           "linkHosts",
           "uploadFormats",
-          "maxUploadBytes"
+          "maxUploadBytes",
+          "writeTokenRequired"
         ],
         "title": "DataIntakeOptions",
         "type": "object"
@@ -925,6 +981,11 @@
       "DatasetInspection": {
         "description": "Schema and coverage selected from the published catalog.",
         "properties": {
+          "additive": {
+            "default": true,
+            "title": "Additive",
+            "type": "boolean"
+          },
           "available_metrics": {
             "items": {
               "type": "string"
@@ -1055,6 +1116,7 @@
           "geography_coverage": {
             "$ref": "#/components/schemas/GeographyCoverage",
             "default": {
+              "city_level": false,
               "district_count": 0,
               "recognized_district_count": 0,
               "unknown_values": []
@@ -1436,6 +1498,191 @@
           "metricCode"
         ],
         "title": "DistrictCompareRequest",
+        "type": "object"
+      },
+      "DistrictForecastAccuracyResponse": {
+        "properties": {
+          "horizonYears": {
+            "title": "Horizonyears",
+            "type": "integer"
+          },
+          "intervalCoverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intervalcoverage"
+          },
+          "mapePercent": {
+            "title": "Mapepercent",
+            "type": "number"
+          }
+        },
+        "required": [
+          "horizonYears",
+          "mapePercent",
+          "intervalCoverage"
+        ],
+        "title": "DistrictForecastAccuracyResponse",
+        "type": "object"
+      },
+      "DistrictForecastPointResponse": {
+        "properties": {
+          "ageingOut": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ageingout"
+          },
+          "entering": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entering"
+          },
+          "lower": {
+            "title": "Lower",
+            "type": "number"
+          },
+          "netChange": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Netchange"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "upper": {
+            "title": "Upper",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "period",
+          "value",
+          "lower",
+          "upper",
+          "entering",
+          "ageingOut",
+          "netChange"
+        ],
+        "title": "DistrictForecastPointResponse",
+        "type": "object"
+      },
+      "DistrictForecastResponse": {
+        "properties": {
+          "accuracy": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictForecastAccuracyResponse"
+            },
+            "title": "Accuracy",
+            "type": "array"
+          },
+          "basePeriod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseperiod"
+          },
+          "baseValue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basevalue"
+          },
+          "districtCode": {
+            "title": "Districtcode",
+            "type": "string"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "title": "Generatedat",
+            "type": "string"
+          },
+          "metricCode": {
+            "title": "Metriccode",
+            "type": "string"
+          },
+          "modelVersion": {
+            "title": "Modelversion",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/DistrictForecastPointResponse"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "smallArea": {
+            "title": "Smallarea",
+            "type": "boolean"
+          },
+          "targetCoverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targetcoverage"
+          }
+        },
+        "required": [
+          "districtCode",
+          "metricCode",
+          "modelVersion",
+          "generatedAt",
+          "basePeriod",
+          "baseValue",
+          "smallArea",
+          "targetCoverage",
+          "points",
+          "accuracy"
+        ],
+        "title": "DistrictForecastResponse",
         "type": "object"
       },
       "DistrictMetricResponse": {
@@ -1922,9 +2169,228 @@
         "title": "FileFormat",
         "type": "string"
       },
+      "ForecastAccuracy": {
+        "description": "Backtest error of one model at one horizon, in percent of the actual value.",
+        "properties": {
+          "bias_percent": {
+            "title": "Bias Percent",
+            "type": "number"
+          },
+          "horizon_years": {
+            "minimum": 1.0,
+            "title": "Horizon Years",
+            "type": "integer"
+          },
+          "interval_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Coverage"
+          },
+          "mape_percent": {
+            "minimum": 0.0,
+            "title": "Mape Percent",
+            "type": "number"
+          },
+          "p90_ape_percent": {
+            "minimum": 0.0,
+            "title": "P90 Ape Percent",
+            "type": "number"
+          },
+          "samples": {
+            "minimum": 1.0,
+            "title": "Samples",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "horizon_years",
+          "samples",
+          "mape_percent",
+          "p90_ape_percent",
+          "bias_percent"
+        ],
+        "title": "ForecastAccuracy",
+        "type": "object"
+      },
+      "ForecastComponents": {
+        "description": "Why a cohort forecast moves: ageing in, ageing out, and everything else.\n\n``net_change`` is what remains after ageing — migration, mortality, and\nregistration changes together — so it must never be presented as migration\nalone.",
+        "properties": {
+          "ageing_out": {
+            "minimum": 0.0,
+            "title": "Ageing Out",
+            "type": "number"
+          },
+          "base_period": {
+            "pattern": "^\\d{4}-\\d{2}$",
+            "title": "Base Period",
+            "type": "string"
+          },
+          "base_value": {
+            "minimum": 0.0,
+            "title": "Base Value",
+            "type": "number"
+          },
+          "entering": {
+            "minimum": 0.0,
+            "title": "Entering",
+            "type": "number"
+          },
+          "net_change": {
+            "title": "Net Change",
+            "type": "number"
+          }
+        },
+        "required": [
+          "base_period",
+          "base_value",
+          "entering",
+          "ageing_out",
+          "net_change"
+        ],
+        "title": "ForecastComponents",
+        "type": "object"
+      },
+      "ForecastEvaluation": {
+        "description": "The evidence a published forecast was selected on.",
+        "properties": {
+          "base_period": {
+            "pattern": "^\\d{4}-\\d{2}$",
+            "title": "Base Period",
+            "type": "string"
+          },
+          "baseline_model": {
+            "minLength": 1,
+            "title": "Baseline Model",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateEvaluation"
+            },
+            "minItems": 1,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "error_quantile": {
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Error Quantile",
+            "type": "number"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "method": {
+            "minLength": 1,
+            "title": "Method",
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "title": "References",
+            "type": "array"
+          },
+          "rolling_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rolling Coverage"
+          },
+          "rolling_samples": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rolling Samples"
+          },
+          "selected_model": {
+            "minLength": 1,
+            "title": "Selected Model",
+            "type": "string"
+          },
+          "small_area_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Small Area Coverage"
+          },
+          "source_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Sha256"
+          },
+          "target_coverage": {
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Target Coverage",
+            "type": "number"
+          }
+        },
+        "required": [
+          "method",
+          "selected_model",
+          "baseline_model",
+          "base_period",
+          "target_coverage",
+          "error_quantile",
+          "candidates"
+        ],
+        "title": "ForecastEvaluation",
+        "type": "object"
+      },
       "ForecastPoint": {
         "description": "One forecast value with its uncertainty interval.",
         "properties": {
+          "components": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForecastComponents"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "district_code": {
             "title": "District Code",
             "type": "string"
@@ -1932,6 +2398,17 @@
           "lower": {
             "title": "Lower",
             "type": "number"
+          },
+          "small_area": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Small Area"
           },
           "upper": {
             "title": "Upper",
@@ -1959,6 +2436,16 @@
       "ForecastResult": {
         "description": "Forecast values and the lineage needed to judge them.",
         "properties": {
+          "evaluation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForecastEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -2001,6 +2488,11 @@
       },
       "GeographyCoverage": {
         "properties": {
+          "city_level": {
+            "default": false,
+            "title": "City Level",
+            "type": "boolean"
+          },
           "district_count": {
             "default": 0,
             "minimum": 0.0,
@@ -2112,7 +2604,6 @@
           "domain": {
             "enum": [
               "housing",
-              "transport",
               "public_services"
             ],
             "title": "Domain",
@@ -2191,7 +2682,6 @@
             "enum": [
               "population",
               "housing",
-              "transport",
               "public_services"
             ],
             "title": "Stage",
@@ -2230,7 +2720,6 @@
           "domain": {
             "enum": [
               "housing",
-              "transport",
               "public_services"
             ],
             "title": "Domain",
@@ -2603,6 +3092,87 @@
           "overall_confidence"
         ],
         "title": "MappingProposal",
+        "type": "object"
+      },
+      "MappingSamplePreview": {
+        "description": "Bounded before/after examples for one proposed column mapping.",
+        "properties": {
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/MappingSampleValue"
+            },
+            "maxItems": 5,
+            "title": "Samples",
+            "type": "array"
+          },
+          "sourceColumn": {
+            "title": "Sourcecolumn",
+            "type": "string"
+          },
+          "targetField": {
+            "title": "Targetfield",
+            "type": "string"
+          },
+          "transformation": {
+            "title": "Transformation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceColumn",
+          "targetField",
+          "transformation",
+          "samples"
+        ],
+        "title": "MappingSamplePreview",
+        "type": "object"
+      },
+      "MappingSampleValue": {
+        "description": "One source example and the canonical fields it would produce.",
+        "properties": {
+          "canonical": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Canonical",
+            "type": "object"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "MappingSampleValue",
         "type": "object"
       },
       "MappingValidationIssue": {
@@ -4345,7 +4915,7 @@
     },
     "/api/v1/copilot/query/stream": {
       "post": {
-        "description": "Stream Bedrock answer snapshots, then the validated structured response.",
+        "description": "Stream workflow stages and Bedrock deltas, then the validated response.",
         "operationId": "stream_copilot_api_v1_copilot_query_stream_post",
         "requestBody": {
           "content": {
@@ -4682,6 +5252,70 @@
         ]
       }
     },
+    "/api/v1/districts/{district_code}/forecast": {
+      "get": {
+        "operationId": "district_forecast_api_v1_districts__district_code__forecast_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "district_code",
+            "required": true,
+            "schema": {
+              "title": "District Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metricCode",
+            "required": false,
+            "schema": {
+              "default": "population_count",
+              "title": "Metriccode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizonYears",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Horizonyears",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistrictForecastResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "District Forecast",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/api/v1/districts/{district_code}/overview": {
       "get": {
         "operationId": "district_overview_api_v1_districts__district_code__overview_get",
@@ -4951,6 +5585,53 @@
           }
         },
         "summary": "Get Mapping",
+        "tags": [
+          "reviewer"
+        ]
+      }
+    },
+    "/api/v1/ingestion-jobs/{job_id}/mapping-preview": {
+      "get": {
+        "description": "Show bounded before/after examples without exposing source rows or paths.",
+        "operationId": "get_mapping_preview_api_v1_ingestion_jobs__job_id__mapping_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MappingSamplePreview"
+                  },
+                  "title": "Response Get Mapping Preview Api V1 Ingestion Jobs  Job Id  Mapping Preview Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Mapping Preview",
         "tags": [
           "reviewer"
         ]

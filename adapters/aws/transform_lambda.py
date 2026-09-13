@@ -102,6 +102,12 @@ def _await_approval(event: dict[str, Any]) -> dict[str, Any]:
     table = os.environ["YOUTH_COMPASS_METADATA_TABLE"]
     region = os.environ.get("YOUTH_COMPASS_REGION", "us-east-1")
     store = WorkflowTokenStore(table_name=table, region=region)
+    analysis = event.get("mapping_analysis")
+    if not isinstance(analysis, dict):
+        raise YouthCompassError("await_approval requires mapping_analysis")
+    from youth_compass.domain.contracts import MappingAnalysis
+
+    store.put_mapping_analysis(job_id, MappingAnalysis.model_validate(analysis))
     store.put_status(job_id, JobStatus.AWAITING_APPROVAL)
     store.put_token(job_id, task_token)
     return {"status": "ok", "action": "await_approval", "job_id": job_id}

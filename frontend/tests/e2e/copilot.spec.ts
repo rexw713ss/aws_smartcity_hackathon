@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 import {
   acquisitionAnswer,
   ask,
+  datasetCatalog,
+  districtForecast,
   districtOverview,
   impactAnswer,
   insufficientAnswer,
@@ -9,12 +11,18 @@ import {
   rankingAnswer,
   trendAnswer,
   useLanguage,
+  webAcquisitionAnswer,
 } from './fixtures'
 
 /** On the narrow layout the insight pane replaces the chat pane. */
 async function showInsight(page: import('@playwright/test').Page) {
   const toggle = page.getByRole('button', { name: /Charts & evidence/ })
   if (await toggle.isVisible()) await toggle.click()
+}
+
+async function showCharts(page: import('@playwright/test').Page) {
+  await showInsight(page)
+  await page.getByRole('tab', { name: /^Charts/ }).click()
 }
 
 /** The inverse: bring the conversation back on the narrow layout, where an
@@ -30,7 +38,7 @@ test('renders a ranking bar and the exact ranking table from one response', asyn
   await ask(page, 'Which districts are best for young people buying a home?')
 
   await expect(page.getByText(rankingAnswer.answer)).toBeVisible()
-  await showInsight(page)
+  await showCharts(page)
 
   const ranking = page.locator('[data-viz-id="candidate-ranking"]')
   await expect(ranking).toHaveAttribute('data-viz-type', 'ranking_bar')
@@ -45,29 +53,126 @@ test('renders a ranking bar and the exact ranking table from one response', asyn
   await expect(table.locator('tbody tr')).toHaveCount(2)
   await expect(table.locator('tbody tr').first()).toContainText('Banqiao')
   await expect(table.locator('tbody tr').first()).toContainText('55.6')
-  // `truncated: true` must be surfaced, never silently dropped.
-  await expect(table.getByText(/Showing 2 selected rows/)).toBeVisible()
+  // The compact footer links the selected chart rows to the same evidence
+  // target used by inline chat citations.
+  await expect(table.getByText(/Showing 2 selected rows from/)).toBeVisible()
+  const source = table.getByRole('button', { name: /Show source 1/ })
+  await expect(source).toHaveText('[1]')
+  await source.click()
+  await expect(page.getByRole('tab', { name: /Evidence/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(page.locator('[data-citation-id="data-1"]')).toHaveClass(/is-focused/)
 })
 
-test('shows only published datasets and derives usable starter questions', async ({ page }) => {
-  await mockCopilot(page, { query: rankingAnswer })
+test('shows a compact topic picker and reveals suggestions only after selection', async ({ page }) => {
+  const requests: unknown[] = []
+  await mockCopilot(page, { query: rankingAnswer, onQuery: request => requests.push(request) })
   await page.goto('/')
 
-  const guide = page.getByRole('region', { name: 'Available published datasets' })
-  await expect(guide).toContainText('Population')
-  await expect(guide).toContainText('Quality 100%')
-  await expect(guide).not.toContainText('Employment')
-  await expect(guide).not.toContainText('internal-version-not-for-intro')
-  await expect(page.getByRole('button', { name: 'Compare population trends by district' })).toBeVisible()
+  const tabs = page.getByRole('tablist', { name: 'Insight views' }).getByRole('tab')
+  await expect(tabs.first()).toContainText('Map')
+  await expect(page.getByRole('tab', { name: /^Map/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: /Impact|What-if/i })).toHaveCount(0)
+
+  const topic = page.getByRole('radiogroup', { name: 'Topic' })
+  await expect(topic.getByRole('radio', { name: 'Population' })).toHaveCount(1)
+  await expect(topic.getByRole('radio', { name: 'Employment' })).toHaveCount(1)
+  await expect(topic.getByRole('radio', { name: 'Education' })).toHaveCount(1)
+  await expect(topic.getByRole('radio', { name: 'Others…' })).toHaveCount(1)
+  await expect(topic.getByRole('radio', { name: /Transport/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /overview of population/i })).toHaveCount(0)
+
+  await topic.getByRole('radio', { name: 'Population' }).click()
+  await expect(page.getByRole('button', { name: 'Give me an overview of Population' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Show the Population trend over time' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Compare Population across districts' })).toBeVisible()
+
+  await topic.getByRole('radio', { name: 'Others…' }).click()
+  await expect(page.getByRole('button', { name: /overview of population/i })).toHaveCount(0)
+  await ask(page, 'Help me explore the available data')
+  await expect(page.getByText(rankingAnswer.answer)).toBeVisible()
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).not.toHaveProperty('topicHint')
 })
 
-test('draws one line per series and leaves a gap for a missing period', async ({ page }) => {
+test('confirms a detected topic change before sending it to the agent', async ({ page }) => {
+  const requests: unknown[] = []
+  const employment = {
+    ...datasetCatalog[1],
+    status: 'published',
+    qualityScore: 1,
+    publishedAt: '2026-09-03T00:00:00Z',
+  }
+  await mockCopilot(page, {
+    query: rankingAnswer,
+    datasets: [datasetCatalog[0], employment],
+    onQuery: request => requests.push(request),
+  })
+  await page.goto('/')
+  await page.getByRole('radio', { name: 'Population' }).click()
+  await page.getByRole('textbox', { name: 'Question' }).fill('Show the employment trend over time')
+  await page.getByRole('button', { name: 'Send' }).click()
+
+  await expect(page.getByText(/current topic is Population/)).toBeVisible()
+  expect(requests).toHaveLength(0)
+  await page.getByRole('button', { name: 'Analyze new topic' }).click()
+
+  await expect(page.getByText(rankingAnswer.answer)).toBeVisible()
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).toMatchObject({ topicHint: 'employment' })
+})
+
+test('keeps charts from earlier questions in compact history tabs', async ({ page }) => {
+  await mockCopilot(page, {
+    query: index => index === 0 ? trendAnswer : rankingAnswer,
+  })
+  await page.goto('/')
+
+  await ask(page, 'Compare population trend from 2023 to 2025')
+  await expect(page.getByText(/Population count comparison/)).toBeVisible()
+  await showChat(page)
+  await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0)
+  await ask(page, 'Give me a population overview')
+  await expect(page.getByText(rankingAnswer.answer)).toBeVisible()
+  await showCharts(page)
+
+  const history = page.getByRole('tablist', { name: 'Charts by question' })
+  await expect(history.getByRole('tab')).toHaveCount(2)
+  await expect(history.getByRole('tab', { name: /population overview/i })).toHaveAttribute('aria-selected', 'true')
+  await history.getByRole('tab', { name: /Compare population trend/i }).click()
+  await expect(page.locator('[data-viz-id="observation-trend"]')).toBeVisible()
+  await expect(page.locator('[data-viz-id="candidate-ranking"]')).toHaveCount(0)
+})
+
+test('starts a clean conversation from the chat toolbar', async ({ page }) => {
+  await mockCopilot(page, { query: trendAnswer })
+  await page.goto('/')
+  await page.getByRole('radio', { name: 'Population' }).click()
+  await ask(page, 'Compare population trend from 2023 to 2025')
+  await expect(page.getByText(/Population count comparison/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'New conversation' }).click()
+
+  await expect(page.getByText('Choose a topic')).toBeVisible()
+  await expect(page.locator('.turn')).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: 'Population' })).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByRole('button', { name: 'New conversation' })).toBeDisabled()
+  await showInsight(page)
+  await expect(page.getByRole('tab', { name: /^Map/ })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: /^Charts/ }).click()
+  await expect(page.getByRole('tablist', { name: 'Charts by question' })).toHaveCount(0)
+})
+
+test('draws one continuous line per series across a missing period', async ({ page }) => {
   await mockCopilot(page, { query: trendAnswer })
   await page.goto('/')
   await ask(page, 'Compare population trend from 2023 to 2025')
   await expect(page.locator('.answer-text li')).toHaveCount(2)
   await expect(page.locator('.answer-text li').first()).toContainText('Banqiao: 120 → 150')
-  await showInsight(page)
+  await showCharts(page)
 
   const trend = page.locator('[data-viz-id="observation-trend"]')
   await expect(trend).toHaveAttribute('data-viz-type', 'line')
@@ -127,9 +232,33 @@ test('reports insufficient evidence without inventing a chart', async ({ page })
 
   await expect(page.getByText('Insufficient evidence')).toBeVisible()
   await expect(page.getByText(insufficientAnswer.warnings[0])).toBeVisible()
-  await showInsight(page)
+  await expect(page.locator('.chat-panel .data-request')).toBeVisible()
+  await expect(page.locator('.data-request .gap-summary')).toContainText('Population · Employment')
+  await showCharts(page)
   await expect(page.locator('.viz-card')).toHaveCount(0)
   await expect(page.getByText('No charts yet')).toBeVisible()
+})
+
+test('does not force the first missing topic onto a multi-topic upload', async ({ page }) => {
+  let uploadBody = ''
+  await mockCopilot(page, { query: insufficientAnswer })
+  await page.route('**/api/v1/datasets/upload', route => {
+    uploadBody = route.request().postData() ?? ''
+    return route.fulfill({ status: 202, json: {
+      jobId: 'job-employment', status: 'awaiting_approval',
+      links: { job: '/api/v1/ingestion-jobs/job-employment' },
+    } })
+  })
+  await page.goto('/')
+  await ask(page, 'Compare youth population and employment by district')
+
+  const request = page.locator('.chat-panel .data-request')
+  await request.getByRole('button', { name: 'Provide your own data' }).click()
+  await request.locator('input[type="file"]').setInputFiles('../data/samples/employment_demo.csv')
+  await request.getByRole('button', { name: 'Upload and process' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Review the AI-proposed mapping' })).toBeVisible()
+  expect(uploadBody).not.toContain('name="topic_hint"')
 })
 
 test('submits only a configured candidateId for acquisition', async ({ page }) => {
@@ -157,6 +286,8 @@ test('submits only a configured candidateId for acquisition', async ({ page }) =
   await expect(request).toBeVisible()
   await expect(page.locator('.insight-panel .data-request')).toHaveCount(0)
   await expect(request.getByText('Here is what I am missing')).toBeVisible()
+  await expect(request.getByText('The published catalog does not hold enough to go further, so I stop here rather than guess.')).toHaveCount(0)
+  await expect(request.locator('.gap-summary')).toContainText('Needed')
   await expect(request.getByText('New Taipei population statistics')).toBeVisible()
   // The suggestion shows the host, never a clickable download link.
   await expect(request.getByText(/data\.example\.gov\.tw/)).toBeVisible()
@@ -175,9 +306,91 @@ test('submits only a configured candidateId for acquisition', async ({ page }) =
   await expect(request.getByLabel('Submitted by')).toHaveCount(0)
   await request.getByRole('button', { name: 'Accept and process' }).click()
 
-  await expect(page.getByText('job-42')).toBeVisible()
+  await expect(request.locator('.intake-progress')).toBeVisible()
+  await expect(request.getByText('Building canonical mapping')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review the AI-proposed mapping' })).toBeVisible()
   expect(submitted).toEqual([
     { candidateId: 'ntpc-population', submittedBy: 'youth-compass-web' },
+  ])
+})
+
+test('reviews mapping evidence and explicitly approves publication in React', async ({ page }) => {
+  const decisions: unknown[] = []
+  const requests: unknown[] = []
+  await mockCopilot(page, {
+    query: index => index === 0 ? acquisitionAnswer : rankingAnswer,
+    onQuery: request => requests.push(request),
+  })
+  await page.route('**/api/v1/ingestion-jobs/*/decision', route => {
+    decisions.push(route.request().postDataJSON())
+    return route.fulfill({ json: {
+      jobId: 'job-42', datasetId: 'population', status: 'published', sourceFormat: 'csv',
+      currentStep: 'published', qualityScore: 0.99, createdAt: '2026-09-12T07:05:00Z', warnings: [], links: {},
+    } })
+  })
+  await page.goto('/')
+  await ask(page, 'Find newer population data')
+  await showChat(page)
+  await page.getByRole('button', { name: 'Accept and process' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Review the AI-proposed mapping' })).toBeVisible()
+  await expect(page.getByText('population.csv')).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'year_gregorian' })).toBeVisible()
+  await expect(page.getByText('Year gregorian: 2025')).toBeVisible()
+  await expect(page.getByText('District code: 01')).toBeVisible()
+  await expect(page.getByText('No structural issue blocks publication.')).toBeVisible()
+
+  await page.getByLabel('Review note').fill('District, time, metric, and unit checked.')
+  await page.getByRole('button', { name: 'Approve & publish' }).click()
+
+  await expect(page.getByText('Dataset published')).toBeVisible()
+  expect(requests).toHaveLength(1)
+  expect(decisions).toEqual([{
+    decision: 'approve',
+    decidedBy: 'steward@newtaipei.gov.tw',
+    comment: 'District, time, metric, and unit checked.',
+  }])
+
+  await page.locator('.review-outcome').getByRole('button', { name: 'Back to assistant' }).click()
+  await expect(page.getByText(rankingAnswer.answer)).toBeVisible()
+  expect(requests).toHaveLength(2)
+  expect(requests[1]).toMatchObject(requests[0] as Record<string, unknown>)
+})
+
+test('submits an approved web suggestion through governed link intake', async ({ page }) => {
+  const submitted: unknown[] = []
+  await mockCopilot(page, { query: webAcquisitionAnswer })
+  await page.route('**/api/v1/copilot/acquisitions/link', route => {
+    submitted.push(route.request().postDataJSON())
+    return route.fulfill({
+      json: {
+        ingestion_job_id: 'job-web-42',
+        ingestion_status: 'awaiting_approval',
+        file_name: 'housing.csv',
+      },
+    })
+  })
+  await page.goto('/')
+  await ask(page, 'Find the missing housing data')
+  await showChat(page)
+
+  const request = page.locator('.chat-panel .data-request')
+  const source = request.getByRole('link', { name: 'New Taipei housing open data' })
+  await expect(source).toHaveAttribute(
+    'href',
+    'https://data.ntpc.gov.tw/datasets/housing.csv',
+  )
+  await expect(request.getByText('Found with Brave Search; format is checked after acceptance')).toBeVisible()
+  await request.getByRole('button', { name: 'Accept and process' }).click()
+
+  await expect(request.locator('.intake-progress')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review the AI-proposed mapping' })).toBeVisible()
+  expect(submitted).toEqual([
+    {
+      url: 'https://data.ntpc.gov.tw/datasets/housing.csv',
+      submittedBy: 'youth-compass-web',
+      topicHint: 'housing',
+    },
   ])
 })
 
@@ -267,23 +480,30 @@ test('highlights only districts the answer actually names', async ({ page }) => 
   await expect(page.getByText(/Not shown on the map/)).toContainText('Xindian riverside')
 })
 
-test('reads out the backend figure for a district and says when there is none', async ({ page }) => {
+test('labels every district and keeps the map stable while a label is hovered', async ({ page }) => {
   await mockCopilot(page, { query: rankingAnswer })
   await page.goto('/')
   await ask(page, 'Where should I buy a home?')
   await showInsight(page)
   await page.getByRole('tab', { name: /Map/ }).click()
 
-  await page.locator('.map-district[data-district="01"]').click()
-  const readout = page.locator('.map-readout')
-  await expect(readout).toContainText('Banqiao')
-  await expect(readout).toContainText('55.6')
-  await expect(readout).toContainText('Candidate ranking')
+  await expect(page.locator('.map-district-label')).toHaveCount(29)
+  const stage = page.locator('.map-stage')
+  const initialHeight = (await stage.boundingBox())!.height
+  const banqiao = page.locator('.map-district[data-district="01"]')
+  await page.locator('.map-district-label[data-district-label="01"]').hover({ force: true })
+  await expect(banqiao).toHaveClass(/is-hovered/)
+  expect((await stage.boundingBox())!.height).toBe(initialHeight)
 
-  // An uncited district must never borrow a neighbour's figure.
+  await page.getByRole('tab', { name: /Map/ }).hover()
+  await expect(banqiao).not.toHaveClass(/is-hovered/)
+  expect((await stage.boundingBox())!.height).toBe(initialHeight)
+
+  // The lower card contains selection state only, not a hover readout.
   await page.locator('.map-district[data-district="29"]').click()
-  await expect(readout).toContainText('Not part of the current answer')
-  await expect(readout).not.toContainText('55.6')
+  const selection = page.locator('.map-readout')
+  await expect(selection).toContainText('Wulai')
+  await expect(selection).not.toContainText('Not part of the current answer')
 })
 
 test('opens a district overview without creating another agent turn', async ({ page }) => {
@@ -305,6 +525,33 @@ test('opens a district overview without creating another agent turn', async ({ p
   await expect(page.locator('.turn.question')).toHaveCount(1)
   await expect(page.locator('.turn.answer')).toHaveCount(1)
   await expect(page.getByText(districtOverview.total.toLocaleString())).toBeVisible()
+})
+
+test('draws the published forecast after the observed trend in a district overview', async ({ page }) => {
+  await mockCopilot(page, { query: rankingAnswer, districtForecast })
+  await page.goto('/')
+  await ask(page, 'Where should I buy a home?')
+  await showInsight(page)
+  await page.getByRole('tab', { name: /Map/ }).click()
+
+  await page.locator('.map-district[data-district="01"]').click()
+  await page.getByRole('button', { name: 'View Banqiao population overview' }).click()
+
+  const chart = page.locator('[data-overview-chart="forecast"]')
+  await expect(chart).toBeVisible()
+  await expect(chart.locator('.recharts-line-curve')).toHaveCount(2)
+  await expect(chart).toContainText('80% interval')
+  // The forecast is kept apart from the published figures, under its own label.
+  await expect(page.locator('.overview-kpis')).not.toContainText('89,800')
+  const section = page.locator('[data-overview-section="forecast"]')
+  await expect(section).toContainText('Model estimate, not published data')
+  await expect(section.locator('[data-overview-kpi="forecast"]')).toContainText('89,800')
+  await expect(section).toContainText('Metrics: 5-year mean absolute error 1.3%')
+  await expect(section).not.toContainText('cohort-change-ratio-v1')
+  await expect(section).not.toContainText('Backtest')
+  await expect(section).toContainText('mean absolute error 1.3%')
+  await expect(page.locator('[data-overview-chart="forecast-components"]')).toContainText('Turning 18')
+  await expect(page.locator('.turn.question')).toHaveCount(1)
 })
 
 test('selects multiple map districts and compares all of them in one overview', async ({ page }) => {
@@ -345,7 +592,7 @@ test('a declared choropleth drives the map and does not repeat in the charts tab
   await mockCopilot(page, { query: trendAnswer })
   await page.goto('/')
   await ask(page, 'Compare the population trend')
-  await showInsight(page)
+  await showCharts(page)
 
   // The map spec belongs to the Map tab, so the charts list keeps the other two.
   await expect(page.locator('.viz-card')).toHaveCount(2)
@@ -356,43 +603,71 @@ test('a declared choropleth drives the map and does not repeat in the charts tab
   await expect(page.locator('.map-district[data-district="01"]')).toHaveClass(/is-cited/)
   await expect(page.locator('.map-district[data-district="17"]')).toHaveClass(/is-cited/)
 
-  // The readout names the map spec, not the trend line it was inferred from before.
+  // Selecting a district only adds it to the compact selection card; detailed
+  // values remain encoded by the map and its legend rather than duplicated below.
   await page.locator('.map-district[data-district="01"]').click()
-  const readout = page.locator('.map-readout')
-  await expect(readout).toContainText('150')
-  await expect(readout).toContainText('2025')
+  const selection = page.locator('.map-readout')
+  await expect(selection).toContainText('Banqiao')
+  await expect(selection).not.toContainText('2025')
 
   // A district with no evidence stays unshaded and says so.
   await expect(page.locator('.map-note').first()).toContainText('Covered 2 of 29 districts')
   await expect(page.locator('.map-note').first()).toContainText('烏來區')
 })
 
-test('the limitation audit states source age, coverage, and population basis', async ({ page }) => {
+test('a negative change map makes the strongest decline darkest', async ({ page }) => {
+  const changeAnswer = structuredClone(trendAnswer)
+  const map = changeAnswer.visualizations.find(item => item.type === 'choropleth')!
+  map.title = 'Population change'
+  map.y = { field: 'value', label: 'Change (%)', data_type: 'quantitative', unit: 'percent' }
+  map.rows[0].value = -7.5
+  map.rows[0].period = '2011–2026'
+  map.rows[1].value = -17
+  map.rows[1].period = '2011–2026'
+
+  await mockCopilot(page, { query: changeAnswer })
+  await page.goto('/')
+  await ask(page, 'Show population change by district')
+  await showInsight(page)
+  await page.getByRole('tab', { name: /Map/ }).click()
+
+  const mild = page.locator('.map-district[data-district="01"] path')
+  const severe = page.locator('.map-district[data-district="17"] path')
+  await expect(mild).toHaveAttribute('fill', /chart-negative.*44/)
+  await expect(severe).toHaveAttribute('fill', /chart-negative.*88/)
+  await expect(page.locator('.map-legend-ramp')).toHaveAttribute('data-scale', 'negative')
+
+  await page.locator('.map-district[data-district="17"]').hover()
+  const hover = page.locator('.map-hover-card')
+  await expect(hover).toContainText('Linkou')
+  await expect(hover).toContainText('-17')
+  await expect(hover).toContainText('2011–2026')
+})
+
+test('does not render the backend data-limitations audit', async ({ page }) => {
   await mockCopilot(page, { query: trendAnswer })
   await page.goto('/')
   await ask(page, 'Compare the population trend')
   await showChat(page)
 
-  const limits = page.locator('.data-limits')
-  await limits.getByText('Data limitations').click()
-  await expect(limits).toContainText('Registered household population')
-  await expect(limits).toContainText('published 10 days ago')
-  await expect(limits).toContainText('Covers 2 of 29 districts')
-  await expect(limits).toContainText('貢寮區')
+  await expect(page.locator('.data-limits')).toHaveCount(0)
+  await expect(page.locator('.status-pill')).toHaveCount(0)
+
+  await showInsight(page)
+  await page.getByRole('tab', { name: /Evidence/ }).click()
+  await expect(page.locator('.evidence-audit')).toHaveCount(0)
+  await expect(page.getByText('Data limitations')).toHaveCount(0)
+  await expect(page.getByText(/Outside the district set/)).toHaveCount(0)
 })
 
-test('builds an impact chain and withholds unsupported investment advice', async ({ page }) => {
+test('keeps what-if output out of the insight navigation', async ({ page }) => {
   await mockCopilot(page, { query: impactAnswer })
   await page.goto('/')
   await ask(page, 'Nếu thêm 2.000 thanh niên chuyển đến Linkou trước 2030, nên đầu tư hạ tầng gì?')
   await showInsight(page)
 
-  await expect(page.getByRole('tab', { name: /Impact/ })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('27,000')).toBeVisible()
-  await expect(page.getByText('Housing capacity')).toBeVisible()
-  await expect(page.getByText('Transport capacity')).toBeVisible()
-  await expect(page.getByText('Public Services capacity')).toBeVisible()
-  await expect(page.getByText(/Withheld until every required capacity link/)).toBeVisible()
+  await expect(page.getByRole('tab', { name: /Impact|What-if/i })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: /^Map/ })).toHaveAttribute('aria-selected', 'true')
 })
 
 
@@ -415,6 +690,40 @@ test('opens in Traditional Chinese and switches the whole shell to English', asy
   // The choice survives a reload.
   await page.reload()
   await expect(page.getByLabel('Language')).toHaveValue('en')
+})
+
+test('regenerates existing chat and charts when the interface language changes', async ({ page }) => {
+  const requests: unknown[] = []
+  const chineseAnswer = {
+    ...trendAnswer,
+    answer: '板橋區人口在所選期間增加。[data-1]',
+    visualizations: trendAnswer.visualizations.map((spec, index) => ({
+      ...spec,
+      title: index === 0 ? '人口趨勢' : spec.title,
+    })),
+  }
+  await mockCopilot(page, {
+    query: (_index, request) => (
+      (request as { responseLanguage?: string }).responseLanguage === 'zh-TW'
+        ? chineseAnswer
+        : trendAnswer
+    ),
+    onQuery: request => requests.push(request),
+  })
+  await page.goto('/')
+  await ask(page, 'Compare population trend from 2023 to 2025')
+  await expect(page.getByText(/Population count comparison/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0)
+
+  await page.getByLabel('Language').selectOption('zh-TW')
+  await expect(page.getByText(/板橋區人口在所選期間增加/)).toBeVisible()
+  await expect(page.getByText(/Population count comparison/)).toHaveCount(0)
+  await showInsight(page)
+  await page.getByRole('tab', { name: /^圖表/ }).click()
+  await expect(page.locator('[data-viz-id="observation-trend"]')).toContainText('人口趨勢')
+  expect(requests).toHaveLength(2)
+  expect(requests[0]).toMatchObject({ responseLanguage: 'en' })
+  expect(requests[1]).toMatchObject({ responseLanguage: 'zh-TW' })
 })
 
 test('names every district in the reader’s language on the map', async ({ page }) => {

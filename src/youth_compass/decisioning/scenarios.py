@@ -4,15 +4,27 @@ The engine ages observed single-year cohorts forward and makes every retention
 or migration assumption explicit. It does not infer a causal policy effect.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from statistics import median
 
-import duckdb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from youth_compass.domain.errors import AnalyticsNotAvailableError, QueryNotPermittedError
+from youth_compass.forecasting.cohort import (
+    DEFAULT_WINDOW_YEARS,
+    YOUTH_MAX_AGE,
+    CohortInputError,
+    estimate_change_ratios,
+    project_youth,
+    youth_count,
+)
+from youth_compass.forecasting.registration import (
+    RegistrationSourceError,
+    load_registration_history,
+)
 from youth_compass.ontology import NameLanguage, localized_district_name, resolve_district_name
 
 
@@ -83,6 +95,15 @@ class ScenarioEvidence(BaseModel):
     source_url: str | None = None
 
 
+class ScenarioTrajectoryPoint(BaseModel):
+    """City-wide projected totals at one year."""
+
+    year: int
+    baseline_value: int = Field(ge=0)
+    scenario_value: int = Field(ge=0)
+    absolute_delta: int
+
+
 class DistrictScenarioResult(BaseModel):
     """Before/after result for one canonical district."""
 
@@ -97,15 +118,9 @@ class DistrictScenarioResult(BaseModel):
     rank_change: int
     historical_retention_rate: float | None = None
     scenario_retention_rate: float | None = None
-
-
-class ScenarioTrajectoryPoint(BaseModel):
-    """City-wide projected totals at one year."""
-
-    year: int
-    baseline_value: int = Field(ge=0)
-    scenario_value: int = Field(ge=0)
-    absolute_delta: int
+    # The district's own annual path, so a district question is never charted
+    # against the city total.
+    trajectory: tuple[ScenarioTrajectoryPoint, ...] = ()
 
 
 class YouthPopulationScenarioResult(BaseModel):
@@ -128,6 +143,16 @@ class YouthPopulationScenarioResult(BaseModel):
     assumptions: tuple[str, ...]
     warnings: tuple[str, ...]
     generated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DistrictCohort:
+    """One district's base-year single ages and the ratios that age them forward."""
+
+    code: str
+    ages: dict[int, float]
+    ratios: dict[int, float]
+    retention_rate: float
 
 
 class YouthPopulationScenarioService:
@@ -253,6 +278,16 @@ class YouthPopulationScenarioService:
                 rank_change=baseline_ranks[code] - scenario_ranks[code],
                 historical_retention_rate=round(retention_rates[code], 6),
                 scenario_retention_rate=round(scenario_rates[code], 6),
+                trajectory=self._district_trajectory(
+                    code,
+                    observed_year,
+                    target_year,
+                    ages,
+                    retention_rates,
+                    scenario_rates,
+                    annual_flows,
+                    terminal=(baseline[code], scenario[code]),
+                ),
             )
             for code in sorted(baseline, key=lambda item: (scenario_ranks[item], item))
         )
@@ -332,103 +367,64 @@ class YouthPopulationScenarioService:
 
     def _population_context(
         self,
-    ) -> tuple[str, dict[str, dict[int, int]], dict[str, float]]:
+    ) -> tuple[str, dict[str, DistrictCohort], dict[str, float]]:
+        """The forecast's own snapshots and ratios, so both report one baseline.
+
+        Per-age cohort change ratios drive the projection; each district's
+        aggregate 17-34 to 18-35 transition is kept as the one retention rate a
+        scenario may adjust, and an adjustment scales every age's ratio by the
+        same factor.
+        """
+
         if not self._population_csv.is_file():
             raise AnalyticsNotAvailableError(
                 "the district single-age population source is unavailable"
             )
-        connection = duckdb.connect(database=":memory:")
         try:
-            latest = connection.execute(
-                """
-                WITH source AS (
-                    SELECT * FROM read_csv_auto(?)
-                ), district_coverage AS (
-                    SELECT "民國年" AS year_roc, "月" AS month, "區代碼" AS district_code
-                    FROM source
-                    WHERE "年齡下限" BETWEEN 18 AND 35
-                      AND "年齡上限" BETWEEN 18 AND 35
-                    GROUP BY 1, 2, 3
-                    HAVING count(DISTINCT "年齡下限") = 18
-                ), latest AS (
-                    SELECT year_roc, month
-                    FROM district_coverage
-                    GROUP BY 1, 2
-                    HAVING count(DISTINCT district_code) = 29
-                    ORDER BY 1 DESC, 2 DESC
-                    LIMIT 1
-                )
-                SELECT
-                       max(latest.year_roc)::INTEGER AS year_roc,
-                       max(latest.month)::INTEGER AS month
-                FROM source, latest
-                WHERE "民國年" = latest.year_roc
-                  AND "月" = latest.month
-                  AND "年齡下限" BETWEEN 18 AND 35
-                  AND "年齡上限" BETWEEN 18 AND 35
-                """,
-                [str(self._population_csv)],
-            ).fetchone()
-            if latest is None:
-                raise AnalyticsNotAvailableError(
-                    "the population source has no complete district-age period"
-                )
-            year_roc, month = int(latest[0]), int(latest[1])
-            rows = connection.execute(
-                """
-                SELECT "民國年"::INTEGER,
-                       lpad(CAST("區代碼" AS VARCHAR), 2, '0'),
-                       "年齡下限"::INTEGER,
-                       SUM("人數")::BIGINT
-                FROM read_csv_auto(?)
-                WHERE "月" = ? AND "民國年" BETWEEN ? AND ?
-                  AND "年齡下限" BETWEEN 0 AND 35
-                  AND "年齡上限" = "年齡下限"
-                GROUP BY 1, 2, 3
-                ORDER BY 1, 2, 3
-                """,
-                [str(self._population_csv), month, year_roc - 4, year_roc],
-            ).fetchall()
-        except duckdb.Error as exc:
-            raise AnalyticsNotAvailableError(
-                f"the district population source could not be read: {str(exc)[:240]}"
-            ) from exc
-        finally:
-            connection.close()
-        current: dict[str, dict[int, int]] = {}
-        history: dict[tuple[int, str], dict[int, int]] = {}
-        for year, code, age, population in rows:
-            history.setdefault((int(year), str(code)), {})[int(age)] = int(population)
-            if int(year) == year_roc:
-                current.setdefault(str(code), {})[int(age)] = int(population)
-        if len(current) != 29 or any(len(values) < 36 for values in current.values()):
-            raise AnalyticsNotAvailableError(
-                "the latest district population snapshot does not cover all 29 districts"
-            )
+            history = load_registration_history(self._population_csv)
+        except RegistrationSourceError as exc:
+            raise AnalyticsNotAvailableError(str(exc)) from exc
+        base_year = history.base_year
+        current = history.snapshots[base_year]
+        try:
+            ratios = estimate_change_ratios(history.snapshots, base_year)
+        except CohortInputError:
+            # A single snapshot has no transitions: cohorts age without change.
+            ratios = {code: dict.fromkeys(range(YOUTH_MAX_AGE), 1.0) for code in current}
+        cohorts: dict[str, DistrictCohort] = {}
         rates: dict[str, float] = {}
-        for code in current:
+        for code, ages in current.items():
             transitions: list[float] = []
-            for year in range(year_roc - 4, year_roc):
-                before = history.get((year, code))
-                after = history.get((year + 1, code))
+            for year in range(base_year - DEFAULT_WINDOW_YEARS, base_year):
+                before = history.snapshots.get(year, {}).get(code)
+                after = history.snapshots.get(year + 1, {}).get(code)
                 if before is None or after is None:
                     continue
-                denominator = sum(before.get(age, 0) for age in range(17, 35))
-                numerator = sum(after.get(age, 0) for age in range(18, 36))
+                denominator = sum(before.get(age, 0.0) for age in range(17, 35))
+                numerator = sum(after.get(age, 0.0) for age in range(18, 36))
                 if denominator > 0:
                     transitions.append(numerator / denominator)
             rates[code] = median(transitions) if transitions else 1.0
-        year = year_roc + 1911
-        return f"{year:04d}-{month:02d}", current, rates
+            cohorts[code] = DistrictCohort(
+                code=code, ages=ages, ratios=ratios[code], retention_rate=rates[code]
+            )
+        return history.base_period, cohorts, rates
 
     @staticmethod
-    def _project_one(ages: dict[int, int], retention_rate: float, horizon: int) -> int:
-        cohort = sum(ages.get(age, 0) for age in range(18 - horizon, 36 - horizon))
-        return max(0, round(cohort * retention_rate**horizon))
+    def _project_one(cohort: "DistrictCohort", retention_rate: float, horizon: int) -> int:
+        if horizon == 0:
+            return round(youth_count(cohort.ages))
+        baseline = project_youth(
+            cohort.code, cohort.ages, cohort.ratios, origin_year=0, horizon=horizon
+        ).value
+        # Every cohort passes through `horizon` ratios, so scaling each ratio by
+        # the retention change scales the whole projection by its power.
+        factor = retention_rate / cohort.retention_rate if cohort.retention_rate > 0 else 1.0
+        return max(0, round(baseline * factor**horizon))
 
     def _project(
         self,
-        ages: dict[str, dict[int, int]],
+        ages: dict[str, "DistrictCohort"],
         rates: dict[str, float],
         horizon: int,
     ) -> dict[str, int]:
@@ -436,11 +432,45 @@ class YouthPopulationScenarioService:
             code: self._project_one(values, rates[code], horizon) for code, values in ages.items()
         }
 
+    def _district_trajectory(
+        self,
+        code: str,
+        observed_year: int,
+        target_year: int,
+        ages: dict[str, "DistrictCohort"],
+        baseline_rates: dict[str, float],
+        scenario_rates: dict[str, float],
+        annual_flows: dict[str, float],
+        *,
+        terminal: tuple[int, int],
+    ) -> tuple[ScenarioTrajectoryPoint, ...]:
+        points = [
+            self._trajectory_point(
+                year,
+                observed_year,
+                {code: ages[code]},
+                baseline_rates,
+                scenario_rates,
+                {code: annual_flows[code]},
+            )
+            for year in range(observed_year, target_year + 1)
+        ]
+        # One-off operations land only at the target year, as in the city path.
+        baseline_value, scenario_value = terminal
+        if points and (points[-1].baseline_value, points[-1].scenario_value) != terminal:
+            points[-1] = ScenarioTrajectoryPoint(
+                year=target_year,
+                baseline_value=baseline_value,
+                scenario_value=scenario_value,
+                absolute_delta=scenario_value - baseline_value,
+            )
+        return tuple(points)
+
     def _trajectory_point(
         self,
         year: int,
         observed_year: int,
-        ages: dict[str, dict[int, int]],
+        ages: dict[str, "DistrictCohort"],
         baseline_rates: dict[str, float],
         scenario_rates: dict[str, float],
         annual_flows: dict[str, float],

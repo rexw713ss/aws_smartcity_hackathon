@@ -47,6 +47,7 @@ follows the existing `AnswerDraft` contract: the model may choose and phrase, ne
 | Group | Fields |
 |---|---|
 | Structure | `entity_count`, `period_count`, `granularity` (`year`/`month`/`mixed`/`unknown`), `coverage_ratio`, `periods` |
+| Temporal coverage | `expected_monthly_points`, `missing_monthly_points`, `monthly_coverage_ratio`, `plot_interval_months` |
 | Distribution | `value_min`, `value_max`, `value_median`, `spread_ratio` (max/min across entities in the latest shared period), `coefficient_of_variation` |
 | Signal | `net_change_ratio` per entity (`|last - first| / first`), `signal_to_noise` (`|net change| / stdev of first differences`), `is_flat`, `direction` |
 | Issues | `tuple[DataIssue]` with a stable `code`, severity, and affected entities/periods |
@@ -65,8 +66,15 @@ Unmapped entities and the estimated-value share are exposed as plain fields
 (`unmapped_entity_ids`, `estimated_point_ratio`) rather than issues: `limitations.py` already
 narrates both, and selection needs them as inputs, not as a second caveat.
 
-The profile feeds stages 2–4 and the chart's caveat text. It never modifies a value, and
+The profile feeds stages 2–4 and the internal agent trace. It never modifies a value, and
 `limitations.py` remains the owner of freshness and coverage reporting.
+
+For monthly data, the profiler expands each entity's first-to-last calendar span before counting
+coverage, so a month absent from every returned row is still detected. It selects the smallest
+cadence among month, quarter, half-year, year, and two-year blocks that both fits the chart budget
+and avoids gratuitous gaps. A coarser point is the last actually published observation in that
+bucket—not an interpolation or average—and retains `source_period` for the tooltip. Empty coarse
+buckets do not create synthetic null rows; their missingness remains available in the trace.
 
 ## Stage 2 — Measure selection (`agent/measures.py`)
 

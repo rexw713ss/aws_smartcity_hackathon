@@ -441,7 +441,40 @@ def test_line_chart_limits_series_without_a_duplicate_observation_table() -> Non
     assert all(item.type is not VisualizationType.DATA_TABLE for item in specs)
 
 
-def test_monthly_line_marks_a_missing_period_and_preserves_key_points_when_sampled() -> None:
+def test_long_multi_series_line_uses_one_sorted_sampling_timeline() -> None:
+    series = ObservationSeries(
+        dataset_id="population",
+        dataset_version="v1",
+        metric_code="population_count",
+        unit_code="persons",
+        population_scope="youth_specific",
+        points=tuple(
+            ObservationPoint(
+                entity_id=f"district-{entity}",
+                entity_name=f"District {entity}",
+                period=f"{year:04d}-{month:02d}",
+                value=float(100_000 - entity * 7_000 - offset * 100 * (entity + 1)),
+                estimated_value=0,
+            )
+            for entity in range(8)
+            for offset, (year, month) in enumerate(
+                (index // 12, index % 12 + 1) for index in range(2023 * 12, 2026 * 12)
+            )
+        ),
+    )
+
+    line = VisualizationBuilder().observations("Population trend", series, None, ())[0]
+    periods = [str(row["period"]) for row in line.rows]
+    unique_periods = sorted(set(periods))
+
+    assert periods == sorted(periods)
+    assert len(unique_periods) <= 25
+    assert {row["entity_id"] for row in line.rows if row["period"] == unique_periods[10]} == {
+        f"district-{entity}" for entity in range(8)
+    }
+
+
+def test_monthly_line_chooses_quarterly_cadence_after_reading_missingness() -> None:
     points = []
     for year in range(2018, 2024):
         for month in range(1, 13):
@@ -471,12 +504,53 @@ def test_monthly_line_marks_a_missing_period_and_preserves_key_points_when_sampl
     specs = VisualizationBuilder().observations("Population trend in Linkou", series, None, ())
 
     line = specs[0]
-    assert len(line.rows) <= 48
+    assert len(line.rows) == 24
     assert line.truncated is True
-    assert any(row["period"] == "2019-09" and row["value"] is None for row in line.rows)
-    assert any(row["period"] == "2021-06" and row["value"] == 30_000 for row in line.rows)
-    assert line.rows[0]["period"] == "2018-01"
-    assert line.rows[-1]["period"] == "2023-12"
+    assert all(row["value"] is not None for row in line.rows)
+    assert any(
+        row["period"] == "2021-Q2" and row["source_period"] == "2021-06" and row["value"] == 30_000
+        for row in line.rows
+    )
+    assert line.rows[0]["period"] == "2018-Q1"
+    assert line.rows[-1]["period"] == "2023-Q4"
+    assert line.description is None
+
+
+def test_a_year_hole_uses_only_one_continuous_point_per_two_year_block() -> None:
+    points = tuple(
+        ObservationPoint(
+            entity_id="linkou",
+            period=f"{year:04d}-{month:02d}",
+            value=float(200_000 - (year - 2011) * 5_000 - month * 10),
+            estimated_value=0,
+        )
+        for year in range(2011, 2027)
+        if year != 2017
+        for month in range(1, 13)
+    )
+    series = ObservationSeries(
+        dataset_id="population",
+        dataset_version="v1",
+        metric_code="population_count",
+        unit_code="persons",
+        population_scope="youth_specific",
+        points=points,
+    )
+
+    line = VisualizationBuilder().observations("Population trend in Linkou", series, None, ())[0]
+
+    assert [row["period"] for row in line.rows] == [
+        "2012",
+        "2014",
+        "2016",
+        "2018",
+        "2020",
+        "2022",
+        "2024",
+        "2026",
+    ]
+    assert all(row["value"] is not None for row in line.rows)
+    assert line.description is None
 
 
 def _observation_series(values: dict[str, dict[str, float]]) -> ObservationSeries:
@@ -578,7 +652,7 @@ def test_a_city_wide_question_without_spatial_wording_keeps_the_map_as_a_weaker_
     assert mapped and mapped[0].intent_fit == 0.5
 
 
-def test_an_index_measure_rescales_the_line_and_states_why_on_the_chart() -> None:
+def test_an_index_measure_rescales_the_line_without_methodology_on_the_chart() -> None:
     series = _observation_series(
         {
             "banqiao": {"2022": 50000.0, "2023": 49000.0},
@@ -605,7 +679,7 @@ def test_an_index_measure_rescales_the_line_and_states_why_on_the_chart() -> Non
     assert values[("Pinglin", "2023")] == 80.0
     # Every plotted point still carries the published figure it was derived from.
     assert all("source_value" in row for row in line.rows)
-    assert line.description is not None and "starting value" in line.description
+    assert line.description is None
 
 
 def test_a_percentage_measure_moves_the_comparison_bar_off_absolute_change() -> None:

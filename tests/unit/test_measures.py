@@ -309,3 +309,23 @@ def test_a_rate_without_denominators_fails_instead_of_plotting_nothing() -> None
 
     with pytest.raises(ValueError, match="denominator"):
         apply_measure(series, measure)
+
+
+def test_a_rate_keeps_its_percentage_points_even_across_uneven_groups() -> None:
+    # 15-24 unemployment sits near 10% and 35-39 near 2%: "wide" by spread, but
+    # indexing or taking a percent of a rate hides the points that moved.
+    series = _series(
+        (
+            *_trend("65000:15-24", {"2022": 10.0, "2023": 10.5}),
+            *_trend("65000:35-39", {"2022": 2.0, "2023": 1.5}),
+        ),
+        metric_code="unemployment_rate",
+        unit_code="percent",
+    )
+
+    for operations in (
+        (AnalysisOperation.QUERY_OBSERVATIONS,),
+        (AnalysisOperation.QUERY_OBSERVATIONS, AnalysisOperation.COMPARE_ENTITIES),
+    ):
+        measure = choose_measure(profile_series(series), _query(*operations))
+        assert measure.transform is Transform.RAW

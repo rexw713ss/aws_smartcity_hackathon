@@ -71,7 +71,22 @@ def test_reviewer_to_dashboard_vertical_slice_hides_local_paths(tmp_path: Path) 
             mapping = await client.get(f"/api/v1/ingestion-jobs/{job_id}/mapping")
             assert mapping.status_code == 200
             assert mapping.json()["validation"]["valid"] is True
+            assert mapping.json()["profile"]["source_path"] == "population.csv"
             assert str(tmp_path) not in mapping.text
+
+            preview = await client.get(f"/api/v1/ingestion-jobs/{job_id}/mapping-preview")
+            assert preview.status_code == 200
+            previews = {item["sourceColumn"]: item for item in preview.json()}
+            assert previews["year"]["samples"][0]["source"] == "2025"
+            assert previews["year"]["samples"][0]["canonical"] == {
+                "year_gregorian": 2025,
+                "year_roc": 114,
+            }
+            assert previews["district"]["samples"][0]["canonical"] == {
+                "district_code": "01",
+                "district_name": "板橋區",
+            }
+            assert str(tmp_path) not in preview.text
 
             approved = await client.post(
                 f"/api/v1/ingestion-jobs/{job_id}/decision",

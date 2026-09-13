@@ -231,3 +231,35 @@ def test_projection_uses_historical_cohorts_and_a_data_derived_benchmark(
     assert result.trajectory[-1].baseline_value == result.baseline_total
     assert result.trajectory[-1].scenario_value == result.scenario_total
     assert any(item.kind.value == "derived" for item in result.evidence)
+    assert len(linkou.trajectory) == 5
+    assert linkou.trajectory[-1].baseline_value == linkou.baseline_value
+    assert linkou.trajectory[-1].scenario_value == linkou.scenario_value
+    assert linkou.trajectory[-1].baseline_value < result.baseline_total
+
+
+def test_impact_chart_follows_the_district_and_sizes_the_shock(tmp_path: Path) -> None:
+    from youth_compass.agent.impact import _impact_visualizations
+
+    source = tmp_path / "population.csv"
+    _write_population_history(source)
+    result = YouthPopulationScenarioService(source).run(
+        (
+            ScenarioAdjustment(
+                district_id="Linkou", operation=ScenarioOperation.ABSOLUTE_CHANGE, value=2_000
+            ),
+        ),
+        balance_mode=PopulationBalanceMode.OPEN,
+        target_year=2030,
+    )
+    linkou = next(row for row in result.rows if row.district_code == "17")
+
+    (chart,) = _impact_visualizations(result, linkou, "If 2,000 young people move to Linkou?")
+
+    baseline = [row for row in chart.rows if row["path"] == "Baseline"]
+    scenario = [row for row in chart.rows if row["path"] == "Scenario"]
+    assert baseline[-1]["population"] == linkou.baseline_value
+    # A one-off shock leaves the baseline only in the final year.
+    assert [row["year"] for row in scenario] == [2029, 2030]
+    assert chart.reference_lines[0].value == linkou.trajectory[0].baseline_value
+    assert chart.headline is not None
+    assert chart.headline.startswith("+2,000 people is ")

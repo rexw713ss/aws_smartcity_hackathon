@@ -117,6 +117,14 @@ class SeriesProfile(BaseModel):
     period_count: int = Field(default=0, ge=0)
     periods: tuple[str, ...] = ()
     granularity: Granularity = Granularity.UNKNOWN
+    # Calendar-aware coverage for monthly data. Unlike ``coverage_ratio``, the
+    # denominator includes months that are wholly absent from the result.
+    expected_monthly_points: int = Field(default=0, ge=0)
+    missing_monthly_points: int = Field(default=0, ge=0)
+    monthly_coverage_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    # The smallest honest display cadence that avoids gratuitous line breaks
+    # and stays within the chart point budget. Values are 1, 3, 6, 12, or 24.
+    plot_interval_months: int = Field(default=1, ge=1, le=24)
     # Distinct (entity, period) pairs over the full grid those entities and
     # periods would span.
     coverage_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -167,6 +175,9 @@ def profile_series(series: ObservationSeries) -> SeriesProfile:
         abs(signal.net_change_ratio) for signal in signals if signal.net_change_ratio is not None
     ]
     coverage_ratio = len(pairs) / grid if grid else 0.0
+    expected_monthly, missing_monthly, monthly_coverage, plot_interval = _monthly_plot_plan(
+        by_entity
+    )
 
     return SeriesProfile(
         metric_code=series.metric_code,
@@ -175,6 +186,10 @@ def profile_series(series: ObservationSeries) -> SeriesProfile:
         period_count=len(periods),
         periods=periods,
         granularity=_granularity(periods),
+        expected_monthly_points=expected_monthly,
+        missing_monthly_points=missing_monthly,
+        monthly_coverage_ratio=monthly_coverage,
+        plot_interval_months=plot_interval,
         coverage_ratio=coverage_ratio,
         value_min=min(values),
         value_max=max(values),
@@ -257,6 +272,73 @@ def _granularity(periods: Sequence[str]) -> Granularity:
     if any(_YEAR.fullmatch(period) or _MONTH.fullmatch(period) for period in periods):
         return Granularity.MIXED
     return Granularity.UNKNOWN
+
+
+def _monthly_plot_plan(
+    by_entity: dict[str, list[ObservationPoint]],
+) -> tuple[int, int, float | None, int]:
+    """Inspect calendar holes and choose the smallest defensible chart cadence.
+
+    A wider cadence never fabricates an average. The visualization layer will
+    retain one published observation inside each bucket. Missingness remains in
+    the profile and tool trace instead of becoming user-facing chart prose.
+    """
+
+    observed_by_entity: list[set[int]] = []
+    for points in by_entity.values():
+        indices: set[int] = set()
+        for point in points:
+            index = _month_index(point.period)
+            if index is None:
+                return 0, 0, None, 1
+            indices.add(index)
+        observed_by_entity.append(indices)
+    if not observed_by_entity:
+        return 0, 0, None, 1
+
+    expected = sum(max(indices) - min(indices) + 1 for indices in observed_by_entity)
+    observed = sum(len(indices) for indices in observed_by_entity)
+    missing = expected - observed
+    coverage = observed / expected if expected else None
+    longest_span = max(max(indices) - min(indices) + 1 for indices in observed_by_entity)
+    if missing == 0 and longest_span <= 48:
+        return expected, missing, coverage, 1
+
+    candidates: list[tuple[float, int, int]] = []
+    shared_start = min(min(indices) for indices in observed_by_entity)
+    for interval in (3, 6, 12, 24):
+        ratios: list[float] = []
+        missing_buckets: list[int] = []
+        usable = True
+        for indices in observed_by_entity:
+            first = (min(indices) - shared_start) // interval
+            last = (max(indices) - shared_start) // interval
+            expected_buckets = last - first + 1
+            present_buckets = len({(index - shared_start) // interval for index in indices})
+            if present_buckets < 2 or expected_buckets > 48:
+                usable = False
+                break
+            ratios.append(present_buckets / expected_buckets)
+            missing_buckets.append(expected_buckets - present_buckets)
+        if usable:
+            minimum_coverage = min(ratios)
+            if minimum_coverage == 1.0:
+                return expected, missing, coverage, interval
+            candidates.append((minimum_coverage, max(missing_buckets), interval))
+
+    # Prefer the cadence with the fewest empty buckets, then the least coarse
+    # one. Missing buckets remain recorded in the profile and trace.
+    interval = (
+        max(candidates, key=lambda item: (item[0], -item[1], -item[2]))[2] if candidates else 1
+    )
+    return expected, missing, coverage, interval
+
+
+def _month_index(period: str) -> int | None:
+    match = _MONTH.fullmatch(period)
+    if match is None:
+        return None
+    return int(period[:4]) * 12 + int(match.group(1)) - 1
 
 
 def _issues(
@@ -381,7 +463,8 @@ def _level_shifts(by_entity: dict[str, list[ObservationPoint]]) -> tuple[DataIss
                 DataIssue(
                     code=IssueCode.LEVEL_SHIFT,
                     message=(
-                        f"{entity_id} jumps far outside its usual step size at "
+                        f"{ordered[0].entity_name or entity_id} jumps far outside its usual "
+                        "step size at "
                         f"{', '.join(flagged)}, which often marks a definition change"
                     ),
                     entity_ids=(entity_id,),

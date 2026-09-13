@@ -13,10 +13,12 @@ from youth_compass.ontology.districts import (
 )
 from youth_compass.ontology.naming import (
     display_name,
+    force_question_language,
     humanize_code,
     question_language,
     readable_entity_name,
     readable_feature_name,
+    visible_question,
 )
 from youth_compass.ontology.population import (
     RegistrationBasis,
@@ -44,6 +46,7 @@ __all__ = [
     "district_spellings",
     "extract_districts",
     "extract_topics",
+    "force_question_language",
     "humanize_code",
     "localized_district_name",
     "question_language",
@@ -54,4 +57,5 @@ __all__ = [
     "resolve_registration_basis",
     "resolve_topic_name",
     "topic_spellings",
+    "visible_question",
 ]

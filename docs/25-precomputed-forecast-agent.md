@@ -40,10 +40,17 @@ version, assumptions, and the limitation that prediction is not evidence of poli
 
 ## Publishing locally
 
+`make forecast` generates the cohort artifact and its model card; see
+`docs/31-youth-population-forecast.md`. The reader also accepts the optional driver columns and
+attaches the model card only when its `model_version` and `generated_at` match the artifact.
+
 Generate a complete temporary Parquet file, validate it, and atomically promote it to
 `data/forecasts/current.parquet`. Do not overwrite the current artifact until all districts,
 horizons, model versions, timestamps, and intervals pass validation. Generated forecast files
 remain ignored by Git.
+
+The deployed API uses `forecast.provider: s3`, which reads the same two files from the
+forecasts bucket (`docs/31`, Deployment).
 
 AWS runtimes that still configure `forecast.provider: sagemaker` do not advertise this local
 tool. They continue to fail closed until an AWS forecast adapter or published-artifact reader is

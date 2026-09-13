@@ -90,7 +90,7 @@ def resolve_registration_basis(*texts: str) -> RegistrationBasis:
     return found.pop()
 
 
-_CAVEATS: dict[RegistrationBasis, str] = {
+_CAVEATS: dict[RegistrationBasis, str | None] = {
     RegistrationBasis.REGISTERED_HOUSEHOLD: (
         "These counts are registered household population (戶籍人口): people whose household "
         "registration is in the district, which is not necessarily where they live. Commuter "
@@ -100,15 +100,14 @@ _CAVEATS: dict[RegistrationBasis, str] = {
         "These counts are usual residents (常住人口). They are not comparable with household "
         "registration counts (戶籍人口) and should not be combined with them in one rate."
     ),
-    RegistrationBasis.UNKNOWN: (
-        "The published catalog does not record whether this metric counts registered household "
-        "population (戶籍人口) or usual residents (常住人口). Confirm the basis with the "
-        "publisher before comparing it against a series measured the other way."
-    ),
+    # Absence of this metadata is kept as structured state, not repeated as a
+    # generic caveat on every answer. A note is only useful when the source
+    # positively identifies which population definition it uses.
+    RegistrationBasis.UNKNOWN: None,
 }
 
 
-def registration_basis_caveat(basis: RegistrationBasis) -> str:
-    """Return the reader-facing limitation sentence for one basis."""
+def registration_basis_caveat(basis: RegistrationBasis) -> str | None:
+    """Return a useful population-definition caveat, if the basis is known."""
 
     return _CAVEATS[basis]

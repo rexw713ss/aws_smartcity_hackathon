@@ -15,6 +15,7 @@ import boto3
 import botocore.exceptions
 
 from adapters.aws.workflow_token_store import WorkflowTokenStore
+from youth_compass.domain.contracts import MappingAnalysis
 from youth_compass.domain.errors import (
     WorkflowNotFoundError,
     WorkflowStateError,
@@ -113,6 +114,16 @@ class StepFunctionsRunner:
             raise WorkflowNotFoundError(f"unknown workflow job {job_id!r}") from exc
         status = self._STATUS_MAP.get(response["status"], JobStatus.FAILED)
         return JobReference(job_id=job_id, status=status, created_at=response["startDate"])
+
+    def get_mapping_analysis(self, job_id: str) -> MappingAnalysis:
+        """Return review state persisted by the workflow's approval task."""
+
+        if self._store is None:
+            raise WorkflowNotFoundError(f"no durable review state for job {job_id!r}")
+        analysis = self._store.get_mapping_analysis(job_id)
+        if analysis is None:
+            raise WorkflowNotFoundError(f"no mapping review is available for job {job_id!r}")
+        return analysis
 
     def resume_after_approval(self, job_id: str, decision: ApprovalDecision) -> None:
         """Settle the job by returning the real task token to Step Functions."""

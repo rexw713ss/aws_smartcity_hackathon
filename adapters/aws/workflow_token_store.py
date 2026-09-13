@@ -1,4 +1,4 @@
-"""Durable DynamoDB store for workflow status and Step Functions task tokens.
+"""Durable DynamoDB store for workflow status, review state, and task tokens.
 
 Feature: aws-stage2-adapters (PR2 — Production Ingestion Workflow).
 
@@ -8,9 +8,12 @@ survives an API or Lambda restart. Stored in the shared metadata table under a
 ``sfn#<job_id>`` namespace, distinct from catalog and checkpoint records.
 """
 
+import json
+
 import boto3
 import botocore.exceptions
 
+from youth_compass.domain.contracts import MappingAnalysis
 from youth_compass.domain.errors import WorkflowPersistenceError
 from youth_compass.ports.workflow_runner import JobStatus
 
@@ -47,6 +50,23 @@ class WorkflowTokenStore:
     def clear_token(self, job_id: str) -> None:
         self._update(job_id, {"task_token": None})
 
+    def put_mapping_analysis(self, job_id: str, analysis: MappingAnalysis) -> None:
+        """Persist the safe reviewer payload produced before the approval pause."""
+
+        self._update(job_id, {"mapping_analysis": analysis.model_dump_json()})
+
+    def get_mapping_analysis(self, job_id: str) -> MappingAnalysis | None:
+        item = self._get(job_id)
+        payload = item.get("mapping_analysis") if item else None
+        if not payload:
+            return None
+        try:
+            return MappingAnalysis.model_validate(json.loads(str(payload)))
+        except (TypeError, ValueError) as exc:
+            raise WorkflowPersistenceError(
+                f"workflow review state {job_id!r} is invalid"
+            ) from exc
+
     def _update(self, job_id: str, fields: dict[str, str | None]) -> None:
         item = self._get(job_id) or {"dataset_id": _pk(job_id), "version": _ITEM_SORT_KEY}
         for key, value in fields.items():
@@ -66,4 +86,11 @@ class WorkflowTokenStore:
             )
         except botocore.exceptions.ClientError as exc:
             raise WorkflowPersistenceError(f"cannot read workflow state {job_id!r}") from exc
-        return response.get("Item")
+        item = response.get("Item")
+        if not isinstance(item, dict):
+            return None
+        return {
+            key: value
+            for key, value in item.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }

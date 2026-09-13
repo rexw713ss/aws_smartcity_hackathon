@@ -128,6 +128,10 @@ def series_digest(
         "period_start": profile.periods[0] if profile.periods else None,
         "period_end": profile.periods[-1] if profile.periods else None,
         "granularity": profile.granularity.value,
+        "expected_monthly_points": profile.expected_monthly_points,
+        "missing_monthly_points": profile.missing_monthly_points,
+        "monthly_coverage_ratio": profile.monthly_coverage_ratio,
+        "recommended_plot_interval_months": profile.plot_interval_months,
         "value_min": profile.value_min,
         "value_max": profile.value_max,
         "value_median": profile.value_median,
@@ -158,6 +162,11 @@ def series_digest(
             {"code": issue.code.value, "detail": quarantine(issue.message)}
             for issue in profile.issues
         ],
+        # Overview questions do not need the compare_entities tool (and must
+        # still work for a one-period dataset), but the narrator needs more
+        # than a row count. These deterministic highlights expose the strongest
+        # movements and latest extremes without sending every series point.
+        "overview_highlights": _overview_highlights(profile),
     }
     if comparison is not None:
         digest["comparison"] = {
@@ -179,6 +188,33 @@ def series_digest(
             "changes_omitted": max(0, len(comparison.changes) - _MAX_DESCRIBED_ENTITIES),
         }
     return digest
+
+
+def _overview_highlights(profile: SeriesProfile) -> dict[str, Any]:
+    def describe(signal: Any) -> dict[str, Any]:
+        return {
+            "entity_name": quarantine(signal.entity_name or signal.entity_id),
+            "first_period": signal.first_period,
+            "last_period": signal.last_period,
+            "first_value": signal.first_value,
+            "last_value": signal.last_value,
+        }
+
+    upward = [item for item in profile.signals if (item.net_change_ratio or 0) > 0]
+    downward = [item for item in profile.signals if (item.net_change_ratio or 0) < 0]
+    latest_period = profile.comparison_period or (profile.periods[-1] if profile.periods else None)
+    latest = [item for item in profile.signals if item.last_period == latest_period]
+    strongest_up = max(upward, key=lambda item: item.net_change_ratio or 0, default=None)
+    strongest_down = min(downward, key=lambda item: item.net_change_ratio or 0, default=None)
+    highest = max(latest, key=lambda item: item.last_value, default=None)
+    lowest = min(latest, key=lambda item: item.last_value, default=None)
+    return {
+        "latest_period": latest_period,
+        "strongest_increase": describe(strongest_up) if strongest_up is not None else None,
+        "strongest_decrease": describe(strongest_down) if strongest_down is not None else None,
+        "latest_highest": describe(highest) if highest is not None else None,
+        "latest_lowest": describe(lowest) if lowest is not None else None,
+    }
 
 
 def inspection_digest(inspection: DatasetInspection) -> dict[str, Any]:

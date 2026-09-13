@@ -43,23 +43,34 @@ def main() -> None:
         default=Path("data"),
         help="Local data root the answer suite reads published datasets from.",
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optionally persist the machine-readable report as JSON.",
+    )
     args = parser.parse_args()
     failed = 0
     if args.suite in ("routing", "all"):
-        failed += _run_routing(args.cases or Path("evals/agent-routing.jsonl"), args.provider)
+        failed += _run_routing(
+            args.cases or Path("evals/agent-routing.jsonl"), args.provider, args.output
+        )
     if args.suite in ("answers", "all"):
         failed += _run_answers(args.cases or Path("evals/agent-answers.jsonl"), args.data_root)
     if failed:
         raise SystemExit(1)
 
 
-def _run_routing(cases_path: Path, provider: str) -> int:
+def _run_routing(cases_path: Path, provider: str, output: Path | None = None) -> int:
     cases = load_eval_cases(cases_path)
     registry = _eval_capabilities()
     decomposer = _decomposer(provider, registry)
     report = asyncio.run(AgentEvalHarness(decomposer, SmartToolRouter(registry)).run(cases))
     print("== routing ==")
     print(report.model_dump_json(indent=2))
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return report.failed
 
 

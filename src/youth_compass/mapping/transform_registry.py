@@ -25,6 +25,11 @@ TRANSFORMATIONS = {
             "Parse ROC or Gregorian year and emit normalized calendar fields.",
         ),
         TransformationDefinition(
+            "parse_compact_date",
+            _types(PrimitiveType.INTEGER, PrimitiveType.STRING),
+            "Parse ROC YYYMMDD or Gregorian YYYYMMDD and emit calendar fields.",
+        ),
+        TransformationDefinition(
             "parse_month",
             _types(PrimitiveType.INTEGER, PrimitiveType.STRING, PrimitiveType.EMPTY),
             "Parse month values from 1 through 12.",
@@ -38,6 +43,11 @@ TRANSFORMATIONS = {
             "normalize_district",
             _types(PrimitiveType.STRING),
             "Resolve district aliases to canonical code and name.",
+        ),
+        TransformationDefinition(
+            "extract_district",
+            _types(PrimitiveType.STRING),
+            "Extract one explicit New Taipei district from an address or building site.",
         ),
         TransformationDefinition(
             "parse_age_range",

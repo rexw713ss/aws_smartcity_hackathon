@@ -237,6 +237,29 @@ def test_copilot_query_returns_grounded_ranking(tmp_path: Path) -> None:
     assert "source_uri" not in response.text
 
 
+def test_copilot_query_honors_ui_response_language_without_exposing_an_instruction(
+    tmp_path: Path,
+) -> None:
+    _write_home_features(tmp_path)
+    client = TestClient(create_app(tmp_path))
+    question = "Where should I buy a home?"
+
+    response = client.post(
+        "/api/v1/copilot/query",
+        json={
+            "question": question,
+            "responseLanguage": "zh-TW",
+            "entityIds": ["banqiao", "linkou"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "排名第一" in body["answer"]
+    assert body["decomposition"]["original_question"] == question
+    assert body["visualizations"][0]["title"] == "候選地點排名"
+
+
 def test_copilot_query_stream_finishes_with_validated_response(tmp_path: Path) -> None:
     _write_home_features(tmp_path)
     client = TestClient(create_app(tmp_path))
@@ -249,7 +272,13 @@ def test_copilot_query_stream_finishes_with_validated_response(tmp_path: Path) -
         events = [json.loads(line) for line in response.iter_lines() if line]
 
     assert response.status_code == 200
-    assert events[0]["type"] in {"delta", "text"}
+    assert [event.get("stage") for event in events if event["type"] == "stage"] == [
+        "planning",
+        "routing",
+        "analysis",
+        "composing",
+    ]
+    assert any(event["type"] in {"delta", "text"} for event in events)
     assert events[-1]["type"] == "result"
     assert events[-1]["response"]["status"] == "answered"
 
@@ -419,6 +448,30 @@ def test_catalog_question_lists_usable_datasets_without_internal_versions(tmp_pa
     assert "employment-internal-v1" not in body["answer"]
     assert [item["dataset_id"] for item in body["citations"]] == ["youth_population"]
     assert body["visualizations"][0]["visualization_id"] == "published-dataset-catalog"
+
+
+def test_topic_overview_returns_observations_instead_of_the_dataset_catalog(
+    tmp_path: Path,
+) -> None:
+    app = create_app(tmp_path)
+    app.state.runtime.catalog.register(_write_population_observations(tmp_path))
+    client = TestClient(app)
+
+    body = client.post(
+        "/api/v1/copilot/query",
+        json={"question": "Give me an overview of Population"},
+    ).json()
+
+    assert body["status"] == "answered"
+    assert body["observation_series"] is not None
+    assert "covers 2 locations from 2023 to 2025" in body["answer"]
+    assert "Banqiao rose from 100 in 2023 to 120 in 2025" in body["answer"]
+    assert "Linkou fell from 80 in 2023 to 72 in 2025" in body["answer"]
+    assert "figures alone do not explain its cause" in body["answer"]
+    assert any(item["tool"] == "query_observations" for item in body["tool_trace"])
+    assert all(
+        item["visualization_id"] != "published-dataset-catalog" for item in body["visualizations"]
+    )
 
 
 def test_multi_dataset_question_queries_and_joins_every_requested_input(
@@ -1198,3 +1251,32 @@ def test_a_republished_version_is_not_served_from_the_cache(tmp_path: Path) -> N
     assert second["dataset_inspection"]["dataset_version"] == "v2-republished"
     # A fresh version was read rather than served stale, so bytes were scanned.
     assert sum(item.get("scanned_bytes") or 0 for item in second["tool_trace"]) > 0
+
+
+def test_district_forecast_endpoint_serves_the_published_baseline(tmp_path: Path) -> None:
+    _write_population_forecast(tmp_path)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.get("/api/v1/districts/linkou/forecast", params={"horizonYears": 2})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["modelVersion"] == "seasonal-naive-v1"
+    assert [point["year"] for point in body["points"]] == [2027, 2028]
+    assert body["points"][0] == {
+        "year": 2027,
+        "period": "2027-01",
+        "value": 71.0,
+        "lower": 65.0,
+        "upper": 77.0,
+        "entering": None,
+        "ageingOut": None,
+        "netChange": None,
+    }
+
+
+def test_district_forecast_endpoint_is_404_without_a_forecast(tmp_path: Path) -> None:
+    _write_population_forecast(tmp_path)
+    client = TestClient(create_app(tmp_path))
+
+    assert client.get("/api/v1/districts/pinglin/forecast").status_code == 404

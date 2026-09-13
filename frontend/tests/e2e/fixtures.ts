@@ -246,6 +246,30 @@ export const acquisitionAnswer = {
   warnings: ['This source has not been approved or published yet.'],
 }
 
+export const webAcquisitionAnswer = {
+  ...acquisitionAnswer,
+  answer: 'I found an unverified source suggestion on an approved government site.',
+  source_candidates: [],
+  web_citations: [
+    {
+      citation_id: 'web-1',
+      title: 'New Taipei housing open data',
+      url: 'https://data.ntpc.gov.tw/datasets/housing.csv',
+      snippet: 'Housing market data published by New Taipei City.',
+      published_at: null,
+    },
+  ],
+  data_requirement: {
+    topic_terms: ['housing'],
+    metric_codes: ['property_cost'],
+    entity_ids: [],
+    time_expression: null,
+    accepted_formats: ['csv', 'json', 'xlsx'],
+  },
+  tool_trace: [{ tool: 'discover_web_sources', outcome: 'candidates', summary: '1 approved-host result' }],
+  warnings: ['Web results are unverified source suggestions, not evidence.'],
+}
+
 export const insufficientAnswer = {
   status: 'insufficient_data',
   answer: 'There is not enough compatible observation data for this analysis.',
@@ -256,7 +280,48 @@ export const insufficientAnswer = {
   source_candidates: [],
   assumptions: [],
   warnings: ["at least two periods are required to compare entity '01'"],
+  data_requirement: {
+    topic_terms: ['population', 'employment'],
+    metric_codes: ['population_count', 'employment_count'],
+    entity_ids: [],
+    time_expression: null,
+    accepted_formats: ['csv', 'json', 'excel'],
+  },
 }
+
+export const reviewerMapping = {
+  profile: {
+    file_name: 'population.csv', file_format: 'csv', file_size_bytes: 128,
+    row_count: 2, column_count: 4, candidate_grain: ['year_gregorian', 'district_code', 'age_label_original'],
+    columns: [
+      { name: 'year', inferred_type: 'integer', semantic_role: 'year', null_rate: 0, distinct_count: 1, sample_values: ['2025'] },
+      { name: 'district', inferred_type: 'string', semantic_role: 'district', null_rate: 0, distinct_count: 2, sample_values: ['板橋區', '林口區'] },
+      { name: 'age', inferred_type: 'string', semantic_role: 'age_label', null_rate: 0, distinct_count: 1, sample_values: ['20-24'] },
+      { name: 'population', inferred_type: 'integer', semantic_role: 'metric', null_rate: 0, distinct_count: 2, sample_values: ['100', '50'] },
+    ],
+    warnings: [],
+  },
+  proposal: {
+    topic: 'population', dataset_role: 'fact',
+    grain: { dimensions: ['year_gregorian', 'district_code', 'age_label_original'] },
+    columns: [
+      { source_column: 'year', target_field: 'year_gregorian', transformation: 'parse_year', confidence: 0.98, evidence: 'year header and values' },
+      { source_column: 'district', target_field: 'district_code', transformation: 'normalize_district', confidence: 0.99, evidence: 'known New Taipei districts' },
+      { source_column: 'age', target_field: 'age_label_original', transformation: 'parse_age_range', confidence: 0.96, evidence: 'bounded age labels' },
+    ],
+    metrics: [
+      { source_column: 'population', metric_code: 'population_count', unit_code: 'persons', population_scope: 'youth_specific', aggregation_method: 'sum', confidence: 0.95, evidence: 'population header' },
+    ],
+    overall_confidence: 0.97, warnings: [], requires_human_approval: true,
+  },
+  validation: { valid: true, overall_confidence: 0.97, requires_human_approval: true, issues: [] },
+}
+
+export const reviewerPreview = [
+  { sourceColumn: 'year', targetField: 'year_gregorian', transformation: 'parse_year', samples: [{ source: '2025', canonical: { year_roc: 114, year_gregorian: 2025 }, error: null }] },
+  { sourceColumn: 'district', targetField: 'district_code', transformation: 'normalize_district', samples: [{ source: '板橋區', canonical: { district_code: '01', district_name: '板橋區' }, error: null }] },
+  { sourceColumn: 'age', targetField: 'age_label_original', transformation: 'parse_age_range', samples: [{ source: '20-24', canonical: { age_label_original: '20-24', age_lower: 20, age_upper: 24 }, error: null }] },
+]
 
 export const impactAnswer = {
   status: 'acquisition_required',
@@ -288,7 +353,7 @@ export const impactAnswer = {
   tool_trace: [
     { tool: 'search_tools', outcome: 'ok', summary: 'selected registered impact tools' },
     { tool: 'simulate_scenario', outcome: 'ok', summary: 'projected Linkou to 2030' },
-    { tool: 'assess_capacity', outcome: 'data_gap', summary: 'housing, transport, and public services need data' },
+    { tool: 'assess_capacity', outcome: 'data_gap', summary: 'housing and public services need data' },
     { tool: 'discover_sources', outcome: 'candidates', summary: 'found 3 allowlisted candidates' },
     { tool: 'recommend_investment', outcome: 'withheld', summary: 'capacity evidence is incomplete' },
   ],
@@ -298,12 +363,6 @@ export const impactAnswer = {
       candidate_id: 'ntpc-building-permits',
       title: 'New Taipei building permit records',
       metric_codes: ['residential_completions', 'permitted_households'],
-    },
-    {
-      ...acquisitionAnswer.source_candidates[0],
-      candidate_id: 'ntpc-bus-stops',
-      title: 'New Taipei bus stop and route information',
-      metric_codes: ['transit_stop_coverage'],
     },
     {
       ...acquisitionAnswer.source_candidates[0],
@@ -335,7 +394,6 @@ export const impactAnswer = {
     ],
     data_gaps: [
       { domain: 'housing', required_metrics: ['housing_unit_stock', 'vacant_housing_units'], reason: 'Housing pressure requires supply and vacancy evidence.' },
-      { domain: 'transport', required_metrics: ['transit_boardings', 'passenger_capacity'], reason: 'Transport pressure requires observed demand and capacity.' },
       { domain: 'public_services', required_metrics: ['service_facility_capacity', 'service_utilization'], reason: 'Public service investment requires capacity and utilization.' },
     ],
     recommendations: [],
@@ -386,14 +444,24 @@ export async function useLanguage(page: Page, language: 'zh-TW' | 'en') {
 export async function mockCopilot(
   page: Page,
   options: {
-    query: unknown | ((index: number) => unknown)
+    query: unknown | ((index: number, request: unknown) => unknown)
     acquire?: unknown
     districtOverview?: unknown | ((districtCode: string) => unknown)
+    /** Omitted: the district has no published forecast (404). */
+    districtForecast?: unknown
     datasets?: unknown
     queryStatus?: number
+    onQuery?: (request: unknown) => void
   },
 ) {
   let index = 0
+  const answerFor = (route: Route) => {
+    const request = route.request().postDataJSON()
+    options.onQuery?.(request)
+    return typeof options.query === 'function'
+      ? (options.query as (i: number, request: unknown) => unknown)(index++, request)
+      : options.query
+  }
   await useLanguage(page, 'en')
   await page.route('**/api/v1/copilot/capabilities', (route: Route) =>
     route.fulfill({ json: capabilities }),
@@ -402,9 +470,7 @@ export async function mockCopilot(
     route.fulfill({ json: options.datasets ?? datasetCatalog }),
   )
   await page.route('**/api/v1/copilot/query/stream', (route: Route) => {
-    const body = typeof options.query === 'function'
-      ? (options.query as (i: number) => unknown)(index++)
-      : options.query
+    const body = answerFor(route)
     if (options.queryStatus && options.queryStatus >= 400) {
       return route.fulfill({ status: options.queryStatus, json: { detail: 'nope' } })
     }
@@ -412,6 +478,13 @@ export async function mockCopilot(
       contentType: 'application/x-ndjson',
       body: `${JSON.stringify({ type: 'delta', text: (body as { answer?: string }).answer ?? '' })}\n${JSON.stringify({ type: 'result', response: body })}\n`,
     })
+  })
+  await page.route('**/api/v1/copilot/query', (route: Route) => {
+    const body = answerFor(route)
+    if (options.queryStatus && options.queryStatus >= 400) {
+      return route.fulfill({ status: options.queryStatus, json: { detail: 'nope' } })
+    }
+    return route.fulfill({ json: body })
   })
   await page.route('**/api/v1/copilot/acquisitions', (route: Route) =>
     route.fulfill({
@@ -424,7 +497,27 @@ export async function mockCopilot(
     }),
   )
   await page.route('**/api/v1/copilot/intake-options', (route: Route) =>
-    route.fulfill({ json: { linkHosts: ['data.ntpc.gov.tw'], uploadFormats: ['csv', 'json', 'xlsx'], maxUploadBytes: 26214400 } }),
+    route.fulfill({ json: { linkHosts: ['data.ntpc.gov.tw'], uploadFormats: ['csv', 'json', 'xlsx'], maxUploadBytes: 26214400, writeTokenRequired: false } }),
+  )
+  // Playwright evaluates matching routes in reverse registration order. Keep
+  // the job fallback below the more specific reviewer endpoints.
+  await page.route('**/api/v1/ingestion-jobs/*', (route: Route) =>
+    route.fulfill({ json: {
+      jobId: 'job-42', datasetId: 'population', status: 'awaiting_approval', sourceFormat: 'csv',
+      currentStep: 'awaiting_approval', qualityScore: 0.97, createdAt: '2026-09-12T07:05:00Z', warnings: [], links: {},
+    } }),
+  )
+  await page.route('**/api/v1/ingestion-jobs/*/mapping-preview', (route: Route) =>
+    route.fulfill({ json: reviewerPreview }),
+  )
+  await page.route('**/api/v1/ingestion-jobs/*/mapping', (route: Route) =>
+    route.fulfill({ json: reviewerMapping }),
+  )
+  await page.route('**/api/v1/ingestion-jobs/*/decision', (route: Route) =>
+    route.fulfill({ json: {
+      jobId: 'job-42', datasetId: 'population', status: 'published', sourceFormat: 'csv',
+      currentStep: 'published', qualityScore: 0.98, createdAt: '2026-09-12T07:05:00Z', warnings: [], links: {},
+    } }),
   )
   await page.route('**/api/v1/districts/*/overview', (route: Route) => {
     const districtCode = new URL(route.request().url()).pathname.match(/\/districts\/(\d{2})\/overview$/)?.[1] ?? ''
@@ -433,6 +526,25 @@ export async function mockCopilot(
       : options.districtOverview ?? districtOverview
     return route.fulfill({ json: body })
   })
+  await page.route('**/api/v1/districts/*/forecast', (route: Route) =>
+    options.districtForecast
+      ? route.fulfill({ json: options.districtForecast })
+      : route.fulfill({ status: 404, json: { code: 'forecast_not_available', message: 'No forecast.' } }),
+  )
+}
+
+export const districtForecast = {
+  districtCode: '01', metricCode: 'population_count', modelVersion: 'cohort-change-ratio-v1',
+  generatedAt: '2026-09-13T02:10:58Z', basePeriod: '2026-07', baseValue: 91234, smallArea: false,
+  targetCoverage: 0.8,
+  points: [
+    { year: 2027, period: '2027-07', value: 90500, lower: 89100, upper: 91900, entering: 4100, ageingOut: 5200, netChange: 366 },
+    { year: 2028, period: '2028-07', value: 89800, lower: 87500, upper: 92100, entering: 8300, ageingOut: 10400, netChange: 666 },
+  ],
+  accuracy: [
+    { horizonYears: 1, mapePercent: 0.81, intervalCoverage: 0.851 },
+    { horizonYears: 2, mapePercent: 1.34, intervalCoverage: 0.858 },
+  ],
 }
 
 export async function ask(page: Page, question: string) {

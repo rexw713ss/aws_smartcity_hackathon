@@ -32,6 +32,8 @@ from youth_compass.agent.contracts import (
     VisualizationType,
 )
 from youth_compass.agent.viz_selection import CandidateRole, role_for
+from youth_compass.forecasting.cohort import YOUTH_MAX_AGE, YOUTH_MIN_AGE
+from youth_compass.forecasting.evaluation import SMALL_AREA_POPULATION
 from youth_compass.ontology import NameLanguage, question_language
 
 _PASS = 1.0
@@ -454,6 +456,40 @@ def _evidence_numbers(response: CopilotResponse) -> set[Decimal]:
             add(forecast_point.lower)
             add(forecast_point.upper)
             add(forecast_point.year_gregorian)
+            parts = forecast_point.components
+            if parts is not None:
+                add(parts.base_value)
+                add(parts.entering)
+                add(parts.ageing_out)
+                add(parts.net_change)
+                _add_periods(values, parts.base_period)
+                # The decomposition is defined by the youth age band, so a
+                # sentence naming who reaches 18 or passes 35 is grounded.
+                add(YOUTH_MIN_AGE)
+                add(YOUTH_MAX_AGE)
+        evaluation = forecast.evaluation
+        if evaluation is not None:
+            for candidate_evaluation in evaluation.candidates:
+                for accuracy in candidate_evaluation.accuracy:
+                    add(accuracy.horizon_years)
+                    add(accuracy.samples)
+                    add(accuracy.mape_percent)
+                    add(accuracy.p90_ape_percent)
+                    add(accuracy.bias_percent)
+                    if accuracy.interval_coverage is not None:
+                        add(accuracy.interval_coverage * 100)
+            # The p90 error is stated as "in 90% of cases".
+            add(90)
+            add(evaluation.target_coverage * 100)
+            add(evaluation.error_quantile * 100)
+            for share in (evaluation.rolling_coverage, evaluation.small_area_coverage):
+                if share is not None:
+                    add(share * 100)
+            if evaluation.rolling_samples is not None:
+                add(evaluation.rolling_samples)
+            # The small-area threshold the coverage sentence names.
+            add(SMALL_AREA_POPULATION)
+            _add_periods(values, evaluation.base_period)
     impact = response.impact_analysis
     if impact is not None:
         for finding in impact.findings:
@@ -539,6 +575,8 @@ def load_answer_eval_cases(path: Path) -> tuple[AnswerEvalCase, ...]:
             raise ValueError(f"duplicate answer eval case {case.case_id!r} at {path}:{line_number}")
         seen.add(case.case_id)
         cases.append(case)
+    if not cases:
+        raise ValueError(f"answer eval dataset is empty: {path}")
     return tuple(cases)
 
 

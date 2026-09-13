@@ -11,6 +11,7 @@ from youth_compass.ontology import (
     district_names,
     district_spellings,
     extract_districts,
+    force_question_language,
     humanize_code,
     localized_district_name,
     question_language,
@@ -19,6 +20,7 @@ from youth_compass.ontology import (
     registration_basis_caveat,
     resolve_district_name,
     resolve_registration_basis,
+    visible_question,
 )
 
 
@@ -27,6 +29,14 @@ def test_every_district_has_an_english_and_vietnamese_name() -> None:
     assert {item.code for item in DISTRICT_NAMES} == {item.code for item in DISTRICTS}
     assert len({item.english for item in DISTRICT_NAMES}) == len(DISTRICT_NAMES)
     assert len({item.vietnamese for item in DISTRICT_NAMES}) == len(DISTRICT_NAMES)
+
+
+def test_trusted_response_language_override_does_not_change_the_visible_question() -> None:
+    question = "Compare the population trend in Banqiao"
+    forced = force_question_language(question, "zh-TW")
+
+    assert question_language(forced) is NameLanguage.ZH_HANT
+    assert visible_question(forced) == question
 
 
 @pytest.mark.parametrize(
@@ -113,11 +123,11 @@ def test_conflicting_basis_terms_resolve_to_unknown_rather_than_a_guess() -> Non
     )
 
 
-def test_every_basis_carries_a_reader_facing_caveat() -> None:
+def test_only_known_population_bases_carry_reader_facing_caveats() -> None:
     caveats = {basis: registration_basis_caveat(basis) for basis in RegistrationBasis}
-    assert len(set(caveats.values())) == len(RegistrationBasis)
-    assert "戶籍人口" in caveats[RegistrationBasis.UNKNOWN]
-    assert "常住人口" in caveats[RegistrationBasis.UNKNOWN]
+    assert caveats[RegistrationBasis.UNKNOWN] is None
+    assert "戶籍人口" in (caveats[RegistrationBasis.REGISTERED_HOUSEHOLD] or "")
+    assert "常住人口" in (caveats[RegistrationBasis.RESIDENT] or "")
 
 
 @pytest.mark.parametrize(

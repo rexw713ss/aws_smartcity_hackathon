@@ -9,7 +9,7 @@ answers a bounded decision question: if a stated number of young people enter or
 New Taipei district by a target year, what downstream evidence is required before an
 infrastructure recommendation can be made?
 
-It does not claim that housing, transport, fertility, or another policy causes migration,
+It does not claim that housing, fertility, or another policy causes migration,
 and it does not convert population into house prices or capacity demand using invented
 coefficients.
 
@@ -21,7 +21,7 @@ should be funded?”, the registered tool plan is:
 1. `search_tools`: select only tools registered for the requested operations;
 2. `search_catalog`: look for already-published compatible evidence;
 3. `simulate_scenario`: compare the explicit shock with the district cohort baseline;
-4. `assess_capacity`: enumerate the housing, transport, and public-service metrics required
+4. `assess_capacity`: enumerate the housing and public-service metrics required
    for each downstream link;
 5. `discover_sources`: search only configured, allowlisted official sources for missing
    metrics;
@@ -43,6 +43,10 @@ household-registration data by district and single-year age. The engine:
 3. uses the median recent rate as that district's baseline and ages the observed cohorts
    forward to the target year;
 4. compares that baseline with an explicit scenario path.
+
+Since `docs/31`, the baseline uses the forecast's per-age cohort change ratios and snapshot
+month, so it equals the published forecast; the district rate above is the one a scenario
+adjusts, scaling every age's ratio by the same factor.
 
 The transition rate combines migration, mortality, and registration changes. It is a
 descriptive benchmark, not an identified causal effect. The source measures registered

@@ -174,6 +174,9 @@ def test_model_decomposer_is_schema_constrained_and_preserves_user_scope() -> No
     assert decomposition.entity_ids == ("banqiao",)
     assert decomposition.operations[-1] is AnalysisOperation.QUERY_OBSERVATIONS
     assert provider.requests[0].response_schema is not None
+    assert "An overview of a named or selected topic is an observation request" in (
+        provider.requests[0].system or ""
+    )
 
 
 def test_model_decomposer_falls_back_to_the_keyword_table() -> None:
@@ -251,3 +254,15 @@ def test_metric_aliases_still_match_vietnamese_and_chinese_spellings() -> None:
 
     assert zh.metric_terms == ("unemployment_count",)
     assert vi.metric_terms == ("unemployment_count",)
+
+
+def test_naming_the_unemployment_rate_does_not_also_claim_the_count() -> None:
+    """ "失業率" contains "失業", so the rate alias must shadow the count alias."""
+
+    for question in (
+        "新北市青年失業率的趨勢如何",
+        "youth unemployment rate trend",
+        "tỷ lệ thất nghiệp thanh niên",
+    ):
+        decomposition = asyncio.run(DeterministicQueryDecomposer().decompose(question, ())).query
+        assert decomposition.metric_terms == ("unemployment_rate",)

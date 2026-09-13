@@ -30,6 +30,7 @@ _MACHINE_SEPARATOR = re.compile(r"[-_]")
 _GENERIC_ENTITY_PREFIXES = frozenset({"candidate", "location", "site"})
 _HAN = re.compile(r"[\u3400-\u9fff]")
 _LATIN_WORD = re.compile(r"[A-Za-z\u00c0-\u1ef9]+")
+_RESPONSE_LANGUAGE_MARKER = re.compile(r"^\[\[yc-response-language:(en|zh-TW)\]\]\n")
 _ENGLISH_CUES = frozenset(
     {
         "compare",
@@ -96,6 +97,10 @@ def question_language(question: str) -> NameLanguage:
     板橋區`` is English, while ``板橋區人口趨勢如何`` remains Traditional Chinese.
     """
 
+    marker = _RESPONSE_LANGUAGE_MARKER.match(question)
+    if marker is not None:
+        return NameLanguage.ZH_HANT if marker.group(1) == "zh-TW" else NameLanguage.ENGLISH
+
     words = [match.group().casefold() for match in _LATIN_WORD.finditer(question)]
     english = sum(word in _ENGLISH_CUES for word in words)
     vietnamese = sum(word in _VIETNAMESE_CUES for word in words)
@@ -104,6 +109,20 @@ def question_language(question: str) -> NameLanguage:
     if _HAN.search(question):
         return NameLanguage.ZH_HANT
     return NameLanguage.ENGLISH
+
+
+def force_question_language(question: str, language: str | None) -> str:
+    """Attach a trusted internal response-language override after query planning."""
+
+    if language not in {"en", "zh-TW"}:
+        return question
+    return f"[[yc-response-language:{language}]]\n{visible_question(question)}"
+
+
+def visible_question(question: str) -> str:
+    """Remove the internal response-language marker before display or external I/O."""
+
+    return _RESPONSE_LANGUAGE_MARKER.sub("", question, count=1)
 
 
 def humanize_code(code: str) -> str:

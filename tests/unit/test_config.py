@@ -52,3 +52,20 @@ def test_brave_web_search_settings_support_secret_environment_override(
     assert settings.web_search.api_key is not None
     assert settings.web_search.api_key.get_secret_value() == "brave-test-key"
     assert "brave-test-key" not in repr(settings.web_search)
+
+
+def test_brave_environment_overrides_disabled_yaml_for_local_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "settings.yaml"
+    path.write_text("web_search:\n  enabled: false\n  result_limit: 3\n", encoding="utf-8")
+    monkeypatch.setenv("YOUTH_COMPASS_WEB_SEARCH__ENABLED", "true")
+    monkeypatch.setenv("YOUTH_COMPASS_WEB_SEARCH__API_KEY", "brave-test-key")
+
+    settings = AppSettings.from_yaml(path)
+
+    assert settings.web_search.enabled is True
+    assert settings.web_search.api_key is not None
+    assert settings.web_search.api_key.get_secret_value() == "brave-test-key"
+    assert settings.web_search.result_limit == 3

@@ -119,7 +119,7 @@ def test_coverage_is_omitted_when_no_entity_belongs_to_the_boundary_set() -> Non
     assert limitations.coverage is None
 
 
-def test_the_population_basis_is_read_from_catalog_text_and_always_explained() -> None:
+def test_the_population_basis_is_explained_only_when_catalog_text_identifies_it() -> None:
     registered = DataLimitationsBuilder().build(
         now=NOW,
         citations=(),
@@ -136,7 +136,7 @@ def test_the_population_basis_is_read_from_catalog_text_and_always_explained() -
     assert registered.registration_basis is RegistrationBasis.REGISTERED_HOUSEHOLD
     assert "戶籍人口" in registered.notes[0]
     assert silent.registration_basis is RegistrationBasis.UNKNOWN
-    assert "does not record" in silent.notes[0]
+    assert silent.notes == ()
 
 
 def test_estimated_observations_are_counted_in_the_notes() -> None:
@@ -163,4 +163,4 @@ def test_a_fully_reported_series_adds_no_estimation_note() -> None:
         now=NOW, citations=(), observed_entity_ids=["01"], series=series
     )
 
-    assert len(limitations.notes) == 1
+    assert limitations.notes == ()

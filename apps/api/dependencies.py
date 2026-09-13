@@ -55,7 +55,8 @@ from youth_compass.decisioning import (
 from youth_compass.domain.canonical import CANONICAL_FIELDS
 from youth_compass.domain.contracts import DatasetMetadata, DatasetStatus
 from youth_compass.domain.errors import AnalyticsNotAvailableError, ConfigurationError
-from youth_compass.ports import SourceConnector
+from youth_compass.forecasting.registration import REGISTRATION_EXTRACT_NAME
+from youth_compass.ports import ForecastService, SourceConnector
 from youth_compass.ports.catalog import DataCatalog
 from youth_compass.ports.query_engine import QueryEngine
 
@@ -79,6 +80,7 @@ class LocalRuntime:
         self.profile_registry = DecisionProfileRegistry(DEFAULT_DECISION_PROFILES)
         self._copilot_service: GroundedCopilotService | None = None
         self._scenario_service: YouthPopulationScenarioService | None = None
+        self._forecast_service: ForecastService | None = None
         self.conversation_store = self._build_conversation_store()
         self.workflow = LocalIngestionWorkflow(
             object_store=FileSystemObjectStore(self.data_root / "incoming"),
@@ -246,6 +248,29 @@ class LocalRuntime:
 
         self._agent_query_engine_factory = build
 
+    def forecasts(self) -> ForecastService | None:
+        """The published forecast reader, shared by the copilot and the dashboard."""
+
+        if self._forecast_service is not None:
+            return self._forecast_service
+        if self.settings.forecast and self.settings.forecast.provider is ForecastProvider.LOCAL:
+            self._forecast_service = PrecomputedParquetForecastService(
+                self.data_root / "forecasts" / "current.parquet"
+            )
+        elif self.settings.forecast and self.settings.forecast.provider is ForecastProvider.S3:
+            from adapters.aws.s3_forecast_artifact import S3ForecastArtifactService
+
+            if not self.settings.forecast.bucket:
+                raise ConfigurationError("forecast provider 's3' requires forecast.bucket")
+            self._forecast_service = S3ForecastArtifactService(
+                self.settings.forecast.bucket,
+                self.settings.forecast.prefix,
+                self.data_root / "forecasts" / "s3-cache",
+                region=self.settings.forecast.region,
+                refresh_seconds=self.settings.forecast.refresh_seconds,
+            )
+        return self._forecast_service
+
     def copilot(self) -> GroundedCopilotService:
         """Build the offline agent over the current immutable feature snapshot."""
 
@@ -253,7 +278,7 @@ class LocalRuntime:
             return self._copilot_service
         decomposer = None
         answer_composer = None
-        forecast_service = None
+        forecast_service: ForecastService | None = None
         web_search = None
         if self.settings.web_search.enabled:
             assert self.settings.web_search.api_key is not None
@@ -261,10 +286,7 @@ class LocalRuntime:
                 self.settings.web_search.api_key.get_secret_value(),
                 timeout_seconds=self.settings.web_search.timeout_seconds,
             )
-        if self.settings.forecast and self.settings.forecast.provider is ForecastProvider.LOCAL:
-            forecast_service = PrecomputedParquetForecastService(
-                self.data_root / "forecasts" / "current.parquet"
-            )
+        forecast_service = self.forecasts()
         if self.settings.model and self.settings.model.provider is ModelProviderName.BEDROCK:
             from adapters.aws.bedrock_model import BedrockModelProvider
 
@@ -315,6 +337,7 @@ class LocalRuntime:
             web_search=web_search,
             web_search_result_limit=self.settings.web_search.result_limit,
             web_search_country=self.settings.web_search.country,
+            source_search_hosts=self.acquisition.link_hosts,
         )
         return self._copilot_service
 
@@ -322,7 +345,10 @@ class LocalRuntime:
         """Build the local, read-only youth population scenario engine."""
 
         if self._scenario_service is None:
-            self._scenario_service = YouthPopulationScenarioService(
-                self.data_root / "source" / "01_人口" / "_全部年度_全區.csv"
-            )
+            population = self.data_root / "source" / "01_人口"
+            source = population / "_全部年度_全區.csv"
+            # A deployed package carries the compact extract instead of the CSV.
+            if not source.is_file():
+                source = population / REGISTRATION_EXTRACT_NAME
+            self._scenario_service = YouthPopulationScenarioService(source)
         return self._scenario_service

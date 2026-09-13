@@ -156,6 +156,11 @@ class Decomposition(BaseModel):
     source: DecompositionSource
     #: Why the primary decomposer was not used. Set only on a fallback.
     degraded_reason: str | None = Field(default=None, max_length=300)
+    #: End-to-end planning time observed by the service. Provider usage is kept
+    #: here until the service turns the decomposition into a public ToolTrace.
+    duration_ms: int | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
 
 class ConversationContext(BaseModel):
@@ -331,6 +336,9 @@ class DatasetInspection(BaseModel):
     period_end: str
     entity_count: int = Field(ge=0)
     quality_score: float = Field(ge=0.0, le=1.0)
+    # False for a rate or median, which must never be summed across age bands
+    # or sexes; each published band then stays a separate series.
+    additive: bool = True
 
 
 class ObservationPoint(BaseModel):
@@ -414,7 +422,7 @@ class ImpactDataGap(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    domain: Literal["housing", "transport", "public_services"]
+    domain: Literal["housing", "public_services"]
     required_metrics: tuple[str, ...]
     reason: str
 
@@ -424,7 +432,7 @@ class ImpactFinding(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    stage: Literal["population", "housing", "transport", "public_services"]
+    stage: Literal["population", "housing", "public_services"]
     label: str
     baseline_value: float | None = None
     scenario_value: float | None = None
@@ -439,7 +447,7 @@ class InvestmentRecommendation(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     priority: int = Field(ge=1)
-    domain: Literal["housing", "transport", "public_services"]
+    domain: Literal["housing", "public_services"]
     action: str
     rationale: str
     confidence: Literal["low", "medium", "high"]

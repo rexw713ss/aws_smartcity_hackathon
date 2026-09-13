@@ -15,7 +15,7 @@ from youth_compass.analytics import (
 )
 from youth_compass.domain.contracts import DatasetMetadata, QualityReport
 from youth_compass.domain.types import FileFormat
-from youth_compass.ports import JobStatus
+from youth_compass.ports import ForecastResult, JobStatus
 
 #: The one reviewer-upload limit, shared by the upload route and the chat that
 #: tells a reviewer about it before they pick a file.
@@ -64,6 +64,23 @@ class DecisionRequest(ApiModel):
     decision: Literal["approve", "reject"]
     decided_by: str = Field(min_length=1)
     comment: str | None = None
+
+
+class MappingSampleValue(ApiModel):
+    """One source example and the canonical fields it would produce."""
+
+    source: str
+    canonical: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class MappingSamplePreview(ApiModel):
+    """Bounded before/after examples for one proposed column mapping."""
+
+    source_column: str
+    target_field: str
+    transformation: str
+    samples: list[MappingSampleValue] = Field(max_length=5)
 
 
 class DatasetResponse(ApiModel):
@@ -214,5 +231,89 @@ class DistrictOverviewResponse(ApiModel):
             ],
             gender_distribution=[
                 DistrictBreakdownResponse.from_result(item) for item in result.gender_distribution
+            ],
+        )
+
+
+class DistrictForecastPointResponse(ApiModel):
+    year: int
+    # The forecast is annual at the base period's month, so it joins the monthly
+    # observed trend without guessing a date.
+    period: str
+    value: float
+    lower: float
+    upper: float
+    # Cumulative since the base period: people who turned 18, people who passed
+    # 35, and the remainder (migration, mortality, registration changes).
+    entering: float | None
+    ageing_out: float | None
+    net_change: float | None
+
+
+class DistrictForecastAccuracyResponse(ApiModel):
+    horizon_years: int
+    mape_percent: float
+    interval_coverage: float | None
+
+
+class DistrictForecastResponse(ApiModel):
+    district_code: str
+    metric_code: str
+    model_version: str
+    generated_at: datetime
+    base_period: str | None
+    base_value: float | None
+    small_area: bool
+    target_coverage: float | None
+    points: list[DistrictForecastPointResponse]
+    accuracy: list[DistrictForecastAccuracyResponse]
+
+    @classmethod
+    def from_result(cls, district_code: str, result: ForecastResult) -> "DistrictForecastResponse":
+        points = sorted(result.points, key=lambda point: point.year_gregorian)
+        base = next((point.components for point in points if point.components), None)
+        month = base.base_period[5:] if base else "01"
+        evaluation = result.evaluation
+        accuracy = (
+            next(
+                (
+                    candidate.accuracy
+                    for candidate in evaluation.candidates
+                    if candidate.model == evaluation.selected_model
+                ),
+                [],
+            )
+            if evaluation
+            else []
+        )
+        return cls(
+            district_code=district_code,
+            metric_code=result.metric_code,
+            model_version=result.model_version,
+            generated_at=result.generated_at,
+            base_period=base.base_period if base else None,
+            base_value=base.base_value if base else None,
+            small_area=any(point.small_area for point in points),
+            target_coverage=evaluation.target_coverage if evaluation else None,
+            points=[
+                DistrictForecastPointResponse(
+                    year=point.year_gregorian,
+                    period=f"{point.year_gregorian}-{month}",
+                    value=point.value,
+                    lower=point.lower,
+                    upper=point.upper,
+                    entering=point.components.entering if point.components else None,
+                    ageing_out=point.components.ageing_out if point.components else None,
+                    net_change=point.components.net_change if point.components else None,
+                )
+                for point in points
+            ],
+            accuracy=[
+                DistrictForecastAccuracyResponse(
+                    horizon_years=item.horizon_years,
+                    mape_percent=item.mape_percent,
+                    interval_coverage=item.interval_coverage,
+                )
+                for item in accuracy
             ],
         )

@@ -44,7 +44,22 @@ uv run pytest
 
 See [`docs/11-development-guide.md`](./docs/11-development-guide.md) for all development commands.
 
-## Temporary Streamlit dashboard
+## React app and data-steward review
+
+Run the API and React application in two terminals:
+
+```bash
+make local-api
+cd frontend && npm run dev
+```
+
+The React flow keeps the copilot and human approval story in one interface. When
+a missing-data acquisition or upload creates a review job, the app opens a data
+steward workspace with the proposed mappings, before/after normalized samples,
+confidence, validation issues, and explicit Approve/Reject controls. A pending
+review can be reopened with `?review=<jobId>`.
+
+## Legacy Streamlit fallback
 
 Run the API and dashboard in two terminals:
 
@@ -54,7 +69,7 @@ make local-api
 make dashboard
 ```
 
-Then open `http://127.0.0.1:8501`. The interface supports the full local demo:
+Then open `http://127.0.0.1:8501`. This fallback interface supports the local demo:
 upload CSV, Excel, JSON, or a text-based PDF table, inspect its proposed mapping,
 approve or reject it, query published district aggregates, and run grounded home-buying
 or EV-charger rankings through the Decision copilot tab. The same copilot can inspect and
@@ -62,9 +77,16 @@ compare trends in published canonical datasets without a new feature mart. Decis
 require an immutable `data/features/current.parquet` snapshot. Scanned PDFs remain a later
 OCR/Amazon Textract integration.
 
-Run the versioned English/Traditional Chinese decomposition and routing evaluation suite with
-`make agent-evals`. Use `--provider bedrock` with the eval script to compare the configured
-Bedrock model against the same expected plans.
+Run both versioned agent evaluation suites with `make agent-evals`: routing grades decomposition
+and tool selection, while answers runs complete local turns and grades status, grounding,
+citations, language, limitations, tool traces, visualizations, and disclosure. Use
+`uv run python -m scripts.run_agent_evals --suite routing --provider bedrock` to compare the
+configured Bedrock model against the same expected plans.
+
+Run `make benchmark-system` to measure end-to-end p50/p95/p99 latency, throughput,
+error and answer-quality rates, tool timings, scanned bytes, tokens, and projected
+variable cost. It writes JSON, CSV, and Markdown reports under `artifacts/reports/`;
+see `docs/32-performance-and-cost-metrics.md` for pricing boundaries.
 
 When a catalog gap is detected, the copilot can discover configured HTTPS source candidates and
 submit a selected immutable snapshot to the existing approval-gated ingestion workflow. The

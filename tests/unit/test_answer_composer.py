@@ -60,6 +60,8 @@ def test_model_composer_accepts_only_grounded_numbers_and_citations() -> None:
     assert set(prompt["allowed_number_strings"]) == {"100", "120", "20", "+20"}
     assert prompt["response_language"] == "Vietnamese"
     assert "Do not calculate differences" in provider.requests[0].system
+    assert "Do not merely list values" in provider.requests[0].system
+    assert "1 to 3 meaningful" in provider.requests[0].system
 
 
 def test_model_composer_requests_taiwan_traditional_chinese() -> None:
@@ -125,22 +127,41 @@ def test_answer_composer_falls_back_to_verified_template() -> None:
     assert result.answer == _context().fallback_answer
 
 
-def test_model_composer_forwards_bedrock_stream_snapshots() -> None:
-    snapshots: list[str] = []
+def test_model_composer_forwards_raw_bedrock_deltas() -> None:
+    deltas: list[str] = []
 
     # Use an async callback at the boundary, as the API does.
     async def collect() -> object:
         async def receive(text: str) -> None:
-            snapshots.append(text)
+            deltas.append(text)
 
         return await ModelAnswerComposer(StreamingModelProvider("unused")).compose(
             _context(), receive
         )
 
     result = asyncio.run(collect())
-    assert snapshots == [
+    assert deltas == [
         "Banqiao tăng từ ",
-        "Banqiao tăng từ 100 lên 120 (20%) ",
-        "Banqiao tăng từ 100 lên 120 (20%) [data-1].",
+        "100 lên 120 (20%) ",
+        "[data-1].",
     ]
     assert result.mode == "model"  # type: ignore[attr-defined]
+
+
+def test_streaming_composer_requests_explanatory_insights() -> None:
+    async def collect() -> tuple[object, StreamingModelProvider]:
+        provider = StreamingModelProvider("unused")
+
+        async def receive(_text: str) -> None:
+            pass
+
+        result = await ModelAnswerComposer(provider).compose(_context(), receive)
+        return result, provider
+
+    _, provider = asyncio.run(collect())
+
+    system = provider.requests[0].system
+    assert system is not None
+    assert "2 to 4 short paragraphs" in system
+    assert "evidence-grounded insights" in system
+    assert "Do not merely list values" in system

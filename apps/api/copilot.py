@@ -3,6 +3,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import Field
@@ -21,6 +22,8 @@ class CopilotQueryRequest(ApiModel):
     """Natural-language question plus optional candidate and quality scope."""
 
     question: str = Field(min_length=3, max_length=2_000)
+    topic_hint: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,99}$")
+    response_language: Literal["en", "zh-TW"] | None = None
     entity_ids: tuple[str, ...] = Field(default=(), max_length=500)
     min_quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
     session_id: str | None = Field(default=None, pattern=r"^ses_[a-f0-9]{32}$")
@@ -47,6 +50,7 @@ class DataIntakeOptions(ApiModel):
     link_hosts: tuple[str, ...]
     upload_formats: tuple[str, ...]
     max_upload_bytes: int
+    write_token_required: bool
 
 
 @router.get("/capabilities", response_model=list[ToolCapability])
@@ -64,6 +68,8 @@ async def query_copilot(payload: CopilotQueryRequest, request: Request) -> Copil
     runtime: LocalRuntime = request.app.state.runtime
     return await runtime.copilot().answer(
         payload.question,
+        topic_hint=payload.topic_hint,
+        response_language=payload.response_language,
         entity_ids=payload.entity_ids,
         min_quality_score=payload.min_quality_score,
         session_id=payload.session_id,
@@ -72,34 +78,44 @@ async def query_copilot(payload: CopilotQueryRequest, request: Request) -> Copil
 
 @router.post("/query/stream", response_class=StreamingResponse)
 async def stream_copilot(payload: CopilotQueryRequest, request: Request) -> StreamingResponse:
-    """Stream Bedrock answer snapshots, then the validated structured response."""
+    """Stream workflow stages and Bedrock deltas, then the validated response."""
 
     runtime: LocalRuntime = request.app.state.runtime
     queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
-    last_text = ""
+    streamed_text = ""
+    composing_sent = False
 
-    async def on_text(text: str) -> None:
-        nonlocal last_text
-        if text.startswith(last_text):
-            await queue.put({"type": "delta", "text": text[len(last_text) :]})
-        else:
-            # A grounding failure replaces provisional model output with the
-            # deterministic safe answer.
-            await queue.put({"type": "text", "text": text})
-        last_text = text
+    async def on_stage(stage: str) -> None:
+        await queue.put({"type": "stage", "stage": stage})
+
+    async def ensure_composing() -> None:
+        nonlocal streamed_text, composing_sent
+        if not composing_sent:
+            await on_stage("composing")
+            composing_sent = True
+
+    async def on_text(delta: str) -> None:
+        nonlocal streamed_text
+        await ensure_composing()
+        streamed_text += delta
+        await queue.put({"type": "delta", "text": delta})
 
     async def produce() -> None:
         try:
             response = await runtime.copilot().answer(
                 payload.question,
+                topic_hint=payload.topic_hint,
+                response_language=payload.response_language,
                 entity_ids=payload.entity_ids,
                 min_quality_score=payload.min_quality_score,
                 session_id=payload.session_id,
                 on_text=on_text,
+                on_stage=on_stage,
             )
             # Deterministic/refusal paths do not invoke Bedrock's answer composer.
             # Send their complete answer once before the structured result.
-            if response.answer != last_text:
+            if response.answer != streamed_text:
+                await ensure_composing()
                 await queue.put({"type": "text", "text": response.answer})
             await queue.put({"type": "result", "response": response.model_dump(mode="json")})
         except Exception as exc:  # The HTTP status is already committed once streaming begins.
@@ -169,4 +185,7 @@ def data_intake_options(request: Request) -> DataIntakeOptions:
         link_hosts=runtime.acquisition.link_hosts,
         upload_formats=("csv", "json", "xlsx"),
         max_upload_bytes=MAX_UPLOAD_BYTES,
+        write_token_required=bool(
+            runtime.settings.api.write_secret or runtime.settings.api.write_secret_arn
+        ),
     )

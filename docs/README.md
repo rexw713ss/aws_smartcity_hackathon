@@ -37,8 +37,8 @@ The system has three core capabilities:
 | [13-aws-stage2-adapters.md](./13-aws-stage2-adapters.md) | AWS Stage 2: real S3/Glue/Athena/EventBridge/StepFunctions adapters + CDK data stack |
 | [14-aws-integration-review.md](./14-aws-integration-review.md) | Backend review findings and acceptance criteria for the AWS integration workstream |
 | [15-local-ingestion-workflow.md](./15-local-ingestion-workflow.md) | Offline storage, approval, publication, persistence, and AWS replacement boundary |
-| [16-reviewer-dashboard-api.md](./16-reviewer-dashboard-api.md) | Implemented FastAPI reviewer/catalog/dashboard routes and safe DuckDB analytics |
-| [17-streamlit-dashboard.md](./17-streamlit-dashboard.md) | Temporary local UI for reviewer approval and district analytics |
+| [16-reviewer-dashboard-api.md](./16-reviewer-dashboard-api.md) | React data-steward workflow, FastAPI reviewer/catalog routes, and safe DuckDB analytics |
+| [17-streamlit-dashboard.md](./17-streamlit-dashboard.md) | Legacy local fallback UI for reviewer approval and district analytics |
 | [18-tabular-source-adapters.md](./18-tabular-source-adapters.md) | Implemented CSV, Excel, JSON, and text-based PDF-table normalization boundary |
 | [19-reusable-feature-and-decision-layer.md](./19-reusable-feature-and-decision-layer.md) | Reusable feature contracts, decision profiles, constraints, and deterministic scoring |
 | [20-grounded-copilot.md](./20-grounded-copilot.md) | Grounded agent tools, decision planning, evidence citations, evaluation, and Bedrock seam |
@@ -52,6 +52,7 @@ The system has three core capabilities:
 | [27-ontology-and-limitations.md](./27-ontology-and-limitations.md) | Multilingual district resolution, registered-versus-resident population basis, and the per-answer freshness and coverage audit |
 | [28-youth-population-what-if.md](./28-youth-population-what-if.md) | Grounded 18-35 district population scenarios, balance rules, evidence labels, and API contract |
 | [29-multi-dataset-analysis.md](./29-multi-dataset-analysis.md) | Multi-table joins, the multilingual subject vocabulary, period alignment, and fail-closed reasons |
+| [31-youth-population-forecast.md](./31-youth-population-forecast.md) | Cohort change ratio forecast of the 18-35 population, backtest gate, empirical intervals, drivers, and verified references |
 | [aws-architecture.md](./aws-architecture.md) | Full AWS architecture diagram: all services, data flow, security boundary |
 | [aws-workstream-status.md](./aws-workstream-status.md) | Living status of the AWS integration lane: staged plan, cost model, and open decisions |
 

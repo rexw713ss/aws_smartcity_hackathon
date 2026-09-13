@@ -48,7 +48,8 @@ class DataLimitationsBuilder:
         series: ObservationSeries | None = None,
     ) -> DataLimitations:
         basis = resolve_registration_basis(*catalog_terms)
-        notes = [registration_basis_caveat(basis)]
+        basis_note = registration_basis_caveat(basis)
+        notes = [basis_note] if basis_note is not None else []
         estimated = _estimated_note(series)
         if estimated is not None:
             notes.append(estimated)

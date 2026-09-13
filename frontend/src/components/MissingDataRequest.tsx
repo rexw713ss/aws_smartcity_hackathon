@@ -1,15 +1,20 @@
 import React, { useId, useRef, useState } from 'react'
-import type { CopilotResponse, IntakeOptions, IntakeStart, SourceCandidate } from '../lib/copilot'
+import type { CopilotResponse, IntakeOptions, IntakeStart, SourceCandidate, WebCitation } from '../lib/copilot'
 import { formatLabel } from '../lib/format'
 import { useI18n, type MessageKey } from '../lib/i18n'
 
 /** Everything the chat needs to act on a missing-data request. */
 export type DataIntake = {
-  acquire: (candidateId: string, submittedBy: string) => Promise<string>
-  acquireLink: (url: string, submittedBy: string, topicHint: string | null) => Promise<IntakeStart>
-  upload: (file: File, submittedBy: string, topicHint: string | null) => Promise<IntakeStart>
+  acquire: (candidateId: string, submittedBy: string, writeToken: string) => Promise<string>
+  acquireLink: (url: string, submittedBy: string, topicHint: string | null, writeToken: string) => Promise<IntakeStart>
+  upload: (file: File, submittedBy: string, topicHint: string | null, writeToken: string) => Promise<IntakeStart>
+  openReview: (jobId: string, retry: RetryRequest) => void
   options: IntakeOptions | null
+  writeToken: string
+  setWriteToken: (value: string) => void
 }
+
+export type RetryRequest = { question: string; topic: string | null }
 
 type Gap = { key: string; title: string; detail: string | null; metrics: string[] }
 
@@ -19,18 +24,30 @@ const submittedBy = 'youth-compass-web'
 const uploadAccept = '.csv,.tsv,.json,.jsonl,.ndjson,.xlsx,.xlsm'
 const gapTitles: Record<string, MessageKey> = {
   housing: 'gapHousing',
-  transport: 'gapTransport',
   public_services: 'gapPublicServices',
 }
 
 /** The gaps the backend itself reported: the impact chain's missing capacity
  * links first, otherwise the catalog requirement it could not satisfy. */
-function gapsOf(response: CopilotResponse, t: (key: MessageKey) => string): Gap[] {
+const zhLabels: Record<string, string> = {
+  education: '教育', employment: '就業', population: '人口',
+  employment_count: '就業人數', unemployment_count: '失業人數',
+  unemployment_rate: '失業率', population_count: '人口數',
+}
+
+function gapsOf(
+  response: CopilotResponse,
+  t: (key: MessageKey) => string,
+  language: string,
+): Gap[] {
+  const label = (value: string) => language === 'zh-TW' && zhLabels[value]
+    ? zhLabels[value]
+    : formatLabel(value)
   const impact = response.impact_analysis?.data_gaps ?? []
   if (impact.length) {
     return impact.map(gap => ({
       key: gap.domain,
-      title: gapTitles[gap.domain] ? t(gapTitles[gap.domain]) : formatLabel(gap.domain),
+      title: gapTitles[gap.domain] ? t(gapTitles[gap.domain]) : label(gap.domain),
       detail: gap.reason,
       metrics: gap.required_metrics,
     }))
@@ -40,10 +57,10 @@ function gapsOf(response: CopilotResponse, t: (key: MessageKey) => string): Gap[
   return [{
     key: 'requirement',
     title: requirement.topic_terms.length
-      ? requirement.topic_terms.map(formatLabel).join(' · ')
+      ? requirement.topic_terms.map(label).join(' · ')
       : t('neededMetrics'),
     detail: requirement.time_expression ? `${t('neededPeriod')}: ${requirement.time_expression}` : null,
-    metrics: requirement.metric_codes,
+    metrics: requirement.metric_codes.map(label),
   }]
 }
 
@@ -51,6 +68,7 @@ function gapsOf(response: CopilotResponse, t: (key: MessageKey) => string): Gap[
 export function requestsData(response: CopilotResponse): boolean {
   if (response.status !== 'acquisition_required' && response.status !== 'insufficient_data') return false
   return response.source_candidates.length > 0 ||
+    response.web_citations.length > 0 ||
     (response.impact_analysis?.data_gaps.length ?? 0) > 0 ||
     !!response.data_requirement?.metric_codes.length ||
     !!response.data_requirement?.topic_terms.length
@@ -69,12 +87,22 @@ function SourceCard({ candidate }: { candidate: SourceCandidate }) {
       <span className="candidate-meta">
         {candidate.publisher} · {candidate.source_format.toUpperCase()} · {host}
       </span>
-      <span className="candidate-meta">
-        {candidate.period_start || candidate.period_end
-          ? `${candidate.period_start ?? '—'} – ${candidate.period_end ?? '—'}`
-          : t('periodNotStated')}
-        {candidate.license ? ` · ${candidate.license}` : ` · ${t('licenceNotStated')}`}
-      </span>
+      <span className="candidate-fit">{t('sourceReady')}</span>
+    </div>
+  )
+}
+
+function WebSourceCard({ source }: { source: WebCitation }) {
+  const { language, t } = useI18n()
+  let host = source.url
+  try { host = new URL(source.url).hostname } catch { /* keep the validated URL */ }
+  return (
+    <div className="source-card web-source-card">
+      <strong>
+        <a href={source.url} target="_blank" rel="noreferrer">{source.title}</a>
+      </strong>
+      <span className="candidate-meta">{host} · {t('webSuggestion')}</span>
+      <span className="candidate-fit">{t('sourceFoundBySearch')}</span>
     </div>
   )
 }
@@ -82,51 +110,102 @@ function SourceCard({ candidate }: { candidate: SourceCandidate }) {
 /** The assistant's turn when it cannot answer: what is missing, what it proposes
  * to fetch, and how the reader can supply the data instead.
  *
- * Every path ends in the same approval-gated ingestion workflow. Accepting a
- * suggestion submits a configured candidate id, never a URL; a pasted link is
- * fetched by the backend only from approved official hosts. */
-export default function MissingDataRequest({ response, intake }: {
+ * Every path ends in the same approval-gated ingestion workflow. Configured
+ * suggestions submit their candidate id; discovered or pasted links are fetched
+ * by the backend only from approved official hosts. */
+export default function MissingDataRequest({ response, intake, retry }: {
   response: CopilotResponse
   intake: DataIntake
+  retry: RetryRequest
 }) {
-  const { t } = useI18n()
+  const { language, t } = useI18n()
   const ids = useId()
-  const gaps = gapsOf(response, t)
+  const gaps = gapsOf(response, t, language)
   const candidates = response.source_candidates
-  const topicHint = response.impact_analysis?.data_gaps[0]?.domain ??
-    response.data_requirement?.topic_terms[0] ?? null
+  const webSources = response.web_citations
+  const sourceCount = candidates.length + webSources.length
+  const requestedTopics = response.impact_analysis?.data_gaps.length
+    ? response.impact_analysis.data_gaps.map(gap => gap.domain)
+    : response.data_requirement?.topic_terms ?? []
+  // A multi-topic gap cannot tell us which subject an uploaded file contains.
+  // Forcing the first topic here previously published employment_demo.csv as
+  // population and displaced the valid population version. Let mapping infer
+  // the file's topic; the reviewer still sees it before approval.
+  const topicHint = requestedTopics.length === 1 ? requestedTopics[0] : null
 
-  const [selected, setSelected] = useState(candidates[0]?.candidate_id ?? '')
+  const [selected, setSelected] = useState(
+    candidates[0] ? `candidate:${candidates[0].candidate_id}` :
+      webSources[0] ? `web:${webSources[0].citation_id}` : '',
+  )
   const [rejected, setRejected] = useState(false)
   const [showOwnData, setShowOwnData] = useState(false)
   const [mode, setMode] = useState<'upload' | 'link'>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [link, setLink] = useState('')
   const [busy, setBusy] = useState<'accept' | 'upload' | 'link' | null>(null)
+  const [progressStage, setProgressStage] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<{ name: string; job: string } | null>(null)
   const ownData = useRef<HTMLElement>(null)
 
-  const chosen = candidates.find(item => item.candidate_id === selected) ?? candidates[0]
+  const chosen = candidates.find(item => `candidate:${item.candidate_id}` === selected)
+  const chosenWeb = webSources.find(item => `web:${item.citation_id}` === selected)
   const maxBytes = intake.options?.maxUploadBytes ?? 25 * 1024 * 1024
   const linkHosts = intake.options?.linkHosts ?? []
+  const tokenMissing = !!intake.options?.writeTokenRequired && !intake.writeToken.trim()
 
+  const progressKeys: MessageKey[] = [
+    'intakeDownloading',
+    'intakeInspecting',
+    'intakeMapping',
+    'intakeQuality',
+    'intakeReviewReady',
+  ]
   const run = async (kind: 'accept' | 'upload' | 'link', action: () => Promise<{ name: string; job: string }>) => {
     setBusy(kind)
     setError(null)
+    setProgressStage(0)
+    let shownStage = 0
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const timer = window.setInterval(() => {
+      shownStage = Math.min(shownStage + 1, progressKeys.length - 2)
+      setProgressStage(shownStage)
+    }, reducedMotion ? 50 : 650)
     try {
-      setDone(await action())
+      const completed = await action()
+      window.clearInterval(timer)
+      for (let stage = shownStage + 1; stage < progressKeys.length; stage += 1) {
+        setProgressStage(stage)
+        await new Promise(resolve => window.setTimeout(resolve, reducedMotion ? 0 : 280))
+      }
+      setDone(completed)
+      await new Promise(resolve => window.setTimeout(resolve, reducedMotion ? 0 : 450))
+      intake.openReview(completed.job, retry)
     } catch (cause) {
+      window.clearInterval(timer)
       setError(cause instanceof Error ? cause.message : t('submissionFailed'))
+      setProgressStage(null)
     } finally {
       setBusy(null)
     }
   }
 
-  const accept = () => chosen && run('accept', async () => ({
-    name: chosen.title,
-    job: await intake.acquire(chosen.candidate_id, submittedBy),
-  }))
+  const accept = () => {
+    if (chosen) {
+      void run('accept', async () => ({
+        name: chosen.title,
+        job: await intake.acquire(chosen.candidate_id, submittedBy, intake.writeToken),
+      }))
+    }
+    else if (chosenWeb) {
+      void run('accept', async () => {
+        const started = await intake.acquireLink(
+          chosenWeb.url, submittedBy, topicHint, intake.writeToken,
+        )
+        return { name: chosenWeb.title, job: started.job_id }
+      })
+    }
+  }
 
   const reject = () => {
     setRejected(true)
@@ -149,7 +228,7 @@ export default function MissingDataRequest({ response, intake }: {
       return
     }
     void run('upload', async () => {
-      const started = await intake.upload(file, submittedBy, topicHint)
+      const started = await intake.upload(file, submittedBy, topicHint, intake.writeToken)
       return { name: started.file_name ?? file.name, job: started.job_id }
     })
   }
@@ -162,7 +241,7 @@ export default function MissingDataRequest({ response, intake }: {
       return
     }
     void run('link', async () => {
-      const started = await intake.acquireLink(url, submittedBy, topicHint)
+      const started = await intake.acquireLink(url, submittedBy, topicHint, intake.writeToken)
       return { name: started.file_name ?? url, job: started.job_id }
     })
   }
@@ -171,23 +250,28 @@ export default function MissingDataRequest({ response, intake }: {
     <section className="data-request" aria-label={t('missingTitle')}>
       <header>
         <h4>{t('missingTitle')}</h4>
-        <p>{t('missingIntro')}</p>
       </header>
 
       {gaps.length ? (
-        <ul className="gap-list">
-          {gaps.map(gap => (
-            <li key={gap.key}>
-              <strong>{gap.title}</strong>
-              {gap.detail ? <p>{gap.detail}</p> : null}
-              {gap.metrics.length ? (
-                <div className="gap-metrics" aria-label={t('neededMetrics')}>
-                  {gap.metrics.map(metric => <span key={metric}>{formatLabel(metric)}</span>)}
-                </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        <p className="gap-summary">
+          <span>{t('neededData')}</span>{' '}
+          {gaps.map(gap => gap.title).join(' · ')}
+        </p>
+      ) : null}
+
+      {intake.options?.writeTokenRequired && !done ? (
+        <label className="review-token-field">
+          <span>{t('reviewToken')}</span>
+          <input
+            type="password"
+            value={intake.writeToken}
+            onChange={event => intake.setWriteToken(event.target.value)}
+            autoComplete="off"
+            disabled={!!busy}
+            placeholder={t('reviewTokenPlaceholder')}
+          />
+          <small>{t('reviewTokenHelp')}</small>
+        </label>
       ) : null}
 
       {done ? (
@@ -197,18 +281,18 @@ export default function MissingDataRequest({ response, intake }: {
       ) : (
         <>
           <section className="request-step" ref={ownData}>
-            <h5>{t('recommendTitle')}</h5>
-            {!candidates.length ? (
+            <h5>{t('sourceMatch')}</h5>
+            {!sourceCount ? (
               <p className="request-note">{t('recommendNone')}</p>
             ) : rejected ? (
               <p className="request-note">{t('rejected')}</p>
             ) : (
               <>
-                <p className="request-lead">{t('recommendLead')}</p>
                 {chosen ? <SourceCard candidate={chosen} /> : null}
-                {candidates.length > 1 ? (
+                {chosenWeb ? <WebSourceCard source={chosenWeb} /> : null}
+                {sourceCount > 1 ? (
                   <details className="other-sources">
-                    <summary>{t('otherSources', { count: candidates.length - 1 })}</summary>
+                    <summary>{t('otherSources', { count: sourceCount - 1 })}</summary>
                     <ul>
                       {candidates.map(candidate => (
                         <li key={candidate.candidate_id}>
@@ -216,26 +300,54 @@ export default function MissingDataRequest({ response, intake }: {
                             <input
                               type="radio"
                               name={`${ids}-candidate`}
-                              value={candidate.candidate_id}
-                              checked={selected === candidate.candidate_id}
-                              onChange={() => setSelected(candidate.candidate_id)}
+                              value={`candidate:${candidate.candidate_id}`}
+                              checked={selected === `candidate:${candidate.candidate_id}`}
+                              onChange={() => setSelected(`candidate:${candidate.candidate_id}`)}
                               disabled={!!busy}
                             />
                             <span>{candidate.title}</span>
                           </label>
                         </li>
                       ))}
+                      {webSources.map(source => (
+                        <li key={source.citation_id}>
+                          <label>
+                            <input
+                              type="radio"
+                              name={`${ids}-candidate`}
+                              value={`web:${source.citation_id}`}
+                              checked={selected === `web:${source.citation_id}`}
+                              onChange={() => setSelected(`web:${source.citation_id}`)}
+                              disabled={!!busy}
+                            />
+                            <span>{source.title}</span>
+                          </label>
+                        </li>
+                      ))}
                     </ul>
                   </details>
                 ) : null}
-                <p className="request-note">{t('recommendProcess')}</p>
               </>
             )}
 
+            {busy && progressStage !== null ? (
+              <ol className="intake-progress" aria-live="polite">
+                {progressKeys.map((key, index) => (
+                  <li
+                    key={key}
+                    data-state={index < progressStage ? 'done' : index === progressStage ? 'active' : 'waiting'}
+                  >
+                    <i aria-hidden="true" />
+                    <span>{t(key)}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+
             <div className="request-actions">
-              {chosen && !rejected ? (
+              {(chosen || chosenWeb) && !rejected ? (
                 <>
-                  <button type="button" className="primary" onClick={accept} disabled={!!busy}>
+                  <button type="button" className="primary" onClick={accept} disabled={!!busy || tokenMissing}>
                     {busy === 'accept' ? t('working') : t('accept')}
                   </button>
                   <button type="button" className="ghost" onClick={reject} disabled={!!busy}>
@@ -284,7 +396,7 @@ export default function MissingDataRequest({ response, intake }: {
                       />
                       <span>{file ? `${file.name} · ${fileSize(file.size)}` : t('chooseFile', { size: megabytes(maxBytes) })}</span>
                     </label>
-                    <button type="submit" className="primary" disabled={!!busy || !file}>
+                    <button type="submit" className="primary" disabled={!!busy || !file || tokenMissing}>
                       {busy === 'upload' ? t('working') : t('uploadSubmit')}
                     </button>
                   </form>
@@ -300,7 +412,7 @@ export default function MissingDataRequest({ response, intake }: {
                       maxLength={2000}
                       disabled={!!busy}
                     />
-                    <button type="submit" className="primary" disabled={!!busy || !link.trim()}>
+                    <button type="submit" className="primary" disabled={!!busy || !link.trim() || tokenMissing}>
                       {busy === 'link' ? t('working') : t('linkSubmit')}
                     </button>
                     <p className="request-note">{t('linkHosts', { hosts: linkHosts.join(', ') })}</p>

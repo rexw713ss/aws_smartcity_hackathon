@@ -21,12 +21,15 @@ from apps.api.schemas import (
     DatasetResponse,
     DecisionRequest,
     DistrictCompareRequest,
+    DistrictForecastResponse,
     DistrictOverviewResponse,
     DistrictProfileResponse,
     ErrorBody,
     ErrorEnvelope,
     JobStatusResponse,
     LineageResponse,
+    MappingSamplePreview,
+    MappingSampleValue,
     QualityResponse,
     UploadResponse,
 )
@@ -34,6 +37,7 @@ from apps.api.security import WRITE_TOKEN_HEADER, require_write_token
 from apps.api.uploads import (
     aws_workflow_configured,
     get_aws_job_reference,
+    get_aws_mapping_analysis,
     resume_aws_job,
 )
 from apps.api.uploads import (
@@ -43,6 +47,7 @@ from youth_compass import __version__
 from youth_compass.domain import (
     AnalyticsNotAvailableError,
     DatasetNotFoundError,
+    ForecastNotAvailableError,
     ModelInvocationError,
     QueryExecutionError,
     QueryNotPermittedError,
@@ -53,11 +58,13 @@ from youth_compass.domain import (
     YouthCompassError,
 )
 from youth_compass.domain.contracts import MappingAnalysis
-from youth_compass.ports import ApprovalDecision, JobReference
+from youth_compass.ports import ApprovalDecision, ForecastRequest, JobReference
+from youth_compass.transformation.values import RowTransformationError, preview_column_value
 
 _LOGGER = logging.getLogger(__name__)
 
 _DATA_ROOT_ENV_VAR = "YOUTH_COMPASS_DATA_ROOT"
+_ALLOWED_SOURCE_IPS_ENV_VAR = "YOUTH_COMPASS_ALLOWED_SOURCE_IPS"
 
 
 def default_data_root() -> Path:
@@ -77,6 +84,26 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     # Exposed separately so request-scoped guards can read settings without
     # reaching through the runtime.
     app.state.settings = runtime.settings
+
+    # Lambda Function URLs expose the caller's address as the ASGI client. The
+    # allowlist is opt-in so local development and the offline test suite stay
+    # accessible, while the deployed stack fails closed for every other IP.
+    allowed_source_ips = {
+        value.strip()
+        for value in os.environ.get(_ALLOWED_SOURCE_IPS_ENV_VAR, "").split(",")
+        if value.strip()
+    }
+    if allowed_source_ips:
+
+        @app.middleware("http")
+        async def restrict_source_ip(request: Request, call_next):  # type: ignore[no-untyped-def]
+            source_ip = request.client.host if request.client is not None else ""
+            if source_ip not in allowed_source_ips:
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"detail": "source IP is not allowed"},
+                )
+            return await call_next(request)
 
     # A browser-based frontend served from another origin cannot call this API
     # unless its origin is allowed here. Defaults to empty, so nothing is
@@ -193,7 +220,38 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         tags=["reviewer"],
     )
     def get_mapping(job_id: str, request: Request) -> MappingAnalysis:
-        return _runtime(request).workflow.get_job(job_id).mapping_analysis
+        return _mapping_for_job(request, job_id)
+
+    @app.get(
+        "/api/v1/ingestion-jobs/{job_id}/mapping-preview",
+        response_model=list[MappingSamplePreview],
+        tags=["reviewer"],
+    )
+    def get_mapping_preview(job_id: str, request: Request) -> list[MappingSamplePreview]:
+        """Show bounded before/after examples without exposing source rows or paths."""
+
+        analysis = _mapping_for_job(request, job_id)
+        profiles = {column.name: column for column in analysis.profile.columns}
+        previews: list[MappingSamplePreview] = []
+        for mapping in analysis.proposal.columns:
+            samples: list[MappingSampleValue] = []
+            profile = profiles.get(mapping.source_column)
+            for source in profile.sample_values[:3] if profile is not None else []:
+                try:
+                    canonical = _public_preview_values(preview_column_value(source, mapping))
+                except RowTransformationError as exc:
+                    samples.append(MappingSampleValue(source=source, error=str(exc)[:300]))
+                else:
+                    samples.append(MappingSampleValue(source=source, canonical=canonical))
+            previews.append(
+                MappingSamplePreview(
+                    source_column=mapping.source_column,
+                    target_field=mapping.target_field,
+                    transformation=mapping.transformation,
+                    samples=samples,
+                )
+            )
+        return previews
 
     @app.post(
         "/api/v1/ingestion-jobs/{job_id}/decision",
@@ -356,6 +414,29 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         )
         return DistrictOverviewResponse.from_result(result)
 
+    @app.get(
+        "/api/v1/districts/{district_code}/forecast",
+        response_model=DistrictForecastResponse,
+        tags=["dashboard"],
+    )
+    def district_forecast(
+        district_code: str,
+        request: Request,
+        metric_code: str = Query(default="population_count", alias="metricCode"),
+        horizon_years: int = Query(default=5, alias="horizonYears", ge=1, le=10),
+    ) -> DistrictForecastResponse:
+        service = _runtime(request).forecasts()
+        if service is None:
+            raise ForecastNotAvailableError("no forecast provider is configured")
+        result = service.get_forecast(
+            ForecastRequest(
+                metric_code=metric_code,
+                district_codes=[district_code],
+                horizon_years=horizon_years,
+            )
+        )
+        return DistrictForecastResponse.from_result(district_code, result)
+
     @app.post(
         "/api/v1/districts/compare",
         response_model=DistrictProfileResponse,
@@ -381,6 +462,39 @@ def create_app(data_root: Path | None = None) -> FastAPI:
 def _runtime(request: Request) -> LocalRuntime:
     runtime: LocalRuntime = request.app.state.runtime
     return runtime
+
+
+def _mapping_for_job(request: Request, job_id: str) -> MappingAnalysis:
+    """Resolve local or AWS-backed review state through one public endpoint."""
+
+    try:
+        analysis = _runtime(request).workflow.get_job(job_id).mapping_analysis
+    except WorkflowNotFoundError:
+        if not aws_workflow_configured():
+            raise
+        analysis = get_aws_mapping_analysis(request, job_id)
+
+    # Profiling needs the real source path internally, but reviewer APIs must not
+    # disclose local/Lambda storage layout. Preserve the canonical contract while
+    # reducing the public value to the user-visible file name.
+    public_profile = analysis.profile.model_copy(
+        update={"source_path": Path(analysis.profile.file_name)}
+    )
+    return analysis.model_copy(update={"profile": public_profile})
+
+
+def _public_preview_values(
+    values: dict[str, object],
+) -> dict[str, str | int | float | bool | None]:
+    """Constrain transformation output to the JSON scalar preview contract."""
+
+    result: dict[str, str | int | float | bool | None] = {}
+    for key, value in values.items():
+        if value is None or isinstance(value, (str, int, float, bool)):
+            result[key] = value
+        else:
+            result[key] = str(value)
+    return result
 
 
 def _job_response(runtime: LocalRuntime, job_id: str) -> JobStatusResponse:
@@ -416,7 +530,13 @@ def _aws_job_response(reference: JobReference) -> JobStatusResponse:
 
 
 def _status_for_error(exc: YouthCompassError) -> int:
-    if isinstance(exc, DatasetNotFoundError | AnalyticsNotAvailableError | WorkflowNotFoundError):
+    if isinstance(
+        exc,
+        DatasetNotFoundError
+        | AnalyticsNotAvailableError
+        | WorkflowNotFoundError
+        | ForecastNotAvailableError,
+    ):
         return status.HTTP_404_NOT_FOUND
     if isinstance(exc, WorkflowStateError | QueryNotPermittedError):
         return status.HTTP_409_CONFLICT

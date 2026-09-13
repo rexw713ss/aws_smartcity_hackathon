@@ -1,6 +1,6 @@
 # Reviewer and Dashboard API
 
-> Status: offline reference implemented
+> Status: offline reference and React reviewer workspace implemented
 > Contract: `contracts/api/openapi.json`
 
 ## 1. Vertical slice
@@ -34,6 +34,7 @@ Interactive documentation is available at `http://127.0.0.1:8000/docs`.
 | POST | `/api/v1/uploads/{job_id}/complete` | Verifies S3 and idempotently starts Step Functions |
 | GET | `/api/v1/ingestion-jobs/{job_id}` | Safe status, score, warnings, and links |
 | GET | `/api/v1/ingestion-jobs/{job_id}/mapping` | Profile, proposal, and deterministic validation |
+| GET | `/api/v1/ingestion-jobs/{job_id}/mapping-preview` | Up to three bounded before/after samples for each mapped column |
 | POST | `/api/v1/ingestion-jobs/{job_id}/decision` | Approve or reject exactly once |
 | GET | `/api/v1/ingestion-jobs/{job_id}/quality-report` | Quality result after transformation |
 
@@ -53,7 +54,20 @@ Interactive documentation is available at `http://127.0.0.1:8000/docs`.
 Every analytics response includes dataset/version, metric, unit, population scope,
 quality score, and period. Estimated observations are reported separately.
 
-## 4. Query safety
+## 4. React data-steward workflow
+
+The main React application opens the reviewer workspace as soon as an upload or
+approved source acquisition reaches `awaiting_approval`. It presents the source
+profile, AI-proposed field and metric mappings, confidence badges, normalized
+sample values, and blocking or advisory validation issues. The steward must
+provide an identity and explicitly approve or reject the proposal; approval is
+disabled when deterministic validation has a blocking issue.
+
+The current job can also be reopened with `?review=<jobId>`. Only the job ID is
+stored in the URL. The optional write token remains in React memory and is sent
+only on upload, acquisition, and decision requests.
+
+## 5. Query safety
 
 `DuckDBQueryEngine` accepts only `QuerySpec`; no API accepts raw SQL. It validates:
 
@@ -68,7 +82,7 @@ Filter values use DuckDB parameters. The adapter reads only the Parquet path
 resolved from the published catalog pointer. A missing, quarantined, or rejected
 dataset cannot be queried by dashboard endpoints.
 
-## 5. Public-data boundary
+## 6. Public-data boundary
 
 Responses intentionally omit:
 
@@ -82,7 +96,7 @@ Errors use `{ "error": { "code", "message", "details", "traceId" } }`.
 Unknown resources return 404, invalid workflow transitions return 409, and unsafe
 or invalid analytics queries return 409/422.
 
-## 6. Deferred dashboard API work
+## 7. Deferred dashboard API work
 
 - authentication and reviewer authorization;
 - upload idempotency-key records;
