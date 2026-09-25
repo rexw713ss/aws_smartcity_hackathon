@@ -16,7 +16,7 @@ import {
 
 /** On the narrow layout the insight pane replaces the chat pane. */
 async function showInsight(page: import('@playwright/test').Page) {
-  const toggle = page.getByRole('button', { name: /Charts & evidence/ })
+  const toggle = page.getByRole('button', { name: /Charts & evidence|圖表與證據/ })
   if (await toggle.isVisible()) await toggle.click()
 }
 
@@ -28,7 +28,7 @@ async function showCharts(page: import('@playwright/test').Page) {
 /** The inverse: bring the conversation back on the narrow layout, where an
  * answer's caveats live beside the answer rather than in the insight pane. */
 async function showChat(page: import('@playwright/test').Page) {
-  const toggle = page.getByRole('button', { name: /^Conversation$/ })
+  const toggle = page.getByRole('button', { name: /^(Conversation|對話)$/ })
   if (await toggle.isVisible()) await toggle.click()
 }
 
@@ -352,6 +352,9 @@ test('reviews mapping evidence and explicitly approves publication in React', as
   }])
 
   await page.locator('.review-outcome').getByRole('button', { name: 'Back to assistant' }).click()
+  await expect.poll(() => requests.length).toBe(2)
+  await expect(page.getByLabel('Language')).toBeEnabled()
+  await showChat(page)
   await expect(page.getByText(rankingAnswer.answer)).toBeVisible()
   expect(requests).toHaveLength(2)
   expect(requests[1]).toMatchObject(requests[0] as Record<string, unknown>)
@@ -522,9 +525,10 @@ test('opens a district overview without creating another agent turn', async ({ p
   await expect(page.locator('[data-overview-chart="trend"] .recharts-line-curve')).toHaveCount(1)
   await expect(page.locator('[data-overview-chart="age"]')).toContainText('32.4%')
   await expect(page.locator('[data-overview-chart="age"] .recharts-pie-sector')).toHaveCount(4)
+  await expect(page.getByText(districtOverview.total.toLocaleString())).toBeVisible()
+  await showChat(page)
   await expect(page.locator('.turn.question')).toHaveCount(1)
   await expect(page.locator('.turn.answer')).toHaveCount(1)
-  await expect(page.getByText(districtOverview.total.toLocaleString())).toBeVisible()
 })
 
 test('draws the published forecast after the observed trend in a district overview', async ({ page }) => {
@@ -675,7 +679,12 @@ test('opens in Traditional Chinese and switches the whole shell to English', asy
   await mockCopilot(page, { query: rankingAnswer })
   // Runs after the fixture's own init script, so it wins: this page starts with
   // no stored preference and must fall back to the shipped default.
-  await page.addInitScript(() => window.localStorage.removeItem('youth-compass-language'))
+  await page.addInitScript(() => {
+    if (!window.sessionStorage.getItem('test-default-language')) {
+      window.localStorage.removeItem('youth-compass-language')
+      window.sessionStorage.setItem('test-default-language', 'true')
+    }
+  })
   await page.goto('/')
 
   const picker = page.getByLabel('語言')
@@ -712,10 +721,14 @@ test('regenerates existing chat and charts when the interface language changes',
   })
   await page.goto('/')
   await ask(page, 'Compare population trend from 2023 to 2025')
+  await expect(page.getByLabel('Language')).toBeEnabled()
+  await showChat(page)
   await expect(page.getByText(/Population count comparison/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0)
 
   await page.getByLabel('Language').selectOption('zh-TW')
+  await expect(page.getByLabel('語言')).toBeEnabled()
+  await showChat(page)
   await expect(page.getByText(/板橋區人口在所選期間增加/)).toBeVisible()
   await expect(page.getByText(/Population count comparison/)).toHaveCount(0)
   await showInsight(page)

@@ -1,3 +1,4 @@
+import { formatError } from '../lib/errors'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   CopilotClient,
@@ -5,8 +6,8 @@ import type {
   MappingAnalysis,
   MappingSamplePreview,
 } from '../lib/copilot'
-import { formatLabel, formatQuality } from '../lib/format'
-import { useI18n } from '../lib/i18n'
+import { formatCell, formatLabel, formatQuality, formatUnit } from '../lib/format'
+import { useI18n, type Language } from '../lib/i18n'
 
 const defaultReviewerIdentity = 'steward@newtaipei.gov.tw'
 
@@ -20,10 +21,10 @@ function Confidence({ value }: { value: number }) {
   )
 }
 
-function canonicalText(values: Record<string, string | number | boolean | null>): string {
+function canonicalText(values: Record<string, string | number | boolean | null>, language: Language): string {
   const entries = Object.entries(values)
   if (!entries.length) return '—'
-  return entries.map(([key, value]) => `${formatLabel(key)}: ${String(value ?? '—')}`).join(' · ')
+  return entries.map(([key, value]) => `${formatLabel(key, language)}: ${typeof value === 'boolean' ? formatCell(value, language) : String(value ?? '—')}`).join(' · ')
 }
 
 export default function ReviewerWorkspace({
@@ -75,7 +76,7 @@ export default function ReviewerWorkspace({
     load(controller.signal)
       .catch(cause => {
         if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : t('reviewLoadFailed'))
+          setError(formatError(cause, language))
         }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
@@ -114,7 +115,7 @@ export default function ReviewerWorkspace({
   const outcomeLabel = job?.status === 'published' ? t('outcomePublished') :
     job?.status === 'rejected' ? t('outcomeRejected') :
       job?.status === 'quarantined' ? t('outcomeQuarantined') :
-        job?.status === 'failed' ? t('outcomeFailed') : formatLabel(job?.status ?? '')
+        job?.status === 'failed' ? t('outcomeFailed') : formatLabel(job?.status ?? '', language)
 
   const decide = async (decision: 'approve' | 'reject') => {
     setBusy(decision)
@@ -127,7 +128,7 @@ export default function ReviewerWorkspace({
       setJob(settled)
       if (settled.status === 'published') await onPublished()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('reviewDecisionFailed'))
+      setError(formatError(cause, language))
     } finally {
       setBusy(null)
     }
@@ -150,8 +151,8 @@ export default function ReviewerWorkspace({
       {job ? (
         <section className="review-job-bar" aria-label={t('reviewJob')}>
           <div><span>{t('reviewJob')}</span><code>{job.jobId}</code></div>
-          <div><span>{t('reviewStatus')}</span><strong>{formatLabel(job.status)}</strong></div>
-          <div><span>{t('reviewDataset')}</span><strong>{job.datasetId ? formatLabel(job.datasetId) : '—'}</strong></div>
+          <div><span>{t('reviewStatus')}</span><strong>{formatLabel(job.status, language)}</strong></div>
+          <div><span>{t('reviewDataset')}</span><strong>{job.datasetId ? formatLabel(job.datasetId, language) : '—'}</strong></div>
           {job.qualityScore !== null ? <Confidence value={job.qualityScore} /> : null}
         </section>
       ) : null}
@@ -160,9 +161,9 @@ export default function ReviewerWorkspace({
         <>
           <section className="review-summary">
             <article><span>{t('reviewFile')}</span><strong>{mapping.profile.file_name}</strong><small>{mapping.profile.file_format.toUpperCase()}</small></article>
-            <article><span>{t('reviewRows')}</span><strong>{mapping.profile.row_count.toLocaleString()}</strong><small>{t('reviewColumns', { count: mapping.profile.column_count })}</small></article>
-            <article><span>{t('reviewTopic')}</span><strong>{formatLabel(mapping.proposal.topic)}</strong><small>{formatLabel(mapping.proposal.dataset_role)}</small></article>
-            <article><span>{t('reviewGrain')}</span><strong>{mapping.proposal.grain.dimensions.length}</strong><small>{mapping.proposal.grain.dimensions.map(formatLabel).join(' · ')}</small></article>
+            <article><span>{t('reviewRows')}</span><strong>{mapping.profile.row_count.toLocaleString(language)}</strong><small>{t('reviewColumns', { count: mapping.profile.column_count })}</small></article>
+            <article><span>{t('reviewTopic')}</span><strong>{formatLabel(mapping.proposal.topic, language)}</strong><small>{formatLabel(mapping.proposal.dataset_role, language)}</small></article>
+            <article><span>{t('reviewGrain')}</span><strong>{mapping.proposal.grain.dimensions.length}</strong><small>{mapping.proposal.grain.dimensions.map(value => formatLabel(value, language)).join(' · ')}</small></article>
           </section>
 
           <section className="review-section">
@@ -176,17 +177,17 @@ export default function ReviewerWorkspace({
                 <tbody>
                   {mapping.proposal.columns.map(item => (
                     <tr key={`${item.source_column}-${item.target_field}`}>
-                      <td><strong>{item.source_column}</strong><small>{formatLabel(profileByName.get(item.source_column)?.inferred_type ?? '')}</small></td>
-                      <td><code>{item.target_field}</code></td>
-                      <td>{formatLabel(item.transformation)}</td>
+                      <td><strong>{item.source_column}</strong><small>{formatLabel(profileByName.get(item.source_column)?.inferred_type ?? '', language)}</small></td>
+                      <td>{language === 'zh-TW' ? <span>{formatLabel(item.target_field, language)} </span> : null}<code>{item.target_field}</code></td>
+                      <td>{formatLabel(item.transformation, language)}</td>
                       <td><Confidence value={item.confidence} /></td>
                     </tr>
                   ))}
                   {mapping.proposal.metrics.map(item => (
                     <tr key={`${item.source_column}-${item.metric_code}`}>
                       <td><strong>{item.source_column}</strong><small>{t('mappingMetric')}</small></td>
-                      <td><code>{item.metric_code}</code></td>
-                      <td>{formatLabel(item.aggregation_method)} · {item.unit_code ?? t('mappingUnitMissing')}</td>
+                      <td>{language === 'zh-TW' ? <span>{formatLabel(item.metric_code, language)} </span> : null}<code>{item.metric_code}</code></td>
+                      <td>{formatLabel(item.aggregation_method, language)} · {item.unit_code ? formatUnit(item.unit_code, language) : t('mappingUnitMissing')}</td>
                       <td><Confidence value={item.confidence} /></td>
                     </tr>
                   ))}
@@ -208,7 +209,7 @@ export default function ReviewerWorkspace({
                         <span>{sample.source}</span>
                         <i aria-hidden="true">→</i>
                         <strong className={sample.error ? 'preview-invalid' : undefined}>
-                          {sample.error ?? canonicalText(sample.canonical)}
+                          {sample.error ?? canonicalText(sample.canonical, language)}
                         </strong>
                       </div>
                     )) : <p>{t('previewNone')}</p>}
@@ -227,7 +228,7 @@ export default function ReviewerWorkspace({
             </div>
             {issues.length ? <ul>{issues.map((issue, index) => (
               <li key={`${issue.code}-${index}`} className={issue.blocking ? 'is-blocking' : undefined}>
-                <strong>{formatLabel(issue.code)}</strong><span>{issue.message}</span>
+                <strong>{formatLabel(issue.code, language)}</strong><span>{issue.message}</span>
               </li>
             ))}</ul> : <p className="review-clean">{t('validationClean')}</p>}
           </section>

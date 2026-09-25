@@ -1,3 +1,4 @@
+import { formatError } from '../lib/errors'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { CopilotResponse, DistrictOverview as DistrictOverviewData, VisualizationSpec } from '../lib/copilot'
 import { districtHighlights } from '../lib/districtHighlights'
@@ -26,7 +27,7 @@ function VisualizationCard({
       citation.citation_id,
       {
         number: index + 1,
-        label: formatLabel(citation.dataset_id),
+        label: formatLabel(citation.dataset_id, language),
         url: null,
       },
     ] as const),
@@ -162,7 +163,7 @@ export default function InsightPanel({
       if (ticket === overviewRequest.current) setOverviews(results)
     } catch (cause) {
       if (ticket === overviewRequest.current) {
-        setOverviewError(cause instanceof Error ? cause.message : t('overviewUnavailable'))
+        setOverviewError(formatError(cause, language))
       }
     } finally {
       if (ticket === overviewRequest.current) setOverviewPending(false)
@@ -311,9 +312,9 @@ export default function InsightPanel({
                   className={citationFocus?.citationId === citation.citation_id ? 'is-focused' : undefined}
                   data-citation-id={citation.citation_id}
                 >
-                  <code aria-label={`Source ${index + 1}`}>[{index + 1}]</code>
+                  <code aria-label={t('sourceNumber', { number: index + 1 })}>[{index + 1}]</code>
                   <div>
-                    <strong>{formatLabel(citation.dataset_id)}</strong>
+                    <strong>{formatLabel(citation.dataset_id, language)}</strong>
                     <span className="evidence-meta">
                       {t('version')} {citation.dataset_version} · {t('quality').toLowerCase()} {formatQuality(citation.quality_score, language)} · {t('retrieved')}{' '}
                       {formatTimestamp(citation.retrieved_at, language)}
@@ -353,7 +354,7 @@ export default function InsightPanel({
                                   <td>
                                     {row.period ? formatPeriod(row.period, language) : (row.observed_at ? formatTimestamp(row.observed_at, language) : t('snapshot'))}
                                   </td>
-                                  <td className="numeric">{row.value.toLocaleString()}</td>
+                                  <td className="numeric">{row.value.toLocaleString(language)}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -371,7 +372,7 @@ export default function InsightPanel({
               <ul className="evidence-list web-evidence-list">
                 {response.web_citations.map((citation, index) => (
                   <li key={citation.citation_id} data-citation-id={citation.citation_id}>
-                    <code aria-label={`Source ${response.citations.length + index + 1}`}>[{response.citations.length + index + 1}]</code>
+                    <code aria-label={t('sourceNumber', { number: response.citations.length + index + 1 })}>[{response.citations.length + index + 1}]</code>
                     <div>
                       <strong><a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a></strong>
                       {citation.published_at ? <span className="evidence-meta">{t('published')} {formatTimestamp(citation.published_at, language)}</span> : null}
@@ -393,8 +394,8 @@ export default function InsightPanel({
             <ol className="trace-list">
               {response.tool_trace.map((step, index) => (
                 <li key={`${step.tool}-${index}`} data-outcome={step.outcome}>
-                  <span className="trace-tool">{formatLabel(step.tool)}</span>
-                  <span className="trace-outcome">{formatLabel(step.outcome)}</span>
+                  <span className="trace-tool">{formatLabel(step.tool, language)}</span>
+                  <span className="trace-outcome">{formatLabel(step.outcome, language)}</span>
                   <p>{step.summary}</p>
                 </li>
               ))}
