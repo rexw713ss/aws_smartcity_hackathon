@@ -474,6 +474,27 @@ def test_topic_overview_returns_observations_instead_of_the_dataset_catalog(
     )
 
 
+@pytest.mark.parametrize(
+    "question", ["板橋區青年人口", "查詢板橋區青年人口", "板橋區人口數是多少\uff1f"]
+)
+def test_direct_chinese_question_reads_published_rows(tmp_path: Path, question: str) -> None:
+    app = create_app(tmp_path)
+    app.state.runtime.catalog.register(_write_population_observations(tmp_path))
+    client = TestClient(app)
+    body = client.post(
+        "/api/v1/copilot/query",
+        json={
+            "question": question,
+            "responseLanguage": "zh-TW",
+            "minQualityScore": 0.7,
+        },
+    ).json()
+    assert body["status"] == "answered"
+    assert body["citations"][0]["dataset_id"] == "youth_population"
+    assert {point["entity_id"] for point in body["observation_series"]["points"]} == {"banqiao"}
+    assert any(item["tool"] == "query_observations" for item in body["tool_trace"])
+
+
 def test_multi_dataset_question_queries_and_joins_every_requested_input(
     tmp_path: Path,
 ) -> None:

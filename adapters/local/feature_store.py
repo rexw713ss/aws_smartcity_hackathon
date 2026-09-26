@@ -63,11 +63,12 @@ class FeatureParquetMaterializer:
                 temporary = Path(handle.name)
             table = pa.Table.from_pylist(rows, schema=FEATURE_VALUE_SCHEMA)
             pq.write_table(table, temporary, compression="zstd")
-            written = pq.ParquetFile(temporary)
-            if not written.schema_arrow.equals(FEATURE_VALUE_SCHEMA):
-                raise QueryExecutionError("feature Parquet schema verification failed")
-            if written.metadata.num_rows != len(records):
-                raise QueryExecutionError("feature Parquet row-count verification failed")
+            # Release the reader before renaming: Windows locks an open file.
+            with pq.ParquetFile(temporary) as written:
+                if not written.schema_arrow.equals(FEATURE_VALUE_SCHEMA):
+                    raise QueryExecutionError("feature Parquet schema verification failed")
+                if written.metadata.num_rows != len(records):
+                    raise QueryExecutionError("feature Parquet row-count verification failed")
             os.replace(temporary, final)
             return final
         finally:

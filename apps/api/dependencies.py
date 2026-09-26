@@ -67,6 +67,7 @@ class LocalRuntime:
     def __init__(self, data_root: Path, settings: AppSettings | None = None) -> None:
         self.data_root = data_root.resolve()
         self.settings = settings or load_settings()
+        self._validate_observation_backend()
         metadata_database = self.data_root / "metadata" / "youth-compass.sqlite3"
         # The catalog is provider-selected: Glue+DynamoDB when the AWS profile is
         # active, SQLite offline. This backs both the dashboard's analytics() and
@@ -200,20 +201,19 @@ class LocalRuntime:
             ttl_seconds=int(ttl.total_seconds()),
         )
 
-    def _configure_agent_observation_backend(self) -> None:
-        """Select Athena only for Agent observation tools in an AWS runtime."""
-
+    def _validate_observation_backend(self) -> None:
+        """Reject incomplete provider pairs before creating any AWS clients."""
         catalog = self.settings.catalog
         query = self.settings.query
-        if catalog is None or query is None:
-            return
-        wants_aws = (
-            catalog.provider is CatalogProvider.GLUE or query.provider is QueryProvider.ATHENA
+        wants_aws = (catalog is not None and catalog.provider is CatalogProvider.GLUE) or (
+            query is not None and query.provider is QueryProvider.ATHENA
         )
         if not wants_aws:
             return
         if (
-            catalog.provider is not CatalogProvider.GLUE
+            catalog is None
+            or query is None
+            or catalog.provider is not CatalogProvider.GLUE
             or query.provider is not QueryProvider.ATHENA
         ):
             raise ConfigurationError("Agent observations require Glue and Athena together")
@@ -224,14 +224,14 @@ class LocalRuntime:
                 "Athena Agent observations require workgroup and output_bucket"
             )
 
-        from adapters.aws.athena_query import AthenaQueryEngine
-        from adapters.aws.glue_catalog import GlueCatalog
+    def _configure_agent_observation_backend(self) -> None:
+        """Select Athena for a validated Glue/Athena configuration."""
+        catalog = self.settings.catalog
+        query = self.settings.query
+        if catalog is None or query is None or query.provider is not QueryProvider.ATHENA:
+            return
 
-        self._agent_catalog = GlueCatalog(
-            database=catalog.database,
-            table_name=catalog.table_name,
-            region=self.settings.region,
-        )
+        from adapters.aws.athena_query import AthenaQueryEngine
 
         def build(metadata: DatasetMetadata) -> AthenaQueryEngine:
             return AthenaQueryEngine(

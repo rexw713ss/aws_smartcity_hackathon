@@ -44,6 +44,7 @@ from apps.api.uploads import (
     router as uploads_router,
 )
 from youth_compass import __version__
+from youth_compass.config import load_settings
 from youth_compass.domain import (
     AnalyticsNotAvailableError,
     DatasetNotFoundError,
@@ -63,7 +64,6 @@ from youth_compass.transformation.values import RowTransformationError, preview_
 
 _LOGGER = logging.getLogger(__name__)
 
-_DATA_ROOT_ENV_VAR = "YOUTH_COMPASS_DATA_ROOT"
 _ALLOWED_SOURCE_IPS_ENV_VAR = "YOUTH_COMPASS_ALLOWED_SOURCE_IPS"
 
 
@@ -74,7 +74,7 @@ def default_data_root() -> Path:
     touching code. Lambda in particular must point this at a writable location,
     because the unpacked package at /var/task is read-only.
     """
-    return Path(os.environ.get(_DATA_ROOT_ENV_VAR, "data"))
+    return load_settings().data_root
 
 
 def create_app(data_root: Path | None = None) -> FastAPI:

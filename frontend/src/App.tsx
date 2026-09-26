@@ -101,6 +101,7 @@ export default function App() {
   const [capabilities, setCapabilities] = useState<ToolCapability[]>([])
   const [datasets, setDatasets] = useState<DatasetCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogFailure, setCatalogFailure] = useState<unknown>(null)
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
   const [topicSwitch, setTopicSwitch] = useState<TopicSwitchPrompt | null>(null)
   const [conversationKey, setConversationKey] = useState(0)
@@ -196,6 +197,7 @@ export default function App() {
 
   useEffect(() => {
     if (!client) {
+      setCatalogFailure(new Error('Invalid API configuration'))
       setCatalogLoading(false)
       return
     }
@@ -217,10 +219,16 @@ export default function App() {
       })
     client
       .datasets(controller.signal)
-      .then(setDatasets)
+      .then(items => {
+        if (controller.signal.aborted) return
+        setDatasets(items)
+        setCatalogFailure(null)
+      })
       .catch(cause => {
-        setDatasets([])
-        if (!controller.signal.aborted) console.error('dataset catalog request failed', cause)
+        if (!controller.signal.aborted) {
+          setDatasets([])
+          setCatalogFailure(cause)
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setCatalogLoading(false)
@@ -400,10 +408,14 @@ export default function App() {
   const refreshCatalog = useCallback(async () => {
     if (!client) return
     const controller = new AbortController()
+    setCatalogLoading(true)
     try {
       setDatasets(await client.datasets(controller.signal))
-    } catch {
-      // The approved version is durable; a later catalog refresh can recover.
+      setCatalogFailure(null)
+    } catch (cause) {
+      setCatalogFailure(cause)
+    } finally {
+      setCatalogLoading(false)
     }
   }, [client])
 
@@ -552,6 +564,9 @@ export default function App() {
               onAcceptTopicSwitch={acceptTopicSwitch}
               onRejectTopicSwitch={() => setTopicSwitch(null)}
               catalogLoading={catalogLoading}
+              catalogError={catalogFailure ? formatError(catalogFailure, language) : null}
+              queryableDatasetCount={publishedDatasets.filter(item => item.qualityScore >= 0.7).length}
+              onRefreshCatalog={() => { void refreshCatalog() }}
               draft={draft}
               onDraft={setDraft}
               onSubmit={ask}

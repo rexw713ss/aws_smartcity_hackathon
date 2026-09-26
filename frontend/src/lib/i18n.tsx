@@ -4,6 +4,10 @@ export type Language = 'zh-TW' | 'en'
 
 const messages = {
   'zh-TW': {
+    catalogUnavailable: '無法讀取資料目錄',
+    catalogEmpty: '目前沒有可查詢的已發布資料',
+    catalogEmptyHelp: '資料需先匯入、通過審核並達到 70% 品質門檻，助理才能查詢。原始檔案放進專案資料夾不會自動發布；完成發布後，請重新整理資料目錄。',
+    refreshCatalog: '重新整理資料目錄',
     pageDescription: '新北青策：以經審核、已發布的新北市資料回答青年政策問題，每個答案皆附有資料來源。',
     sourceNumber: '來源 {number}',
     languageRefreshFailed: '回答語言更新失敗，先前的回答仍保留。請稍後重新提問，或再次切換語言。',
@@ -93,6 +97,10 @@ const messages = {
     configInvalid: '前端 API 設定無效。', timeout: '請求已取消或超過 90 秒。', unexpected: '發生未預期的錯誤。',
   },
   en: {
+    catalogUnavailable: 'Dataset catalog unavailable',
+    catalogEmpty: 'No published datasets are ready to query',
+    catalogEmptyHelp: 'Import and approve data with a quality score of at least 70% before querying. Copying source files into the project does not publish them. Refresh the catalog after publication.',
+    refreshCatalog: 'Refresh dataset catalog',
     pageDescription: 'New Taipei Youth Policy decision assistant: youth policy answers drawn from published New Taipei datasets, each one cited.',
     sourceNumber: 'Source {number}',
     languageRefreshFailed: 'Could not refresh the answer language. Previous answers are preserved. Try asking again or switching languages again.',

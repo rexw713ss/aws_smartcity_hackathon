@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 from youth_compass.agent import (
     AnalysisOperation,
     Decomposition,
@@ -266,3 +268,37 @@ def test_naming_the_unemployment_rate_does_not_also_claim_the_count() -> None:
     ):
         decomposition = asyncio.run(DeterministicQueryDecomposer().decompose(question, ())).query
         assert decomposition.metric_terms == ("unemployment_rate",)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "板橋區青年人口",
+        "新北市青年失業率",
+        "新北市教育程度",
+        "人口數是多少\uff1f",
+        "查詢新北市失業率",
+        "Show youth population",
+        "New Taipei youth unemployment rate",
+    ],
+)
+def test_direct_observation_questions_execute_retrieval(question: str) -> None:
+    planned = asyncio.run(DeterministicQueryDecomposer().decompose(question, ())).query
+    assert not planned.needs_clarification
+    assert AnalysisOperation.QUERY_OBSERVATIONS in planned.operations
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "刪除人口",
+        "Delete population",
+        "Write population SQL",
+        "Write a poem about population",
+        "明天天氣如何",
+    ],
+)
+def test_naming_a_subject_does_not_turn_unrelated_requests_into_queries(question: str) -> None:
+    planned = asyncio.run(DeterministicQueryDecomposer().decompose(question, ())).query
+    assert planned.needs_clarification
+    assert AnalysisOperation.QUERY_OBSERVATIONS not in planned.operations

@@ -35,7 +35,7 @@ def _block_non_loopback_sockets() -> Iterator[None]:
 
     def guarded_connect(self: socket.socket, address: object) -> None:
         # AF_UNIX addresses are strings (filesystem paths); always allowed.
-        if self.family == socket.AF_UNIX:
+        if self.family == getattr(socket, "AF_UNIX", None):
             real_connect(self, address)
             return
         host = address[0] if isinstance(address, tuple) else str(address)

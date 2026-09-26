@@ -256,6 +256,9 @@ export default function ChatPanel({
   onAcceptTopicSwitch,
   onRejectTopicSwitch,
   catalogLoading,
+  catalogError,
+  queryableDatasetCount,
+  onRefreshCatalog,
   draft,
   onDraft,
   onSubmit,
@@ -275,6 +278,9 @@ export default function ChatPanel({
   onAcceptTopicSwitch: () => void
   onRejectTopicSwitch: () => void
   catalogLoading: boolean
+  catalogError: string | null
+  queryableDatasetCount: number
+  onRefreshCatalog: () => void
   draft: string
   onDraft: (value: string) => void
   onSubmit: (question: string) => void
@@ -311,6 +317,15 @@ export default function ChatPanel({
         </button>
       </header>
       <div className="chat-scroll" ref={scroller}>
+        {!catalogLoading && (catalogError || queryableDatasetCount === 0) ? (
+          <div className="catalog-notice" role={catalogError ? 'alert' : 'status'}>
+            <strong>{catalogError ? t('catalogUnavailable') : t('catalogEmpty')}</strong>
+            <p>{catalogError ?? t('catalogEmptyHelp')}</p>
+            <button type="button" className="ghost" onClick={onRefreshCatalog}>
+              {t('refreshCatalog')}
+            </button>
+          </div>
+        ) : null}
         {turns.length === 0 ? (
           <div className="chat-intro">
             <h2>{t('introTitle')}</h2>

@@ -52,13 +52,29 @@ npm run dev -- --host 127.0.0.1
 
 ### 4. 準備可查詢資料
 
-剛複製專案時，本機可能還沒有已發布資料。API 啟動不代表原始檔已完成匯入；請經由資料匯入與審核流程發布資料，再進行問答。可用以下測試檔建立匯入工作：
+**原始 CSV 存在，不代表 Agent 已經能查詢。** 剛複製專案時，SQLite 目錄與 Curated Parquet 尚未建立，需先匯入並發布。專案提供人口、含年齡的教育程度與全市失業率三份來源，可一次建立審核工作：
 
 ```bash
-uv run youth-compass-local submit tests/fixtures/employment_unfamiliar.csv --submitted-by local-uploader
+uv run python -m scripts.prepare_local_data
 ```
 
-使用回傳的工作 ID 開啟 `http://127.0.0.1:5173/?review=<jobId>`，檢查欄位對應並決定是否核准。完整資料準備方式見 [開發指南](docs/11-development-guide.md)。
+指令會印出每個工作的審核網址。開啟網址檢查對應並核准；若已核對專案內這三份來源，也可明確以 CLI 核准並記錄審核者：
+
+```bash
+uv run python -m scripts.prepare_local_data --approve --reviewed-by YOUR_NAME
+```
+
+人口原始檔約 53 MiB，超過網頁上傳的 25 MiB 限制，因此本機完整初始化請用此指令。轉換可能需要數分鐘；看到三個主題都顯示 `published` 或 `already published` 後，在頁面按「重新整理資料目錄」。重跑會略過來源版本未改變且 Parquet 仍存在的已發布資料。
+
+API 與初始化指令使用相同的 `data_root` 設定，可用 `YOUTH_COMPASS_DATA_ROOT` 覆寫；請從專案根目錄執行。CLI 的 `--data-root` 若另設路徑，API 也需設定相同位置。此指令僅適用本機 SQLite／DuckDB；AWS 環境請使用 [部署資料匯入工具](scripts/seed_deployed_dataset.py)。
+
+可先問「板橋區青年人口」、「新北市教育程度」或「新北市青年失業率」。失業率來源僅提供全市、年齡及性別分組，不能當成各行政區失業率。完整資料準備方式見 [開發指南](docs/11-development-guide.md)。
+
+遇到「抓不到資料」時：
+
+- 頁面顯示「無法讀取資料目錄」：確認 API 已在 8000 埠啟動，並檢查前端代理或 API 網址。
+- 顯示「目前沒有可查詢的已發布資料」：先完成上述初始化與審核；畫面查詢要求品質分數至少 70%。
+- 已發布但特定問題仍無資料：確認主題、期間與地區確實在來源範圍內。Agent 不會拿其他指標代替缺少的指標。
 
 購屋或充電樁決策排名另外需要特徵快照：
 

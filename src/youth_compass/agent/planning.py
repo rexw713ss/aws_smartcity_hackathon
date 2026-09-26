@@ -18,7 +18,7 @@ from youth_compass.agent.contracts import (
     ToolCapability,
 )
 from youth_compass.domain.errors import ModelInvocationError
-from youth_compass.ontology import extract_topics
+from youth_compass.ontology import DISTRICT_NAMES, extract_topics, topic_spellings
 from youth_compass.ports import ModelProvider, ModelRequest
 
 
@@ -172,7 +172,9 @@ class DeterministicQueryDecomposer:
                     AnalysisOperation.EXPLAIN_LINEAGE,
                 )
             )
-        elif trend or compare or topic_overview:
+        elif (
+            trend or compare or topic_overview or (not discover and _observation_lookup(normalized))
+        ):
             objective = (
                 "compare observations"
                 if compare
@@ -786,6 +788,65 @@ def register_impact_capabilities(registry: ToolCapabilityRegistry) -> None:
 
 def _contains(text: str, *terms: str) -> bool:
     return any(term in text for term in terms)
+
+
+def _observation_lookup(text: str) -> bool:
+    """Recognize direct data lookups without requiring 'trend' or 'compare'.
+
+    A bare noun phrase must consist entirely of known subjects, places, and
+    scope words. Unrelated prose or a write request still needs clarification.
+    """
+    topics = extract_topics(text)
+    if not topics:
+        return False
+    if _contains(
+        text,
+        "查詢",
+        "查看",
+        "多少",
+        "幾人",
+        "現況",
+        "數據",
+        "show ",
+        "summarize ",
+        "how many",
+        "what is",
+        "what are",
+    ):
+        return True
+    phrases = [spelling for topic in topics for spelling in topic_spellings(topic)]
+    phrases += [alias for aliases in _METRIC_ALIASES.values() for alias in aliases]
+    phrases += [
+        name
+        for district in DISTRICT_NAMES
+        for name in (district.zh_hant, district.english, district.vietnamese)
+    ]
+    phrases += [
+        "新北市",
+        "新北",
+        "青年",
+        "最新",
+        "目前",
+        "的",
+        "new taipei city",
+        "new taipei",
+        "youth",
+        "latest",
+        "current",
+        "in",
+        "the",
+        "of",
+        "by district",
+    ]
+    patterns = [
+        re.escape(phrase)
+        if re.search(r"[\u3400-\u9fff]", phrase)
+        else rf"(?<!\w){re.escape(phrase)}(?!\w)"
+        for phrase in sorted(set(phrases), key=len, reverse=True)
+    ]
+    remaining = re.sub("|".join(patterns), " ", text, flags=re.IGNORECASE)
+    remaining = re.sub(r"(?<!\d)(?:19|20)\d{2}年?(?!\d)", " ", remaining)
+    return not remaining.strip(" \t\n?!？！,，.。:：")  # noqa: RUF001
 
 
 def _subject_terms(text: str) -> tuple[str, ...]:
