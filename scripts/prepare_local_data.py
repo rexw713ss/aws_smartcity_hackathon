@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from apps.api.dependencies import LocalRuntime
+from scripts.collect_official_statistics import SOURCES as SUPPLEMENTAL_SOURCES
 from youth_compass.config import CatalogProvider, QueryProvider, load_settings
 from youth_compass.domain.contracts import DatasetStatus
 from youth_compass.ports import ApprovalDecision, JobStatus
@@ -22,14 +23,24 @@ SOURCES = {
 
 
 def prepare_sources(
-    runtime: LocalRuntime, source_root: Path, *, approve: bool, reviewed_by: str
+    runtime: LocalRuntime,
+    source_root: Path,
+    *,
+    approve: bool,
+    reviewed_by: str,
+    include_supplemental: bool = False,
 ) -> bool:
     """Return true only when every source is published or ready for review."""
     if approve and not reviewed_by.strip():
         raise ValueError("--reviewed-by is required with --approve")
     available = {item.dataset_id: item for item in runtime.catalog.list_datasets()}
     complete = True
-    for topic, relative_path in SOURCES.items():
+    sources = dict(SOURCES)
+    if include_supplemental:
+        sources.update(
+            {item.topic: Path(item.folder) / "_全部年度_全市.csv" for item in SUPPLEMENTAL_SOURCES}
+        )
+    for topic, relative_path in sources.items():
         source = source_root / relative_path
         if not source.is_file():
             print(f"{topic}: missing source {source}", flush=True)
@@ -91,6 +102,9 @@ def main() -> None:
     parser.add_argument("--source-root", type=Path, default=Path("data/source"))
     parser.add_argument("--approve", action="store_true", help="Explicitly approve these sources")
     parser.add_argument(
+        "--include-supplemental", action="store_true", help="Include collected official statistics"
+    )
+    parser.add_argument(
         "--reviewed-by", default="", help="Reviewer recorded in the publication audit"
     )
     args = parser.parse_args()
@@ -108,7 +122,11 @@ def main() -> None:
     runtime = LocalRuntime(args.data_root or settings.data_root, settings)
     print(f"API data root: {runtime.data_root}", flush=True)
     if not prepare_sources(
-        runtime, args.source_root, approve=args.approve, reviewed_by=args.reviewed_by.strip()
+        runtime,
+        args.source_root,
+        approve=args.approve,
+        reviewed_by=args.reviewed_by.strip(),
+        include_supplemental=args.include_supplemental,
     ):
         raise SystemExit(1)
 

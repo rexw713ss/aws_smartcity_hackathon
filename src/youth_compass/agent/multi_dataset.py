@@ -455,8 +455,11 @@ def explicit_catalog_datasets(
         )
         topic_phrase = " ".join(item.topic.casefold().replace("_", " ").split())
         if (
-            _contains_phrase(normalized, dataset_phrase)
-            or _contains_phrase(normalized, topic_phrase)
+            (dataset_phrase != topic_phrase and _contains_phrase(normalized, dataset_phrase))
+            or (
+                resolve_topic_name(item.topic) is None
+                and _contains_phrase(normalized, topic_phrase)
+            )
             or resolve_topic_name(item.topic) in spoken_topics
         ):
             matched[item.dataset_id] = item

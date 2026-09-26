@@ -1,0 +1,211 @@
+[
+  {
+    "field1": "2006",
+    "itemvalue2": "18.3486749018",
+    "itemvalue3": "16.9697856191",
+    "itemvalue4": "74.3086225444",
+    "itemvalue5": "75.7359452998",
+    "itemvalue6": "7.3427025537",
+    "itemvalue7": "7.2942690811",
+    "itemvalue8": "76.27",
+    "itemvalue9": "82.28"
+  },
+  {
+    "field1": "2007",
+    "itemvalue2": "17.7092888187",
+    "itemvalue3": "16.3253537719",
+    "itemvalue4": "74.8097805196",
+    "itemvalue5": "76.1071845544",
+    "itemvalue6": "7.4809306616",
+    "itemvalue7": "7.5674616737",
+    "itemvalue8": "76.51",
+    "itemvalue9": "82.66"
+  },
+  {
+    "field1": "2008",
+    "itemvalue2": "17.0850891012",
+    "itemvalue3": "15.7152884231",
+    "itemvalue4": "75.2566095448",
+    "itemvalue5": "76.4236828512",
+    "itemvalue6": "7.6583013541",
+    "itemvalue7": "7.8610287257",
+    "itemvalue8": "76.89",
+    "itemvalue9": "82.94"
+  },
+  {
+    "field1": "2009",
+    "itemvalue2": "16.516668102",
+    "itemvalue3": "15.0887502511",
+    "itemvalue4": "75.5940368567",
+    "itemvalue5": "76.7264843822",
+    "itemvalue6": "7.8892950413",
+    "itemvalue7": "8.1847653667",
+    "itemvalue8": "77.21",
+    "itemvalue9": "82.96"
+  },
+  {
+    "field1": "2010",
+    "itemvalue2": "15.7745543141",
+    "itemvalue3": "14.3205456087",
+    "itemvalue4": "76.1675555932",
+    "itemvalue5": "77.1991013912",
+    "itemvalue6": "8.0578900927",
+    "itemvalue7": "8.4803530001",
+    "itemvalue8": "77.51",
+    "itemvalue9": "83.88"
+  },
+  {
+    "field1": "2011",
+    "itemvalue2": "15.2315856327",
+    "itemvalue3": "13.7313588387",
+    "itemvalue4": "76.5005330326",
+    "itemvalue5": "77.4608710786",
+    "itemvalue6": "8.2678813348",
+    "itemvalue7": "8.8077700828",
+    "itemvalue8": "77.61",
+    "itemvalue9": "83.52"
+  },
+  {
+    "field1": "2012",
+    "itemvalue2": "14.8185535139",
+    "itemvalue3": "13.3122028526",
+    "itemvalue4": "76.553613544",
+    "itemvalue5": "77.3815199293",
+    "itemvalue6": "8.6278329421",
+    "itemvalue7": "9.3062772181",
+    "itemvalue8": "77.54",
+    "itemvalue9": "83.63"
+  },
+  {
+    "field1": "2013",
+    "itemvalue2": "14.5608340256",
+    "itemvalue3": "12.9993530749",
+    "itemvalue4": "76.3859573552",
+    "itemvalue5": "77.1077312283",
+    "itemvalue6": "9.0532086192",
+    "itemvalue7": "9.8929156967",
+    "itemvalue8": "77.581574051",
+    "itemvalue9": "83.717776059"
+  },
+  {
+    "field1": "2014",
+    "itemvalue2": "14.2916137865",
+    "itemvalue3": "12.7253075438",
+    "itemvalue4": "76.1121748349",
+    "itemvalue5": "76.691881559",
+    "itemvalue6": "9.5962113787",
+    "itemvalue7": "10.5828108972",
+    "itemvalue8": "77.665642581",
+    "itemvalue9": "83.943774649"
+  },
+  {
+    "field1": "2015",
+    "itemvalue2": "13.802152863",
+    "itemvalue3": "12.2658519905",
+    "itemvalue4": "75.9920670508",
+    "itemvalue5": "76.3428117521",
+    "itemvalue6": "10.2057800861",
+    "itemvalue7": "11.3913362575",
+    "itemvalue8": "77.91",
+    "itemvalue9": "84.1"
+  },
+  {
+    "field1": "2016",
+    "itemvalue2": "13.53",
+    "itemvalue3": "12",
+    "itemvalue4": "75.48",
+    "itemvalue5": "75.6",
+    "itemvalue6": "10.99",
+    "itemvalue7": "12.4",
+    "itemvalue8": "77.92",
+    "itemvalue9": "84.2"
+  },
+  {
+    "field1": "2017",
+    "itemvalue2": "13.2511721888",
+    "itemvalue3": "11.7694359689",
+    "itemvalue4": "74.9744675558",
+    "itemvalue5": "74.8337179313",
+    "itemvalue6": "11.7743602555",
+    "itemvalue7": "13.3968460998",
+    "itemvalue8": "78.141404087",
+    "itemvalue9": "84.273204328"
+  },
+  {
+    "field1": "2018",
+    "itemvalue2": "13.01",
+    "itemvalue3": "11.55",
+    "itemvalue4": "74.43",
+    "itemvalue5": "74.05",
+    "itemvalue6": "12.57",
+    "itemvalue7": "14.41",
+    "itemvalue8": "78.332639302",
+    "itemvalue9": "84.471043396"
+  },
+  {
+    "field1": "2019",
+    "itemvalue2": "12.8345159901",
+    "itemvalue3": "11.3976967822",
+    "itemvalue4": "73.8331725789",
+    "itemvalue5": "73.1909093652",
+    "itemvalue6": "13.332311431",
+    "itemvalue7": "15.4113938526",
+    "itemvalue8": "78.5068514144",
+    "itemvalue9": "84.573001084"
+  },
+  {
+    "field1": "2020",
+    "itemvalue2": "12.7025358739",
+    "itemvalue3": "11.2603079901",
+    "itemvalue4": "73.1327936272",
+    "itemvalue5": "72.2823001466",
+    "itemvalue6": "14.164670499",
+    "itemvalue7": "16.4573918634",
+    "itemvalue8": "78.7854877561",
+    "itemvalue9": "84.9563442879"
+  },
+  {
+    "field1": "2021",
+    "itemvalue2": "12.5",
+    "itemvalue3": "11.1",
+    "itemvalue4": "72.58",
+    "itemvalue5": "71.44",
+    "itemvalue6": "14.92",
+    "itemvalue7": "17.45",
+    "itemvalue8": "78.6856852813",
+    "itemvalue9": "84.8750831642"
+  },
+  {
+    "field1": "2022",
+    "itemvalue2": "12.2457868703",
+    "itemvalue3": "10.8558224128",
+    "itemvalue4": "72.1556431026",
+    "itemvalue5": "70.7090631393",
+    "itemvalue6": "15.5985700271",
+    "itemvalue7": "18.4351144479",
+    "itemvalue8": "78.2558726661",
+    "itemvalue9": "84.4871043928"
+  },
+  {
+    "field1": "2023",
+    "itemvalue2": "12.0059324987",
+    "itemvalue3": "10.6365399207",
+    "itemvalue4": "71.5656250874",
+    "itemvalue5": "69.8380045046",
+    "itemvalue6": "16.4284424138",
+    "itemvalue7": "19.5254555747",
+    "itemvalue8": "77.82",
+    "itemvalue9": "84.2"
+  },
+  {
+    "field1": "2024",
+    "itemvalue2": "11.6860545574",
+    "itemvalue3": "10.3485301317",
+    "itemvalue4": "71.0630133585",
+    "itemvalue5": "69.0209477433",
+    "itemvalue6": "17.250932084",
+    "itemvalue7": "20.630522125",
+    "itemvalue8": "0",
+    "itemvalue9": "0"
+  }
+]

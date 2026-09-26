@@ -1,0 +1,83 @@
+{
+  "topic": "population_age_share",
+  "title": "人口年齡分配",
+  "publisher": "新北市政府主計處",
+  "dataset_id": "387f4683-a92e-4884-a548-268d2f77d31e",
+  "source_url": "https://data.ntpc.gov.tw/datasets/387f4683-a92e-4884-a548-268d2f77d31e",
+  "api_pages": [
+    "https://data.ntpc.gov.tw/api/datasets/387f4683-a92e-4884-a548-268d2f77d31e/json?page=0&size=100",
+    "https://data.ntpc.gov.tw/api/datasets/387f4683-a92e-4884-a548-268d2f77d31e/json?page=1&size=100"
+  ],
+  "license": "政府資料開放授權條款－第1版 (OGDL-1.0)",
+  "license_url": "https://data.gov.tw/license",
+  "retrieved_at": "2026-09-26T06:59:43.112196+00:00",
+  "period_start": 2006,
+  "period_end": 2024,
+  "years": [
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "raw_rows": 19,
+  "normalized_rows": 114,
+  "raw_file": "raw-adc527a5ce11eedb.json",
+  "raw_sha256": "adc527a5ce11eedb313dd95e999a6ee3eb081bd18ba6a4778af21557cf40dcdd",
+  "csv_sha256": "d3f4c9bbb28c068f3b9e1f2d84ef568aaf85a986efeb3f9acbe6507cc6f52baf",
+  "geography": "新北市全市",
+  "unit": "%",
+  "scope": "全市各性別人口中的年齡結構百分比；15–64歲是青壯年，不能當成18–35歲青年占比。未擷取平均壽命欄。",
+  "fields": [
+    {
+      "source": "itemvalue2",
+      "age": "0-14歲",
+      "gender": "男",
+      "metric": "人口年齡結構比"
+    },
+    {
+      "source": "itemvalue3",
+      "age": "0-14歲",
+      "gender": "女",
+      "metric": "人口年齡結構比"
+    },
+    {
+      "source": "itemvalue4",
+      "age": "15-64歲",
+      "gender": "男",
+      "metric": "人口年齡結構比"
+    },
+    {
+      "source": "itemvalue5",
+      "age": "15-64歲",
+      "gender": "女",
+      "metric": "人口年齡結構比"
+    },
+    {
+      "source": "itemvalue6",
+      "age": "65歲以上",
+      "gender": "男",
+      "metric": "人口年齡結構比"
+    },
+    {
+      "source": "itemvalue7",
+      "age": "65歲以上",
+      "gender": "女",
+      "metric": "人口年齡結構比"
+    }
+  ]
+}

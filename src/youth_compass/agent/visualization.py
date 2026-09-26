@@ -41,6 +41,7 @@ from youth_compass.ontology import (
     readable_feature_name,
     resolve_district_name,
 )
+from youth_compass.ontology.metrics import metric_name as localized_metric_name
 from youth_compass.ports import ForecastResult
 
 _MAX_CHART_ROWS = 200
@@ -235,9 +236,7 @@ class VisualizationBuilder:
         labels = _labels(question)
         language = _language(question)
         effective_profile = profile or profile_series(series)
-        metric_name = _METRIC_NAMES.get(series.metric_code, {}).get(
-            _text_key(language), humanize_code(series.metric_code)
-        )
+        metric_name = localized_metric_name(series.metric_code, _text_key(language))
         metric_title = f"{metric_name} {labels['trend_suffix']}"
         candidates: list[VisualizationCandidate] = []
 
@@ -668,12 +667,6 @@ class ChartNarrative:
     annotations: tuple[VisualizationAnnotation, ...] = ()
     reference_lines: tuple[VisualizationReferenceLine, ...] = ()
     focus_entities: tuple[str, ...] = ()
-
-
-# Reader-facing metric names where the snake_case code would leak into a title.
-_METRIC_NAMES: dict[str, dict[str, str]] = {
-    "unemployment_rate": {"zh": "失業率", "vi": "Tỷ lệ thất nghiệp", "en": "Unemployment rate"},
-}
 
 
 def _trend_narrative(

@@ -60,6 +60,7 @@ from youth_compass.ontology import (
     readable_entity_name,
     resolve_district_name,
 )
+from youth_compass.ontology.metrics import metric_name, metric_scope_notes
 from youth_compass.ports import (
     ForecastAccuracy,
     ForecastEvaluation,
@@ -298,13 +299,20 @@ class ObservationAnswering:
             comparison=comparison,
             citations=(citation,),
             assumptions=(
-                "Canonical rows sharing an entity, period, metric, unit, and scope are summed.",
+                (
+                    "Published rates are kept separate by age and sex; they are not summed."
+                    if not inspection.additive
+                    else "Rows sharing entity, period, metric, unit, and scope are summed."
+                ),
                 "Changes compare the first and last observations in the requested period.",
             ),
             # A defect in the retrieved rows is the reader's business, not just
             # the chart selector's: it is what decides whether the numbers above
             # can be read at face value.
-            warnings=tuple(issue.message for issue in profile.issues),
+            warnings=tuple(issue.message for issue in profile.issues)
+            + metric_scope_notes(
+                series.metric_code, response_language_for_fallback(decomposition.original_question)
+            ),
             visualizations=visualizations,
             limitations=limitations,
         )
@@ -772,7 +780,7 @@ def _observation_answer(
     """Build a natural grounded narrative that remains useful if the model fails."""
 
     language = response_language_for_fallback(question)
-    metric = humanize_code(series.metric_code)
+    metric = metric_name(series.metric_code, language)
     subject = (
         "youth population"
         if series.metric_code == "population_count" and series.population_scope == "youth_specific"
@@ -791,6 +799,20 @@ def _observation_answer(
     if len(changes) == 1:
         change = changes[0]
         name = readable_entity_name(change.entity_id, change.entity_name, name_language(question))
+        if series.unit_code == "percent":
+            first_rate = f"{change.first_value:.1f}%"
+            last_rate = f"{change.last_value:.1f}%"
+            delta = f"{change.absolute_change:+.1f}"
+            if language == "zh":
+                return (
+                    f"{name}的{metric}從{change.first_period}的{first_rate}變為"
+                    f"{change.last_period}的{last_rate}，相差{delta}個百分點。[{citation_id}]"  # noqa: RUF001
+                )
+            return (
+                f"{name}: {metric} changed from {first_rate} in {change.first_period} "
+                f"to {last_rate} in {change.last_period} "
+                f"({delta} percentage points). [{citation_id}]"
+            )
         first = f"{change.first_value:,.0f}"
         last = f"{change.last_value:,.0f}"
         percent = abs(change.percent_change) if change.percent_change is not None else None
@@ -944,8 +966,9 @@ def _observation_overview_answer(
         movement_parts.append(movement_clause(strongest_down, "down"))
 
     if language == "zh":
+        entity_label = "個觀測分組" if series.unit_code in {"percent", "ratio"} else "個地區"
         opening = (
-            f"{metric}\n\n這份概覽涵蓋{profile.entity_count}個地區，期間為"  # noqa: RUF001
+            f"{metric}\n\n這份概覽涵蓋{profile.entity_count}{entity_label}，期間為"  # noqa: RUF001
             f"{period_start}至{period_end}，共{len(series.points)}筆已發布觀測值"  # noqa: RUF001
             f"。[{citation_id}]"
         )

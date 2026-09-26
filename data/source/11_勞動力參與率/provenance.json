@@ -1,0 +1,94 @@
+{
+  "topic": "labor_participation",
+  "title": "勞動力參與率",
+  "publisher": "新北市政府主計處",
+  "dataset_id": "34ab136e-9296-4083-952a-4ee76394fcb0",
+  "source_url": "https://data.ntpc.gov.tw/datasets/34ab136e-9296-4083-952a-4ee76394fcb0",
+  "api_pages": [
+    "https://data.ntpc.gov.tw/api/datasets/34ab136e-9296-4083-952a-4ee76394fcb0/json?page=0&size=100",
+    "https://data.ntpc.gov.tw/api/datasets/34ab136e-9296-4083-952a-4ee76394fcb0/json?page=1&size=100"
+  ],
+  "license": "政府資料開放授權條款－第1版 (OGDL-1.0)",
+  "license_url": "https://data.gov.tw/license",
+  "retrieved_at": "2026-09-26T06:59:42.279293+00:00",
+  "period_start": 2007,
+  "period_end": 2024,
+  "years": [
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "raw_rows": 18,
+  "normalized_rows": 144,
+  "raw_file": "raw-fd332699055a865e.json",
+  "raw_sha256": "fd332699055a865eec4f2cbfb451e440cac4415b782d528165a109880262de6c",
+  "csv_sha256": "4f7fe0b42ba1142d0feb08a67132f4dbe170273098dd3ab2e899ed1f3a3d422d",
+  "geography": "新北市全市",
+  "unit": "%",
+  "scope": "全市年齡組與性別；25–44歲等組別涵蓋非青年人口，不能視為18–35歲專屬參與率。",
+  "fields": [
+    {
+      "source": "itemvalue4",
+      "age": "15-24歲",
+      "gender": "男",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue5",
+      "age": "15-24歲",
+      "gender": "女",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue6",
+      "age": "25-44歲",
+      "gender": "男",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue7",
+      "age": "25-44歲",
+      "gender": "女",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue8",
+      "age": "45-64歲",
+      "gender": "男",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue9",
+      "age": "45-64歲",
+      "gender": "女",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue10",
+      "age": "65歲以上",
+      "gender": "男",
+      "metric": "勞動力參與率"
+    },
+    {
+      "source": "itemvalue11",
+      "age": "65歲以上",
+      "gender": "女",
+      "metric": "勞動力參與率"
+    }
+  ]
+}

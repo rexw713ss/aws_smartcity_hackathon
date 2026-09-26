@@ -35,37 +35,42 @@ const topicAliases: Record<string, string[]> = {
   income: ['income', 'earnings', 'thu nhập', '所得', '收入'],
   household_registration: ['household registration', 'hộ khẩu', '戶籍'],
   birth_events: ['births', 'fertility', 'sinh con', 'tỷ lệ sinh', '出生', '生育'],
+  labor_participation: ['labor force participation', '勞動力參與率', '勞參率'],
+  workforce_age_share: ['employment age structure', '就業者年齡結構', '就業者年齡占比'],
+  literacy: ['literacy', '識字率'],
+  population_age_share: ['population age structure', '人口年齡分配', '人口年齡結構', '人口年齡占比'],
 }
 
 const folded = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase()
 const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-function mentionsAlias(question: string, alias: string): number {
-  const needle = folded(alias)
-  if (/[^\x00-\x7F]/.test(needle)) return question.indexOf(needle)
-  const match = new RegExp(`(^|[^a-z0-9])${escaped(needle)}(?=$|[^a-z0-9])`).exec(question)
-  return match ? match.index + match[1].length : -1
-}
-
 function topicsMentionedBy(question: string, topics: string[]): string[] {
   const haystack = folded(question)
-  const found: { topic: string; position: number }[] = []
+  const matches: { topic: string; start: number; end: number }[] = []
   for (const topic of topics) {
-    let firstPosition = -1
     for (const alias of [topic.replace(/_/g, ' '), ...(topicAliases[topic] ?? [])]) {
-      const position = mentionsAlias(haystack, alias)
-      if (position >= 0 && (firstPosition < 0 || position < firstPosition)) firstPosition = position
+      const needle = folded(alias)
+      const pattern = /[^\x00-\x7F]/.test(needle)
+        ? new RegExp(escaped(needle), 'g')
+        : new RegExp(`(?<![a-z0-9])${escaped(needle)}(?![a-z0-9])`, 'g')
+      for (const match of haystack.matchAll(pattern)) {
+        matches.push({ topic, start: match.index!, end: match.index! + match[0].length })
+      }
     }
-    if (firstPosition >= 0) found.push({ topic, position: firstPosition })
   }
-  return found.sort((left, right) => left.position - right.position).map(item => item.topic)
+  const accepted: typeof matches = []
+  for (const match of matches.sort((a, b) => (b.end - b.start) - (a.end - a.start))) {
+    if (!accepted.some(item => match.start < item.end && match.end > item.start)) accepted.push(match)
+  }
+  return [...new Set(accepted.sort((a, b) => a.start - b.start).map(item => item.topic))]
 }
 
 function suggestionsFor(topic: string, language: Language, grain: string[]): string[] {
   const label = formatLabel(topic, language)
+  const citywide = ['labor_participation', 'workforce_age_share', 'literacy', 'population_age_share'].includes(topic)
   const suggestions = language === 'zh-TW'
-    ? [`概覽${label}`, `查看${label}的時間趨勢`, `比較各行政區的${label}`]
-    : [`Give me an overview of ${label}`, `Show the ${label} trend over time`, `Compare ${label} across districts`]
+    ? [`概覽${label}`, `查看${label}的時間趨勢`, ...(citywide ? [] : [`比較各行政區的${label}`])]
+    : [`Give me an overview of ${label}`, `Show the ${label} trend over time`, ...(citywide ? [] : [`Compare ${label} across districts`])]
   if (grain.some(field => field.toLocaleLowerCase().includes('gender'))) {
     suggestions.push(language === 'zh-TW' ? `按性別比較${label}` : `Compare ${label} by gender`)
   }
@@ -240,7 +245,9 @@ export default function App() {
     () => datasets.filter(item => item.status === 'published'),
     [datasets],
   )
-  const topics = selectableTopics
+  const topics = [...selectableTopics.filter(topic => topic !== 'others'),
+    ...Array.from(new Set(publishedDatasets.map(item => item.topic))).filter(topic => !selectableTopics.includes(topic)),
+    'others']
   const suggestions = useMemo(() => {
     if (!selectedTopic || selectedTopic === 'others') return []
     const dataset = publishedDatasets.find(item => item.topic === selectedTopic)

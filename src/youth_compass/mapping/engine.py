@@ -62,6 +62,19 @@ _KNOWN_METRICS: dict[str, tuple[str, str | None, str]] = {
     "綜合所得總額": ("total_income", None, "sum"),
     # A published rate for one age band and sex; never summed across rows.
     "失業率": ("unemployment_rate", "percent", "ratio"),
+    "勞動力參與率": ("labor_participation_rate", "percent", "ratio"),
+    "就業者年齡結構比": ("workforce_age_share", "percent", "ratio"),
+    "15歲以上識字率": ("literacy_rate", "percent", "ratio"),
+    "人口年齡結構比": ("population_age_share", "percent", "ratio"),
+}
+
+# These published citywide rates describe their original survey/registration
+# populations. Having an age column does not make them youth-only estimates.
+_GENERAL_POPULATION_METRICS = {
+    "labor_participation_rate",
+    "workforce_age_share",
+    "literacy_rate",
+    "population_age_share",
 }
 
 
@@ -422,7 +435,11 @@ def _map_metric(
         source_column=column.name,
         metric_code=metric_code,
         unit_code=unit_code,
-        population_scope=population_scope,
+        population_scope=(
+            PopulationScope.GENERAL_POPULATION
+            if metric_code in _GENERAL_POPULATION_METRICS
+            else population_scope
+        ),
         aggregation_method=aggregation_method,
         confidence=confidence,
         evidence=evidence,
@@ -449,6 +466,15 @@ def _infer_topic(profile: DatasetProfile) -> str:
         if (rule := find_field_rule(column.name)) is not None
     }
     normalized_headers = {normalize_header(column.name) for column in profile.columns}
+    specialized_topics = {
+        "勞動力參與率": "labor_participation",
+        "就業者年齡結構比": "workforce_age_share",
+        "15歲以上識字率": "literacy",
+        "人口年齡結構比": "population_age_share",
+    }
+    for header, topic in specialized_topics.items():
+        if normalize_header(header) in normalized_headers:
+            return topic
     if "jobseekers" in normalized_headers or any(
         "失業" in column.name or "就業" in column.name for column in profile.columns
     ):

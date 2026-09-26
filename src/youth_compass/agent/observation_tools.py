@@ -357,6 +357,14 @@ class QueryObservationsTool:
         records = _filter_period(by_age, decomposition.time_expression)
         if not records:
             raise QueryExecutionError("no observations match the requested scope")
+        if re.search(
+            r"各(?:行政)?區|跨(?:行政)?區|(?:by|across) districts?|各區|theo quận",
+            decomposition.original_question,
+            re.IGNORECASE,
+        ) and not any(row.get("district_code") for row in records):
+            raise QueryExecutionError(
+                "the published dataset is citywide and has no district breakdown"
+            )
         units = {str(row["unit_code"]) for row in records}
         scopes = {str(row["population_scope"]) for row in records}
         if len(units) != 1 or len(scopes) != 1:

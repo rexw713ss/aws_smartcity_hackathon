@@ -42,6 +42,30 @@ class TopicNames:
 # a separate decision made from the metric terms.
 TOPIC_NAMES: tuple[TopicNames, ...] = (
     TopicNames(
+        slug="labor_participation",
+        zh_hant=("勞動力參與率", "勞參率"),
+        english=("labor force participation", "labour force participation"),
+        vietnamese=(),
+    ),
+    TopicNames(
+        slug="workforce_age_share",
+        zh_hant=("就業者年齡結構", "就業者年齡占比"),
+        english=("employment age structure", "workforce age share"),
+        vietnamese=(),
+    ),
+    TopicNames(
+        slug="literacy",
+        zh_hant=("識字率",),
+        english=("literacy", "literacy rate"),
+        vietnamese=(),
+    ),
+    TopicNames(
+        slug="population_age_share",
+        zh_hant=("人口年齡分配", "人口年齡結構", "人口年齡占比"),
+        english=("population age distribution", "population age structure"),
+        vietnamese=(),
+    ),
+    TopicNames(
         slug="population",
         zh_hant=("人口", "青年人口", "人口數"),
         english=("population", "residents"),
@@ -158,16 +182,16 @@ def extract_topics(question: str) -> tuple[str, ...]:
 
     folded = _fold(question)
     found: dict[str, int] = {}
+    occupied: list[tuple[int, int]] = []
     for phrase, slug in _PHRASES:
-        if _is_han(phrase):
-            position = folded.find(phrase)
-        else:
-            match = re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", folded)
-            position = match.start() if match is not None else -1
-        if position < 0:
-            continue
-        # A topic keeps its earliest mention, so the reading order of the
-        # question decides the order of the inputs.
-        if slug not in found or position < found[slug]:
-            found[slug] = position
+        pattern = re.escape(phrase) if _is_han(phrase) else rf"(?<!\w){re.escape(phrase)}(?!\w)"
+        for match in re.finditer(pattern, folded):
+            start, end = match.span()
+            # Longest known phrases win at each position. "人口年齡結構" does
+            # not also request the separate population-count dataset.
+            if any(start < right and end > left for left, right in occupied):
+                continue
+            occupied.append((start, end))
+            if slug not in found or start < found[slug]:
+                found[slug] = start
     return tuple(sorted(found, key=lambda slug: found[slug]))

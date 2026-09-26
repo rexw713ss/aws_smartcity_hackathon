@@ -1,0 +1,167 @@
+{
+  "topic": "workforce_age_share",
+  "title": "就業者年齡結構",
+  "publisher": "新北市政府主計處",
+  "dataset_id": "c285509a-7fb2-434f-8542-0b4986c337a8",
+  "source_url": "https://data.ntpc.gov.tw/datasets/c285509a-7fb2-434f-8542-0b4986c337a8",
+  "api_pages": [
+    "https://data.ntpc.gov.tw/api/datasets/c285509a-7fb2-434f-8542-0b4986c337a8/json?page=0&size=100",
+    "https://data.ntpc.gov.tw/api/datasets/c285509a-7fb2-434f-8542-0b4986c337a8/json?page=1&size=100"
+  ],
+  "license": "政府資料開放授權條款－第1版 (OGDL-1.0)",
+  "license_url": "https://data.gov.tw/license",
+  "retrieved_at": "2026-09-26T06:59:42.555581+00:00",
+  "period_start": 2006,
+  "period_end": 2024,
+  "years": [
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "raw_rows": 19,
+  "normalized_rows": 380,
+  "raw_file": "raw-34841339371a9bd4.json",
+  "raw_sha256": "34841339371a9bd41f9363a25c739d7f7a85526e19f96084cc87f1e4543644ae",
+  "csv_sha256": "59fb6d96f73b770301f2d3ad37f65a5e576b56ee94e84f26af3d5e9c4273a295",
+  "geography": "新北市全市",
+  "unit": "%",
+  "scope": "各性別就業者中的年齡結構百分比；不是就業率，也不是就業人數。",
+  "fields": [
+    {
+      "source": "percent2",
+      "age": "15-24歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent3",
+      "age": "15-24歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent4",
+      "age": "25-29歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent5",
+      "age": "25-29歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent6",
+      "age": "30-34歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent7",
+      "age": "30-34歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent8",
+      "age": "35-39歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent9",
+      "age": "35-39歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent10",
+      "age": "40-44歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent11",
+      "age": "40-44歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent12",
+      "age": "45-49歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent13",
+      "age": "45-49歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent14",
+      "age": "50-54歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent15",
+      "age": "50-54歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent16",
+      "age": "55-59歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent17",
+      "age": "55-59歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent18",
+      "age": "60-64歲",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent19",
+      "age": "60-64歲",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent20",
+      "age": "65歲以上",
+      "gender": "男",
+      "metric": "就業者年齡結構比"
+    },
+    {
+      "source": "percent21",
+      "age": "65歲以上",
+      "gender": "女",
+      "metric": "就業者年齡結構比"
+    }
+  ]
+}

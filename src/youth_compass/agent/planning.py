@@ -878,10 +878,27 @@ _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "employment_count": ("employment", "việc làm", "就業"),
     "unemployment_count": ("unemployment", "thất nghiệp", "失業"),
     "unemployment_rate": ("unemployment rate", "tỷ lệ thất nghiệp", "失業率"),
+    "labor_participation_rate": (
+        "labor force participation",
+        "labour force participation",
+        "勞動力參與率",
+        "勞參率",
+    ),
+    "workforce_age_share": (
+        "employment age structure",
+        "workforce age share",
+        "就業者年齡結構",
+        "就業者年齡占比",
+    ),
+    "literacy_rate": ("literacy", "識字率"),
+    "population_age_share": (
+        "population age distribution",
+        "population age structure",
+        "人口年齡分配",
+        "人口年齡結構",
+        "人口年齡占比",
+    ),
 }
-# A rate alias contains its count alias ("失業率" holds "失業"), so naming the rate
-# must not also claim the count.
-_RATE_OF_COUNT = {"unemployment_rate": "unemployment_count"}
 
 
 def _metric_terms(text: str) -> tuple[str, ...]:
@@ -894,19 +911,28 @@ def _metric_terms(text: str) -> tuple[str, ...]:
     containment because those scripts are written without word separators.
     """
 
-    named = [
-        metric
-        for metric, terms in _METRIC_ALIASES.items()
-        if any(_names_metric(text, term) for term in terms)
-    ]
-    shadowed = {_RATE_OF_COUNT[metric] for metric in named if metric in _RATE_OF_COUNT}
-    return tuple(metric for metric in named if metric not in shadowed)
-
-
-def _names_metric(text: str, term: str) -> bool:
-    if any("\u3400" <= character <= "\u9fff" for character in term):
-        return term in text
-    return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text) is not None
+    aliases = sorted(
+        ((term, metric) for metric, terms in _METRIC_ALIASES.items() for term in terms),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
+    occupied: list[tuple[int, int]] = []
+    named: set[str] = set()
+    for term, metric in aliases:
+        pattern = (
+            re.escape(term)
+            if re.search(r"[\u3400-\u9fff]", term)
+            else rf"(?<!\w){re.escape(term)}(?!\w)"
+        )
+        for match in re.finditer(pattern, text):
+            start, end = match.span()
+            if any(start < right and end > left for left, right in occupied):
+                continue
+            occupied.append((start, end))
+            named.add(metric)
+    # Only nested mentions are shadowed. An explicit count elsewhere in a
+    # count-vs-share question must remain a requested input.
+    return tuple(metric for metric in _METRIC_ALIASES if metric in named)
 
 
 def _time_expression(text: str) -> str | None:
