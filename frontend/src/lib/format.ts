@@ -2,11 +2,10 @@ import type { CopilotStatus, VisualizationValue } from './copilot'
 import type { District } from './districts'
 import type { Language } from './i18n'
 import { translate } from './i18n'
+import { translatedLabel } from './labels'
 
-// UI chrome follows the language picker. Chart titles, axis labels, and entity
-// names come from the backend, which localizes them to the language of the
-// question — so a question asked in Traditional Chinese still returns Chinese
-// labels inside these charts, whichever way the picker is set.
+// UI labels follow the language picker. Answer prose and chart specifications
+// are localized by the backend through responseLanguage; data keys stay intact.
 const compactFormatters = new Map<Language, Intl.NumberFormat>()
 
 /** Axis ticks and bar labels, abbreviated in the reader's own locale. */
@@ -30,7 +29,9 @@ const acronyms: Record<string, string> = {
 
 /** Last-mile guard for backend identifiers shown as labels. Internal IDs remain
  * untouched in payloads, joins, and code-styled audit fields. */
-export function formatLabel(value: string): string {
+export function formatLabel(value: string, language: Language = 'en'): string {
+  const translated = translatedLabel(value, language)
+  if (translated) return translated
   const words = value.trim().split(/[-_\s]+/).filter(Boolean)
   if (!words.length) return value
   return words.map((word, index) => {
@@ -50,10 +51,12 @@ export function formatEntityLabel(value: string): string {
 
 const unitLabels: Record<string, string | Partial<Record<Language, string>>> = {
   boolean_0_1: { en: 'Yes / No', 'zh-TW': '是／否' },
-  chargers_per_demand_index: 'Chargers per demand index',
+  chargers_per_demand_index: { en: 'Chargers per demand index', 'zh-TW': '每單位需求指數的充電樁數' },
   ntd_per_sqm: 'NT$/m²',
   persons: { en: 'People', 'zh-TW': '人' },
-  score_0_100: 'Score (0–100)',
+  score_0_100: { en: 'Score (0–100)', 'zh-TW': '分數（0–100）' },
+  percent: { en: 'Percent', 'zh-TW': '百分比' },
+  households: { en: 'Households', 'zh-TW': '戶' },
   score_points: { en: 'Points', 'zh-TW': '分' },
   stops: { en: 'Stops', 'zh-TW': '站位' },
   routes: { en: 'Routes', 'zh-TW': '路線' },
@@ -62,7 +65,7 @@ const unitLabels: Record<string, string | Partial<Record<Language, string>>> = {
 
 export function formatUnit(unit: string, language: Language = 'en'): string {
   const label = unitLabels[unit]
-  return typeof label === 'string' ? label : label?.[language] ?? formatLabel(unit)
+  return typeof label === 'string' ? label : label?.[language] ?? formatLabel(unit, language)
 }
 
 /** Format for display only. The backend owns every value and every calculation. */

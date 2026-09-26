@@ -437,7 +437,12 @@ export const districtOverview = {
  * shipped default is covered by its own test, which calls this afterwards. */
 export async function useLanguage(page: Page, language: 'zh-TW' | 'en') {
   await page.addInitScript(chosen => {
-    window.localStorage.setItem('youth-compass-language', chosen as string)
+    // Seed once per browser session so reloads test the app's saved preference.
+    const key = `test-language-seeded-${chosen}`
+    if (!window.sessionStorage.getItem(key)) {
+      window.localStorage.setItem('youth-compass-language', chosen as string)
+      window.sessionStorage.setItem(key, 'true')
+    }
   }, language)
 }
 

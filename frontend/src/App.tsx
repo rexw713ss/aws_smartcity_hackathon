@@ -14,6 +14,9 @@ import {
   type ToolCapability,
 } from './lib/copilot'
 import useNarrowLayout from './lib/useNarrowLayout'
+import { formatLabel } from './lib/format'
+import { toolDescription } from './lib/labels'
+import { formatError } from './lib/errors'
 import { I18nProvider, translate, type Language } from './lib/i18n'
 
 // deploy_site.py injects the Function URL at publish time, so one immutable
@@ -34,7 +37,6 @@ const topicAliases: Record<string, string[]> = {
   birth_events: ['births', 'fertility', 'sinh con', 'tỷ lệ sinh', '出生', '生育'],
 }
 
-const topicLabel = (topic: string) => topic.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
 const folded = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase()
 const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -60,7 +62,7 @@ function topicsMentionedBy(question: string, topics: string[]): string[] {
 }
 
 function suggestionsFor(topic: string, language: Language, grain: string[]): string[] {
-  const label = topicLabel(topic)
+  const label = formatLabel(topic, language)
   const suggestions = language === 'zh-TW'
     ? [`概覽${label}`, `查看${label}的時間趨勢`, `比較各行政區的${label}`]
     : [`Give me an overview of ${label}`, `Show the ${label} trend over time`, `Compare ${label} across districts`]
@@ -130,6 +132,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.lang = language
+    document.querySelector('meta[name="description"]')?.setAttribute('content', t('pageDescription'))
     document.title = language === 'zh-TW' ? '新北青策 · 決策助理' : 'New Taipei Youth Policy · Decision Assistant'
     try { localStorage.setItem('youth-compass-language', language) } catch { /* Private storage can be unavailable. */ }
   }, [language])
@@ -177,7 +180,9 @@ export default function App() {
         setResponse(byId.get(activeId ?? '') ?? localized[localized.length - 1]?.response ?? null)
         sessionId.current = localizedSession ?? null
       } catch (cause) {
-        if (!controller.signal.aborted) console.error('language refresh failed', cause)
+        if (!controller.signal.aborted) {
+          setTurns(current => [...current, { kind: 'error', id: nextId(), text: t('languageRefreshFailed') }])
+        }
       } finally {
         if (inFlight.current === controller) {
           inFlight.current = null
@@ -319,7 +324,7 @@ export default function App() {
         }
         setTurns(current => [
           ...current,
-          { kind: 'error', id: nextId(), text: cause instanceof Error ? cause.message : t('unexpected') },
+          { kind: 'error', id: nextId(), text: formatError(cause, language) },
         ])
       } finally {
         window.clearTimeout(timer)
@@ -486,8 +491,9 @@ export default function App() {
                 <ul>
                   {capabilities.map(item => (
                     <li key={`${item.name}-${item.operation}`}>
+                      <strong>{formatLabel(item.name, language)}</strong>
                       <code>{item.name}</code>
-                      <span>{item.description}</span>
+                      <span>{toolDescription(item.operation, item.description, language)}</span>
                     </li>
                   ))}
                 </ul>

@@ -4,6 +4,14 @@ export type Language = 'zh-TW' | 'en'
 
 const messages = {
   'zh-TW': {
+    pageDescription: '新北青策：以經審核、已發布的新北市資料回答青年政策問題，每個答案皆附有資料來源。',
+    sourceNumber: '來源 {number}',
+    languageRefreshFailed: '回答語言更新失敗，先前的回答仍保留。請稍後重新提問，或再次切換語言。',
+    errorContract: '後端回傳的資料格式無效，無法安全顯示。請檢查 API 版本與資料契約。',
+    errorNetwork: '無法連線至後端，請確認 API 已啟動及網路連線正常。',
+    errorBusy: '助理目前忙碌，請稍後再試。', errorAccess: '存取遭拒，請確認後端權限與審核權杖。',
+    errorEndpoint: '找不到此 API 端點，請確認後端版本與網址設定。',
+    errorRequest: '請求失敗（HTTP {status}），請稍後再試。', errorDetail: '原始訊息：{detail}',
     missingTitle: '我還缺這些資料', missingIntro: '已發布的目錄不足以繼續回答，所以我先停在這裡，不做推測。',
     gapHousing: '住宅量能', gapPublicServices: '公共服務量能',
     neededMetrics: '需要的指標', neededTopics: '主題', neededPeriod: '期間',
@@ -85,6 +93,14 @@ const messages = {
     configInvalid: '前端 API 設定無效。', timeout: '請求已取消或超過 90 秒。', unexpected: '發生未預期的錯誤。',
   },
   en: {
+    pageDescription: 'New Taipei Youth Policy decision assistant: youth policy answers drawn from published New Taipei datasets, each one cited.',
+    sourceNumber: 'Source {number}',
+    languageRefreshFailed: 'Could not refresh the answer language. Previous answers are preserved. Try asking again or switching languages again.',
+    errorContract: 'The backend response does not match the published contract.',
+    errorNetwork: 'Could not connect to the backend. Check that the API is running and your network is available.',
+    errorBusy: 'The assistant is busy. Try again shortly.', errorAccess: 'Access denied. Check the backend sign-in configuration.',
+    errorEndpoint: 'The backend does not expose this endpoint. Check the API version.',
+    errorRequest: 'Request failed ({status}). Try again.', errorDetail: 'Original message: {detail}',
     missingTitle: 'Here is what I am missing', missingIntro: 'The published catalog does not hold enough to go further, so I stop here rather than guess.',
     gapHousing: 'Housing capacity', gapPublicServices: 'Public service capacity',
     neededMetrics: 'Metrics needed', neededTopics: 'Topics', neededPeriod: 'Period',

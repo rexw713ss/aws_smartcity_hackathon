@@ -1,7 +1,8 @@
+import { formatError } from '../lib/errors'
 import React, { useId, useRef, useState } from 'react'
 import type { CopilotResponse, IntakeOptions, IntakeStart, SourceCandidate, WebCitation } from '../lib/copilot'
 import { formatLabel } from '../lib/format'
-import { useI18n, type MessageKey } from '../lib/i18n'
+import { useI18n, type Language, type MessageKey } from '../lib/i18n'
 
 /** Everything the chat needs to act on a missing-data request. */
 export type DataIntake = {
@@ -29,27 +30,19 @@ const gapTitles: Record<string, MessageKey> = {
 
 /** The gaps the backend itself reported: the impact chain's missing capacity
  * links first, otherwise the catalog requirement it could not satisfy. */
-const zhLabels: Record<string, string> = {
-  education: '教育', employment: '就業', population: '人口',
-  employment_count: '就業人數', unemployment_count: '失業人數',
-  unemployment_rate: '失業率', population_count: '人口數',
-}
-
 function gapsOf(
   response: CopilotResponse,
   t: (key: MessageKey) => string,
-  language: string,
+  language: Language,
 ): Gap[] {
-  const label = (value: string) => language === 'zh-TW' && zhLabels[value]
-    ? zhLabels[value]
-    : formatLabel(value)
+  const label = (value: string) => formatLabel(value, language)
   const impact = response.impact_analysis?.data_gaps ?? []
   if (impact.length) {
     return impact.map(gap => ({
       key: gap.domain,
       title: gapTitles[gap.domain] ? t(gapTitles[gap.domain]) : label(gap.domain),
       detail: gap.reason,
-      metrics: gap.required_metrics,
+      metrics: gap.required_metrics.map(label),
     }))
   }
   const requirement = response.data_requirement
@@ -183,7 +176,7 @@ export default function MissingDataRequest({ response, intake, retry }: {
       intake.openReview(completed.job, retry)
     } catch (cause) {
       window.clearInterval(timer)
-      setError(cause instanceof Error ? cause.message : t('submissionFailed'))
+      setError(formatError(cause, language))
       setProgressStage(null)
     } finally {
       setBusy(null)

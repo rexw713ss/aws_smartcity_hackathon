@@ -51,8 +51,8 @@ function CitedAnswer({
             <button
               type="button"
               onClick={() => onCitation(source.citation.citation_id, response)}
-              aria-label={t('showSource', { number: source.number, name: formatLabel(source.citation.dataset_id) })}
-              title={`${formatLabel(source.citation.dataset_id)} · ${source.citation.dataset_version}`}
+              aria-label={t('showSource', { number: source.number, name: formatLabel(source.citation.dataset_id, language) })}
+              title={`${formatLabel(source.citation.dataset_id, language)} · ${source.citation.dataset_version}`}
             >
               [{source.number}]
             </button>
@@ -328,7 +328,7 @@ export default function ChatPanel({
                     onClick={() => onSelectTopic(topic)}
                     disabled={catalogLoading}
                   >
-                    {topic === 'others' ? t('otherTopics') : formatLabel(topic)}
+                    {topic === 'others' ? t('otherTopics') : formatLabel(topic, language)}
                   </button>
                 ))}
               </div>
@@ -380,8 +380,8 @@ export default function ChatPanel({
         {topicSwitch ? (
           <div className="turn topic-switch" role="alert">
             <p>{t('confirmTopicSwitch', {
-              from: formatLabel(topicSwitch.from),
-              to: formatLabel(topicSwitch.to),
+              from: formatLabel(topicSwitch.from, language),
+              to: formatLabel(topicSwitch.to, language),
             })}</p>
             <div>
               <button type="button" className="primary" onClick={onAcceptTopicSwitch}>{t('switchTopic')}</button>
@@ -412,7 +412,7 @@ export default function ChatPanel({
               <option value="">{t('selectTopic')}</option>
               {topics.map(topic => (
                 <option key={topic} value={topic}>
-                  {topic === 'others' ? t('otherTopics') : formatLabel(topic)}
+                  {topic === 'others' ? t('otherTopics') : formatLabel(topic, language)}
                 </option>
               ))}
             </select>
@@ -423,6 +423,8 @@ export default function ChatPanel({
           value={draft}
           onChange={event => onDraft(event.target.value)}
           onKeyDown={event => {
+            // Enter confirms a Chinese IME candidate before it submits a message.
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
               send()

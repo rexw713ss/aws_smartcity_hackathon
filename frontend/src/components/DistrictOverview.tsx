@@ -19,7 +19,8 @@ import {
   YAxis,
 } from 'recharts'
 import type { DistrictForecast, DistrictOverview as DistrictOverviewData } from '../lib/copilot'
-import { colorFor, compactFor, formatNumber, formatPeriod, formatProseYears, formatUnit, orderedColorFor } from '../lib/format'
+import { colorFor, compactFor, formatLabel, formatNumber, formatPeriod, formatProseYears, formatUnit, orderedColorFor } from '../lib/format'
+import { genderLabel } from '../lib/labels'
 import { useI18n } from '../lib/i18n'
 import ChartMotion from './ChartMotion'
 
@@ -50,6 +51,9 @@ function SingleDistrictOverview({ overview, displayName }: {
 }) {
   const { language, t } = useI18n()
   const compact = compactFor(language)
+  const genderDistribution = overview.genderDistribution.map(item => ({
+    ...item, label: genderLabel(item.key, item.label, language),
+  }))
   // The data-direction attribute stays a stable English token so the CSS hook
   // does not change with the language picker.
   const direction = overview.absoluteChange === null
@@ -93,7 +97,7 @@ function SingleDistrictOverview({ overview, displayName }: {
         <div data-direction={direction}>
           <span>{t('latestMovement')}</span>
           <strong>{overview.percentChange === null ? '—' : `${overview.percentChange > 0 ? '+' : ''}${overview.percentChange}%`}</strong>
-          <small>{directionLabel}{overview.previousPeriod ? ` ${t('versus')} ${overview.previousPeriod}` : ''}</small>
+          <small>{directionLabel}{overview.previousPeriod ? ` ${t('versus')} ${formatPeriod(overview.previousPeriod, language)}` : ''}</small>
         </div>
         <div>
           <span>{t('largestAge')}</span>
@@ -167,7 +171,7 @@ function SingleDistrictOverview({ overview, displayName }: {
           <div className="mono-chart" style={{ height: 270 }}>
             <ChartMotion motionKey={`${overview.districtCode}-gender-${overview.period}`} direction="horizontal">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={overview.genderDistribution} layout="vertical" margin={{ top: 8, right: 52, bottom: 18, left: 4 }}>
+                <BarChart data={genderDistribution} layout="vertical" margin={{ top: 8, right: 52, bottom: 18, left: 4 }}>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="2 3" horizontal={false} />
                   <XAxis type="number" axisLine={false} tickLine={false} tick={tick} tickFormatter={value => compact.format(Number(value))} />
                   <YAxis type="category" dataKey="label" axisLine={false} tickLine={false} tick={tick} width={58} />
@@ -186,10 +190,10 @@ function SingleDistrictOverview({ overview, displayName }: {
       </div>
 
       <p className="panel-note">{t('overviewFooter', {
-        dataset: overview.datasetId,
+        dataset: formatLabel(overview.datasetId, language),
         version: overview.datasetVersion,
         quality: Math.round(overview.qualityScore * 100),
-        scope: overview.populationScope.replace(/_/g, ' '),
+        scope: formatLabel(overview.populationScope, language),
       })}</p>
 
       {forecast ? <ForecastSection overview={overview} forecast={forecast} /> : null}
@@ -498,7 +502,9 @@ function MultiDistrictOverview({ entries }: { entries: OverviewEntry[] }) {
     const keys = Array.from(new Set(rankedEntries.flatMap(entry => entry.overview[kind].map(item => item.key))))
     const series = keys.map(key => ({
       key,
-      label: rankedEntries.flatMap(entry => entry.overview[kind]).find(item => item.key === key)?.label ?? key,
+      label: kind === 'genderDistribution'
+        ? genderLabel(key, rankedEntries.flatMap(entry => entry.overview[kind]).find(item => item.key === key)?.label ?? key, language)
+        : rankedEntries.flatMap(entry => entry.overview[kind]).find(item => item.key === key)?.label ?? key,
     }))
     const rows = rankedEntries.map(entry => Object.fromEntries([
       ['label', entry.displayName],
@@ -513,7 +519,7 @@ function MultiDistrictOverview({ entries }: { entries: OverviewEntry[] }) {
     return { rows, series }
   }
   const sourceNotes = Array.from(new Set(rankedEntries.map(entry =>
-    `${entry.overview.datasetId} · ${entry.overview.datasetVersion}`,
+    `${formatLabel(entry.overview.datasetId, language)} · ${entry.overview.datasetVersion}`,
   )))
 
   const renderComposition = (kind: 'ageDistribution' | 'genderDistribution') => {

@@ -377,6 +377,13 @@ const array = (value: unknown, limit: number): unknown[] => {
   return value
 }
 
+export class HttpError extends Error {
+  constructor(public readonly status: number, message: string, public readonly detail?: string) {
+    super(message)
+    this.name = 'HttpError'
+  }
+}
+
 /** The response did not match the published contract. Never shown as data. */
 export class ContractError extends Error {
   constructor(detail = 'The backend response does not match the published contract.') {
@@ -934,12 +941,12 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
             ? body.error.message
             : null)
           .catch(() => null)
-        if (reason) throw new Error(reason)
+        if (reason) throw new HttpError(response.status, reason, reason)
       }
-      if (response.status === 429) throw new Error('The assistant is busy. Try again shortly.')
-      if ([401, 403].includes(response.status)) throw new Error('Access denied. Check the backend sign-in configuration.')
-      if (response.status === 404) throw new Error('The backend does not expose this endpoint. Check the API version.')
-      throw new Error(`Request failed (${response.status}). Try again.`)
+      if (response.status === 429) throw new HttpError(response.status, 'The assistant is busy. Try again shortly.')
+      if ([401, 403].includes(response.status)) throw new HttpError(response.status, 'Access denied. Check the backend sign-in configuration.')
+      if (response.status === 404) throw new HttpError(response.status, 'The backend does not expose this endpoint. Check the API version.')
+      throw new HttpError(response.status, `Request failed (${response.status}). Try again.`)
     }
     const reader = response.body?.getReader()
     if (!reader) throw new ContractError('The backend returned an empty body.')
@@ -1003,7 +1010,7 @@ export function createCopilotClient(baseUrl: string, fetcher: typeof fetch = fet
       })
       if (!response.ok) {
         await read(response)
-        throw new Error(`Request failed (${response.status}). Try again.`)
+        throw new HttpError(response.status, `Request failed (${response.status}). Try again.`)
       }
       const reader = response.body?.getReader()
       if (!reader) throw new ContractError('The backend returned an empty stream.')
