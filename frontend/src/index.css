@@ -43,6 +43,7 @@
   display: block;
   object-fit: contain;
 }
+.dark .brand-logo { background: #fff; border-radius: 10px; }
 .brand > span { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .brand strong {
   font-family: var(--font-display); font-weight: 400;

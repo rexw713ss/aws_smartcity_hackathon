@@ -478,7 +478,7 @@ export default function App() {
         <a className="skip-link" href="#chat">{t('skip')}</a>
         <header className="app-bar">
           <div className="brand">
-            <img className="brand-logo" src="/ntpc-logo.png" alt="" aria-hidden="true" />
+            <img className="brand-logo" src="/youth-compass-logo.png" alt="" aria-hidden="true" width="44" height="44" />
             <span>
               <strong>{t('brand')}</strong>
               <em>{t('tagline')}</em>
